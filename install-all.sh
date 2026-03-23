@@ -43,10 +43,8 @@ echo -e "${GREEN}安装必要工具...${NC}"
 apt install -y curl socat sudo git python3-pip expect -qq 2>/dev/null || yum install -y curl socat sudo git python3-pip expect -q 2>/dev/null
 
 echo -e "${GREEN}配置虚拟内存 (2GB)...${NC}"
-# 检查当前swap
 SWAP_SIZE=$(free -m | grep Swap | awk '{print $2}')
 if [ "$SWAP_SIZE" -lt 2048 ]; then
-    # 创建swap文件
     if [ -f /swapfile ]; then
         swapoff /swapfile 2>/dev/null
         rm -f /swapfile
@@ -57,7 +55,6 @@ if [ "$SWAP_SIZE" -lt 2048 ]; then
     mkswap /swapfile
     swapon /swapfile
     
-    # 添加到fstab
     if ! grep -q '/swapfile' /etc/fstab; then
         echo '/swapfile none swap sw 0 0' >> /etc/fstab
     fi
@@ -73,7 +70,6 @@ echo
 # ========== 第一步：下载项目文件 ==========
 echo -e "${CYAN}[ 1/5 ] 下载项目文件...${NC}"
 
-# 克隆项目
 if [ -d "$PANEL_DIR" ]; then
     cd $PANEL_DIR
     git pull -q 2>/dev/null || true
@@ -90,7 +86,6 @@ echo
 echo -e "${CYAN}[ 2/5 ] 配置信息${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
-# 检测是否通过管道运行
 if [ -t 0 ]; then
     READ_MODE="normal"
 else
@@ -105,7 +100,6 @@ read_input() {
     fi
 }
 
-# 读取管理员用户名
 while true; do
     echo -ne "请输入管理面板用户名: "
     if read_input ADMIN_USER; then
@@ -116,7 +110,6 @@ while true; do
     echo -e "${RED}用户名不能为空！${NC}"
 done
 
-# 读取管理员密码
 while true; do
     echo -ne "请输入管理面板密码: "
     if read_input -s ADMIN_PASS; then
@@ -151,7 +144,7 @@ else
     
     chmod +x $PANEL_DIR/ssrmu.sh
     
-    # 创建自动应答脚本
+    # 创建自动应答脚本 - 使用更精确的匹配
     cat > /tmp/ssr_auto_install.exp << 'EXPECT'
 #!/usr/bin/expect -f
 set timeout 120
@@ -160,35 +153,50 @@ log_user 1
 
 spawn bash /opt/ssr-admin-panel/ssrmu.sh
 
+# 等待菜单，选择1安装
 expect {
     "请输入数字" { send "1\r" }
     timeout { puts "超时等待菜单"; exit 1 }
 }
 
+# 用户名
 expect -re "默认.*doubi.*:" { send "\r" }
+# 端口
 expect -re "默认.*2333.*:" { send "\r" }
+# 密码
 expect -re "默认.*doub.io.*:" { send "\r" }
-expect -re "默认.*5.*aes" { send "\r" }
-expect -re "默认.*3.*auth" { send "\r" }
+# 加密方式
+expect -re "默认.*5.*:" { send "\r" }
+# 协议
+expect -re "默认.*3.*:" { send "\r" }
+# 协议兼容
 expect "Y/n" { send "\r" }
-expect -re "默认.*1.*plain" { send "\r" }
+# 混淆
+expect -re "默认.*1.*:" { send "\r" }
+# 混淆兼容
 expect "Y/n" { send "\r" }
+# 设备数限制
 expect -re "默认.*无限.*:" { send "\r" }
+# 单线程限速
 expect -re "默认.*无限.*:" { send "\r" }
+# 总限速
 expect -re "默认.*无限.*:" { send "\r" }
+# 流量限制
 expect -re "默认.*无限.*:" { send "\r" }
+# 禁止端口
 expect -re "默认为空.*:" { send "\r" }
+# 是否启用
 expect -re "默认.*Y.*:" { send "\r" }
+# 服务器IP - 关键：匹配冒号结尾的提示
+expect -re "\\):" { send "\r" }
+
+# 等待安装完成
 expect {
-    -re "服务器IP或域名" { send "\r"; exp_continue }
-    -re "自动检测外网IP" { send "\r"; exp_continue }
-    -re "手动输入服务器IP" { send "\r"; exp_continue }
-    "安装完毕" { }
-    "所有步骤" { }
-    timeout { puts "等待安装完成超时" }
+    "安装完毕" { puts "\nSSR安装完成！" }
+    "所有步骤" { puts "\nSSR安装完成！" }
+    timeout { puts "等待安装完成" }
 }
 
-puts "\nSSR安装完成！"
 expect eof
 EXPECT
 
