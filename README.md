@@ -1,6 +1,6 @@
 # SSR Admin Panel
 
-🛡️ 一个美观、现代化的 ShadowsocksR 用户管理面板
+🛡️ 一个美观、现代化的 ShadowsocksR 用户管理面板，支持一键部署 SSR + 管理面板
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.7+-green.svg)
@@ -17,66 +17,132 @@
 - 🔐 **登录验证** - 保护管理面板安全
 - 📱 **响应式设计** - 完美支持手机访问
 
-## 📸 截图
+---
 
-![Dashboard](screenshots/dashboard.png)
+## 🚀 一键部署（推荐）
 
-## 🚀 一键部署
+### 方式一：SSR + 管理面板 同时安装
+
+**全新服务器，一条命令安装 SSR 和管理面板：**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install-all.sh | bash
+```
+
+安装过程中会提示：
+1. 设置管理面板用户名/密码
+2. 设置SSR端口/密码
+3. 自动完成全部安装
+
+### 方式二：仅安装管理面板
+
+**已安装SSR的服务器，只安装管理面板：**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install.sh | bash
 ```
 
+---
+
 ## 📋 系统要求
 
-- Python 3.7+
-- Flask 3.0+
-- 已安装 ShadowsocksR (mudb.json)
+- 操作系统: CentOS 6+ / Debian 8+ / Ubuntu 16.04+
+- Python: 3.7+
+- 内存: 512MB+
 
-## ⚙️ 配置
+---
 
-安装后编辑 `/opt/ssr-admin-panel/app.py` 修改管理员账号：
+## 📸 截图
+
+| 登录页面 | 管理面板 |
+|---------|---------|
+| ![Login](screenshots/login.png) | ![Dashboard](screenshots/dashboard.png) |
+
+---
+
+## ⚙️ 配置文件
+
+安装后配置文件位于：`/opt/ssr-admin-panel/config.py`
 
 ```python
-ADMIN_USER = 'your-username'
-ADMIN_PASS = 'your-password'
+ADMIN_USER = 'your-username'    # 管理员用户名
+ADMIN_PASS = 'your-password'    # 管理员密码
+SECRET_KEY = '...'              # Session密钥（自动生成）
+MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'  # SSR用户文件
 ```
 
-## 🔧 手动安装
-
+修改配置后重启服务：
 ```bash
-# 克隆项目
-git clone https://github.com/Elegying/ssr-admin-panel.git
-cd ssr-admin-panel
-
-# 安装依赖
-pip3 install -r requirements.txt
-
-# 启动服务
-python3 app.py
+systemctl restart ssr-admin
 ```
+
+---
 
 ## 📁 项目结构
 
 ```
 ssr-admin-panel/
 ├── app.py              # Flask主程序
+├── config.py.example   # 配置文件示例
 ├── requirements.txt    # Python依赖
-├── install.sh          # 一键安装脚本
+├── install.sh          # 单独安装面板
+├── install-all.sh      # SSR+面板一键安装
 ├── templates/
 │   ├── index.html      # 主页面
 │   └── login.html      # 登录页面
 └── README.md           # 说明文档
 ```
 
+---
+
+## 🔧 常用命令
+
+```bash
+# 查看面板状态
+systemctl status ssr-admin
+
+# 重启面板
+systemctl restart ssr-admin
+
+# 查看面板日志
+journalctl -u ssr-admin -f
+
+# 查看SSR状态
+bash /usr/local/shadowsocksr/shadowsocks/logrun.sh
+```
+
+---
+
 ## 🌐 访问
 
 安装完成后访问：`http://your-server-ip:5000`
 
-## 📝 License
+---
+
+## 📝 更新日志
+
+### v1.0.0
+- 初始版本
+- 用户管理（添加/删除/启用/禁用）
+- 流量监控与重置
+- 登录验证
+- 流量排序功能
+- SSR一键部署集成
+
+---
+
+## 📄 License
 
 MIT License
+
+---
 
 ## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！
+
+---
+
+## ☕ 支持
+
+如果觉得有用，请给个 ⭐️ Star 支持一下！
