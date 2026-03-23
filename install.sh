@@ -139,7 +139,7 @@ mkdir -p $INSTALL_DIR/templates
 echo -e "${GREEN}[4/6] 下载项目文件...${NC}"
 if [ -d "$INSTALL_DIR/.git" ]; then
     cd $INSTALL_DIR
-    git pull --ff-only -q
+    git pull --ff-only -q 2>/dev/null || true
 elif [ -d "$INSTALL_DIR" ]; then
     TMP_CLONE_DIR=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
     git clone --depth 1 "$REPO_URL" "$TMP_CLONE_DIR" -q

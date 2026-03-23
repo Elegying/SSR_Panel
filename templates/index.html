@@ -1090,7 +1090,11 @@ function getTrafficHistory(){
 }
 
 function saveTrafficHistory(history){
-    window.localStorage.setItem(TREND_STORAGE_KEY, JSON.stringify(history));
+    try {
+        window.localStorage.setItem(TREND_STORAGE_KEY, JSON.stringify(history));
+    } catch (error) {
+        return;
+    }
 }
 
 function recordTrafficSnapshot(){
