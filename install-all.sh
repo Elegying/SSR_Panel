@@ -32,16 +32,105 @@ PANEL_DIR="/opt/ssr-admin-panel"
 SSR_DIR="/usr/local/shadowsocksr"
 MUDB_FILE="${SSR_DIR}/mudb.json"
 
-# ========== 第零步：环境准备 ==========
-echo -e "${CYAN}[ 0/5 ] 环境准备...${NC}"
+# 检测系统类型
+if [ -f /etc/debian_version ]; then
+    SYS="debian"
+    PKG_MANAGER="apt-get"
+elif [ -f /etc/redhat-release ]; then
+    SYS="centos"
+    PKG_MANAGER="yum"
+else
+    SYS="other"
+    PKG_MANAGER="apt-get"
+fi
+
+echo -e "${CYAN}系统检测: ${YELLOW}${SYS}${NC}"
+echo
+
+# ========== 第零步：环境检查与依赖安装 ==========
+echo -e "${CYAN}[ 0/5 ] 环境检查与依赖安装...${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
-echo -e "${GREEN}更新系统包...${NC}"
-apt update -y 2>/dev/null || yum update -y 2>/dev/null
+# 定义需要的工具列表
+REQUIRED_TOOLS="wget curl git python python3 pip pip3 unzip vim cron"
 
-echo -e "${GREEN}安装必要工具...${NC}"
-apt install -y curl socat sudo git python3-pip -qq 2>/dev/null || yum install -y curl socat sudo git python3-pip -q 2>/dev/null
+check_and_install() {
+    local tool=$1
+    local pkg=$2
+    
+    if ! command -v $tool &> /dev/null; then
+        echo -e "${YELLOW}$tool 未安装，正在安装...${NC}"
+        if [ "$SYS" = "centos" ]; then
+            yum install -y $pkg -q 2>/dev/null || echo "安装 $pkg 失败"
+        else
+            apt-get install -y $pkg -qq 2>/dev/null || echo "安装 $pkg 失败"
+        fi
+    else
+        echo -e "${GREEN}✓ $tool 已安装${NC}"
+    fi
+}
 
+# 更新包列表
+echo -e "${GREEN}更新软件源...${NC}"
+if [ "$SYS" = "centos" ]; then
+    yum update -y -q 2>/dev/null
+else
+    apt-get update -qq 2>/dev/null
+fi
+
+# 检查并安装必要工具
+echo -e "${GREEN}检查并安装必要工具...${NC}"
+check_and_install "wget" "wget"
+check_and_install "curl" "curl"
+check_and_install "git" "git"
+check_and_install "unzip" "unzip"
+check_and_install "vim" "vim"
+check_and_install "cron" "cron"
+
+# 检查Python
+echo -e "${GREEN}检查Python环境...${NC}"
+if ! command -v python &> /dev/null && ! command -v python2 &> /dev/null; then
+    echo -e "${YELLOW}Python2 未安装，正在安装...${NC}"
+    if [ "$SYS" = "centos" ]; then
+        yum install -y python python-pip -q 2>/dev/null || yum install -y python2 python2-pip -q 2>/dev/null
+    else
+        apt-get install -y python python-pip -qq 2>/dev/null || apt-get install -y python2 python2-pip -qq 2>/dev/null
+    fi
+fi
+
+if ! command -v python3 &> /dev/null; then
+    echo -e "${YELLOW}Python3 未安装，正在安装...${NC}"
+    if [ "$SYS" = "centos" ]; then
+        yum install -y python3 python3-pip -q 2>/dev/null
+    else
+        apt-get install -y python3 python3-pip -qq 2>/dev/null
+    fi
+fi
+
+# 确保有pip
+if ! command -v pip &> /dev/null && ! command -v pip2 &> /dev/null; then
+    echo -e "${YELLOW}pip 未安装，正在安装...${NC}"
+    if [ "$SYS" = "centos" ]; then
+        yum install -y python-pip -q 2>/dev/null || yum install -y python2-pip -q 2>/dev/null
+    else
+        apt-get install -y python-pip -qq 2>/dev/null || apt-get install -y python2-pip -qq 2>/dev/null
+    fi
+fi
+
+if ! command -v pip3 &> /dev/null; then
+    echo -e "${YELLOW}pip3 未安装，正在安装...${NC}"
+    if [ "$SYS" = "centos" ]; then
+        yum install -y python3-pip -q 2>/dev/null
+    else
+        apt-get install -y python3-pip -qq 2>/dev/null
+    fi
+fi
+
+# 安装Python依赖
+echo -e "${GREEN}安装Python依赖...${NC}"
+pip install cymysql -q 2>/dev/null || pip2 install cymysql -q 2>/dev/null || echo "cymysql安装跳过"
+
+# 配置虚拟内存
 echo -e "${GREEN}配置虚拟内存 (2GB)...${NC}"
 SWAP_SIZE=$(free -m | grep Swap | awk '{print $2}')
 if [ "$SWAP_SIZE" -lt 2048 ]; then
@@ -50,7 +139,7 @@ if [ "$SWAP_SIZE" -lt 2048 ]; then
         rm -f /swapfile
     fi
     
-    dd if=/dev/zero of=/swapfile bs=1M count=2048 status=progress
+    dd if=/dev/zero of=/swapfile bs=1M count=2048 status=progress 2>/dev/null
     chmod 600 /swapfile
     mkswap /swapfile
     swapon /swapfile
@@ -63,6 +152,17 @@ if [ "$SWAP_SIZE" -lt 2048 ]; then
 else
     echo -e "${GREEN}✓ 虚拟内存已足够 (${SWAP_SIZE}MB)${NC}"
 fi
+
+# 显示环境状态
+echo
+echo -e "${CYAN}环境状态:${NC}"
+echo -e "  Python:  $(python --version 2>&1 || python2 --version 2>&1 || echo '未安装')"
+echo -e "  Python3: $(python3 --version 2>&1 || echo '未安装')"
+echo -e "  pip:     $(pip --version 2>&1 | cut -d' ' -f1-2 || pip2 --version 2>&1 | cut -d' ' -f1-2 || echo '未安装')"
+echo -e "  pip3:    $(pip3 --version 2>&1 | cut -d' ' -f1-2 || echo '未安装')"
+echo -e "  git:     $(git --version 2>&1 | cut -d' ' -f3)"
+echo -e "  wget:    $(wget --version 2>&1 | head -1 | cut -d' ' -f3)"
+echo
 
 echo -e "${GREEN}✓ 环境准备完成${NC}"
 echo
@@ -217,7 +317,7 @@ echo -e "  密码:     ${YELLOW}doub.io${NC}"
 echo
 echo -e "${CYAN}常用命令:${NC}"
 echo -e "  重启面板:     ${YELLOW}systemctl restart ssr-admin${NC}"
-echo -e "  管理SSR:      ${YELLOW}bash /usr/local/shadowsocksr/ssrmu.sh${NC}"
+echo -e "  管理SSR:      ${YELLOW}bash /opt/ssr-admin-panel/ssrmu.sh${NC}"
 echo
 echo -e "${GREEN}感谢使用！${NC}"
 echo
