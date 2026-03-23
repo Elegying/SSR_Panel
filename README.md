@@ -19,14 +19,22 @@
 
 ---
 
-## 🚀 一键部署（推荐）
+## 🚀 安装部署
 
-### 方式一：SSR + 管理面板 同时安装
-
-**全新服务器，一条命令安装 SSR 和管理面板：**
+### 方式一：下载后运行（推荐）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install-all.sh | bash
+# 下载安装脚本
+wget https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install-all.sh
+
+# 运行安装
+bash install-all.sh
+```
+
+### 方式二：一键命令
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install-all.sh -o install-all.sh && bash install-all.sh
 ```
 
 安装过程中会提示：
@@ -34,12 +42,12 @@ curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/insta
 2. 自动安装SSR
 3. 自动部署管理面板
 
-### 方式二：仅安装管理面板
+### 方式三：仅安装管理面板
 
-**已安装SSR的服务器，只安装管理面板：**
+已安装SSR的服务器，只安装管理面板：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install.sh | bash
+wget https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install.sh && bash install.sh
 ```
 
 ---
@@ -66,24 +74,6 @@ MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'  # SSR用户文件
 修改配置后重启服务：
 ```bash
 systemctl restart ssr-admin
-```
-
----
-
-## 📁 项目结构
-
-```
-ssr-admin-panel/
-├── app.py              # Flask主程序
-├── config.py.example   # 配置文件示例
-├── requirements.txt    # Python依赖
-├── install.sh          # 单独安装面板
-├── install-all.sh      # SSR+面板一键安装
-├── ssrmu.sh            # SSR安装脚本（内置）
-├── templates/
-│   ├── index.html      # 主页面
-│   └── login.html      # 登录页面
-└── README.md           # 说明文档
 ```
 
 ---
@@ -128,12 +118,6 @@ bash /usr/local/shadowsocksr/shadowsocks/mujson_mgr.sh
 ## 📄 License
 
 MIT License
-
----
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
 
 ---
 
