@@ -40,7 +40,7 @@ echo -e "${GREEN}更新系统包...${NC}"
 apt update -y 2>/dev/null || yum update -y 2>/dev/null
 
 echo -e "${GREEN}安装必要工具...${NC}"
-apt install -y curl socat sudo git python3-pip expect -qq 2>/dev/null || yum install -y curl socat sudo git python3-pip expect -q 2>/dev/null
+apt install -y curl socat sudo git python3-pip -qq 2>/dev/null || yum install -y curl socat sudo git python3-pip -q 2>/dev/null
 
 echo -e "${GREEN}配置虚拟内存 (2GB)...${NC}"
 SWAP_SIZE=$(free -m | grep Swap | awk '{print $2}')
@@ -144,64 +144,8 @@ else
     
     chmod +x $PANEL_DIR/ssrmu.sh
     
-    # 创建自动应答脚本 - 使用更精确的匹配
-    cat > /tmp/ssr_auto_install.exp << 'EXPECT'
-#!/usr/bin/expect -f
-set timeout 120
-
-log_user 1
-
-spawn bash /opt/ssr-admin-panel/ssrmu.sh
-
-# 等待菜单，选择1安装
-expect {
-    "请输入数字" { send "1\r" }
-    timeout { puts "超时等待菜单"; exit 1 }
-}
-
-# 用户名
-expect -re "默认.*doubi.*:" { send "\r" }
-# 端口
-expect -re "默认.*2333.*:" { send "\r" }
-# 密码
-expect -re "默认.*doub.io.*:" { send "\r" }
-# 加密方式
-expect -re "默认.*5.*:" { send "\r" }
-# 协议
-expect -re "默认.*3.*:" { send "\r" }
-# 协议兼容
-expect "Y/n" { send "\r" }
-# 混淆
-expect -re "默认.*1.*:" { send "\r" }
-# 混淆兼容
-expect "Y/n" { send "\r" }
-# 设备数限制
-expect -re "默认.*无限.*:" { send "\r" }
-# 单线程限速
-expect -re "默认.*无限.*:" { send "\r" }
-# 总限速
-expect -re "默认.*无限.*:" { send "\r" }
-# 流量限制
-expect -re "默认.*无限.*:" { send "\r" }
-# 禁止端口
-expect -re "默认为空.*:" { send "\r" }
-# 是否启用
-expect -re "默认.*Y.*:" { send "\r" }
-# 服务器IP - 关键：匹配冒号结尾的提示
-expect -re "\\):" { send "\r" }
-
-# 等待安装完成
-expect {
-    "安装完毕" { puts "\nSSR安装完成！" }
-    "所有步骤" { puts "\nSSR安装完成！" }
-    timeout { puts "等待安装完成" }
-}
-
-expect eof
-EXPECT
-
-    chmod +x /tmp/ssr_auto_install.exp
-    /tmp/ssr_auto_install.exp
+    # 使用管道输入：先发送1选择安装，然后发送50个空行接受所有默认值
+    (echo '1'; for i in $(seq 1 50); do echo ''; done) | bash $PANEL_DIR/ssrmu.sh
     
     if [ -d "$SSR_DIR" ]; then
         echo -e "${GREEN}✓ SSR安装完成${NC}"
@@ -266,9 +210,10 @@ echo -e "  访问地址: ${YELLOW}http://${IP}:5000${NC}"
 echo -e "  用户名:   ${YELLOW}${ADMIN_USER}${NC}"
 echo -e "  密码:     ${YELLOW}${ADMIN_PASS}${NC}"
 echo
-echo -e "${CYAN}服务器配置:${NC}"
-echo -e "  虚拟内存: ${YELLOW}2GB${NC}"
-echo -e "  SSR目录:  ${YELLOW}${SSR_DIR}${NC}"
+echo -e "${CYAN}SSR默认用户:${NC}"
+echo -e "  用户名:   ${YELLOW}doubi${NC}"
+echo -e "  端口:     ${YELLOW}2333${NC}"
+echo -e "  密码:     ${YELLOW}doub.io${NC}"
 echo
 echo -e "${CYAN}常用命令:${NC}"
 echo -e "  重启面板:     ${YELLOW}systemctl restart ssr-admin${NC}"
