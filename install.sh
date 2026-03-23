@@ -175,7 +175,7 @@ echo -e "${GREEN}✓ 配置文件已生成: $INSTALL_DIR/config.py${NC}"
 
 # 创建systemd服务
 echo -e "${GREEN}[6/6] 配置系统服务...${NC}"
-cat > /etc/systemd/system/ssr-admin.service << 'SERVICE'
+cat > /etc/systemd/system/ssr-admin.service <<SERVICE
 [Unit]
 Description=SSR Admin Panel
 After=network.target

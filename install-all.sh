@@ -281,7 +281,7 @@ with config_path.open("w", encoding="utf-8") as f:
 PY
 
 echo -e "${GREEN}配置系统服务...${NC}"
-cat > /etc/systemd/system/ssr-admin.service << 'SERVICE'
+cat > /etc/systemd/system/ssr-admin.service <<SERVICE
 [Unit]
 Description=SSR Admin Panel
 After=network.target
