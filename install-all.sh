@@ -120,70 +120,37 @@ else
     # 创建自动应答脚本
     cat > /tmp/ssr_auto_install.exp << 'EXPECT'
 #!/usr/bin/expect -f
-set timeout 300
+set timeout 600
+
+log_user 1
 
 # 运行SSR安装脚本
 spawn bash /opt/ssr-admin-panel/ssrmu.sh
 
 # 等待菜单出现，选择1安装
 expect {
-    "请输入数字" {
-        send "1\r"
-    }
-    timeout {
-        puts "超时"
-        exit 1
+    "请输入数字" { send "1\r" }
+    timeout { puts "超时等待菜单"; exit 1 }
+}
+
+# 自动应答所有配置（全部使用默认值回车）
+# 循环检测各种提示并发送回车
+while {1} {
+    expect {
+        -re "默认.*:" { send "\r"; exp_continue }
+        "Y/n" { send "\r"; exp_continue }
+        "y/n" { send "\r"; exp_continue }
+        "服务器IP或域名" { send "\r"; exp_continue }
+        "外网IP" { send "\r"; exp_continue }
+        "手动输入" { send "\r"; exp_continue }
+        "安装完毕" { break }
+        "所有步骤 安装完毕" { break }
+        eof { break }
+        timeout { puts "安装超时"; break }
     }
 }
 
-# 自动应答所有配置（全部使用默认值）
-# 用户名
-expect "默认: doubi" { send "\r" }
-# 端口
-expect "默认: 2333" { send "\r" }
-# 密码
-expect "默认: doub.io" { send "\r" }
-# 加密方式
-expect "默认: 5" { send "\r" }
-# 协议
-expect "默认: 3" { send "\r" }
-# 协议兼容
-expect "Y/n" { send "\r" }
-# 混淆
-expect "默认: 1" { send "\r" }
-# 混淆兼容
-expect "Y/n" { send "\r" }
-# 设备数限制
-expect "默认: 无限" { send "\r" }
-# 单线程限速
-expect "默认: 无限" { send "\r" }
-# 总限速
-expect "默认: 无限" { send "\r" }
-# 流量限制
-expect "默认: 无限" { send "\r" }
-# 禁止端口
-expect "默认为空" { send "\r" }
-# 是否启用
-expect "默认: Y" { send "\r" }
-# 服务器IP
-expect -re "默认自动检测|手动输入" { send "\r" }
-
-# 等待安装完成
-expect {
-    "安装完毕" {
-        puts "\nSSR安装完成！"
-    }
-    "所有步骤 安装完毕" {
-        puts "\nSSR安装完成！"
-    }
-    eof {
-        puts "\nSSR安装脚本结束"
-    }
-    timeout {
-        puts "安装超时"
-    }
-}
-
+puts "\nSSR安装完成！"
 expect eof
 EXPECT
 
@@ -192,7 +159,12 @@ EXPECT
     # 运行自动安装
     /tmp/ssr_auto_install.exp
     
-    echo -e "${GREEN}✓ SSR安装完成${NC}"
+    # 确保SSR目录存在
+    if [ -d "$SSR_DIR" ]; then
+        echo -e "${GREEN}✓ SSR安装完成${NC}"
+    else
+        echo -e "${RED}SSR安装可能失败，请检查${NC}"
+    fi
 fi
 
 echo
