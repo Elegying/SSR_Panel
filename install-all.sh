@@ -4,6 +4,7 @@
 # SSR + 管理面板 一键部署脚本
 # Author: Elegying
 # GitHub: https://github.com/Elegying/ssr-admin-panel
+# 包含逗比的SSR脚本 (https://github.com/ToyoDAdoubiBackup/doubi)
 #=================================================
 
 set -e
@@ -18,6 +19,7 @@ clear
 echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}    SSR + 管理面板 一键部署脚本${NC}"
 echo -e "${GREEN}============================================${NC}"
+echo -e "${CYAN}  GitHub: https://github.com/Elegying/ssr-admin-panel${NC}"
 echo
 
 # 检查root权限
@@ -27,12 +29,32 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 安装目录
-SSR_DIR="/usr/local/shadowsocksr"
 PANEL_DIR="/opt/ssr-admin-panel"
+SSR_DIR="/usr/local/shadowsocksr"
 MUDB_FILE="${SSR_DIR}/mudb.json"
 
-# ========== 第一步：配置信息 ==========
-echo -e "${CYAN}[ 第一步：配置信息 ]${NC}"
+# ========== 第一步：下载项目文件 ==========
+echo -e "${CYAN}[ 1/4 ] 下载项目文件...${NC}"
+
+# 安装git
+apt-get update -qq 2>/dev/null || yum update -q 2>/dev/null
+apt-get install -y git python3-pip -qq 2>/dev/null || yum install -y git python3-pip -q 2>/dev/null
+
+# 克隆项目
+if [ -d "$PANEL_DIR" ]; then
+    cd $PANEL_DIR
+    git pull -q 2>/dev/null || true
+else
+    git clone https://github.com/Elegying/ssr-admin-panel.git $PANEL_DIR -q
+fi
+
+cd $PANEL_DIR
+
+echo -e "${GREEN}✓ 项目文件下载完成${NC}"
+echo
+
+# ========== 第二步：配置信息 ==========
+echo -e "${CYAN}[ 2/4 ] 配置信息${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
 # 读取管理员用户名
@@ -62,66 +84,36 @@ while true; do
     fi
 done
 
-# 读取SSR端口
-read -p "请输入SSR服务端口 (默认 443): " SSR_PORT
-SSR_PORT=${SSR_PORT:-443}
-
-# 读取SSR密码
-read -p "请输入SSR连接密码 (默认随机生成): " SSR_PASS
-if [ -z "$SSR_PASS" ]; then
-    SSR_PASS=$(head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
-fi
-
 echo
 echo -e "${GREEN}✓ 配置完成${NC}"
 echo
 
-# ========== 第二步：安装SSR ==========
-echo -e "${CYAN}[ 第二步：安装 ShadowsocksR ]${NC}"
+# ========== 第三步：安装SSR ==========
+echo -e "${CYAN}[ 3/4 ] 安装 ShadowsocksR${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
 if [ -d "$SSR_DIR" ]; then
     echo -e "${GREEN}检测到已安装SSR，跳过安装...${NC}"
 else
-    echo -e "${GREEN}正在下载 SSR 安装脚本...${NC}"
-    
-    # 下载并运行SSR安装脚本（自动应答）
-    wget -N --no-check-certificate https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/ssrmu.sh -O /tmp/ssrmu.sh
-    chmod +x /tmp/ssrmu.sh
-    
-    echo -e "${GREEN}开始安装 SSR (请按提示操作)...${NC}"
-    echo -e "${YELLOW}提示: 选择 1 安装 SSR${NC}"
+    echo -e "${GREEN}开始安装 SSR...${NC}"
+    echo -e "${YELLOW}提示: 请按照提示操作，选择 1 安装 SSR${NC}"
+    echo -e "${YELLOW}安装完成后输入其他命令可退出脚本${NC}"
     echo
     
-    # 手动运行SSR脚本
-    bash /tmp/ssrmu.sh
+    # 运行本地的SSR脚本
+    chmod +x $PANEL_DIR/ssrmu.sh
+    bash $PANEL_DIR/ssrmu.sh
 fi
 
-# ========== 第三步：安装管理面板 ==========
 echo
-echo -e "${CYAN}[ 第三步：安装管理面板 ]${NC}"
-echo -e "${YELLOW}----------------------------------------${NC}"
 
-# 安装系统依赖
-echo -e "${GREEN}安装系统依赖...${NC}"
-apt-get update -qq 2>/dev/null || yum update -q 2>/dev/null
-apt-get install -y python3-pip git -qq 2>/dev/null || yum install -y python3-pip git -q 2>/dev/null
+# ========== 第四步：安装管理面板 ==========
+echo -e "${CYAN}[ 4/4 ] 安装管理面板${NC}"
+echo -e "${YELLOW}----------------------------------------${NC}"
 
 # 安装Python依赖
 echo -e "${GREEN}安装 Python 依赖...${NC}"
-pip3 install flask gunicorn -q
-
-# 创建目录
-mkdir -p $PANEL_DIR/templates
-
-# 下载项目
-echo -e "${GREEN}下载管理面板...${NC}"
-if [ -d "$PANEL_DIR/.git" ]; then
-    cd $PANEL_DIR
-    git pull -q
-else
-    git clone https://github.com/Elegying/ssr-admin-panel.git $PANEL_DIR -q
-fi
+pip3 install flask gunicorn -q 2>/dev/null
 
 # 生成配置文件
 echo -e "${GREEN}生成配置文件...${NC}"
@@ -160,25 +152,20 @@ systemctl restart ssr-admin
 
 # ========== 完成 ==========
 sleep 2
-clear
 echo
 echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}           安装完成！${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo
 echo -e "${CYAN}管理面板信息:${NC}"
-echo -e "  访问地址: ${YELLOW}http://your-server-ip:5000${NC}"
+echo -e "  访问地址: ${YELLOW}http://$(curl -s ip.sb):5000${NC}"
 echo -e "  用户名:   ${YELLOW}${ADMIN_USER}${NC}"
 echo -e "  密码:     ${YELLOW}${ADMIN_PASS}${NC}"
 echo
-echo -e "${CYAN}SSR服务信息:${NC}"
-echo -e "  端口:     ${YELLOW}${SSR_PORT}${NC}"
-echo -e "  密码:     ${YELLOW}${SSR_PASS}${NC}"
-echo
 echo -e "${CYAN}常用命令:${NC}"
-echo -e "  查看SSR状态:  ${YELLOW}bash /usr/local/shadowsocksr/shadowsocks/logrun.sh${NC}"
-echo -e "  添加用户:     ${YELLOW}bash /usr/local/shadowsocksr/shadowsocks/mujson_mgr.sh${NC}"
 echo -e "  重启面板:     ${YELLOW}systemctl restart ssr-admin${NC}"
+echo -e "  查看面板状态: ${YELLOW}systemctl status ssr-admin${NC}"
+echo -e "  管理SSR用户:  ${YELLOW}bash /usr/local/shadowsocksr/shadowsocks/mujson_mgr.sh${NC}"
 echo
 echo -e "${GREEN}感谢使用！${NC}"
 echo
