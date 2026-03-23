@@ -32,12 +32,46 @@ PANEL_DIR="/opt/ssr-admin-panel"
 SSR_DIR="/usr/local/shadowsocksr"
 MUDB_FILE="${SSR_DIR}/mudb.json"
 
-# ========== 第一步：下载项目文件 ==========
-echo -e "${CYAN}[ 1/4 ] 下载项目文件...${NC}"
+# ========== 第零步：环境准备 ==========
+echo -e "${CYAN}[ 0/5 ] 环境准备...${NC}"
+echo -e "${YELLOW}----------------------------------------${NC}"
 
-# 安装依赖
-apt-get update -qq 2>/dev/null || yum update -q 2>/dev/null
-apt-get install -y git python3-pip expect -qq 2>/dev/null || yum install -y git python3-pip expect -q 2>/dev/null
+echo -e "${GREEN}更新系统包...${NC}"
+apt update -y 2>/dev/null || yum update -y 2>/dev/null
+
+echo -e "${GREEN}安装必要工具...${NC}"
+apt install -y curl socat sudo git python3-pip expect -qq 2>/dev/null || yum install -y curl socat sudo git python3-pip expect -q 2>/dev/null
+
+echo -e "${GREEN}配置虚拟内存 (2GB)...${NC}"
+# 检查当前swap
+SWAP_SIZE=$(free -m | grep Swap | awk '{print $2}')
+if [ "$SWAP_SIZE" -lt 2048 ]; then
+    # 创建swap文件
+    if [ -f /swapfile ]; then
+        swapoff /swapfile 2>/dev/null
+        rm -f /swapfile
+    fi
+    
+    dd if=/dev/zero of=/swapfile bs=1M count=2048 status=progress
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    
+    # 添加到fstab
+    if ! grep -q '/swapfile' /etc/fstab; then
+        echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+    
+    echo -e "${GREEN}✓ 虚拟内存已设置为 2GB${NC}"
+else
+    echo -e "${GREEN}✓ 虚拟内存已足够 (${SWAP_SIZE}MB)${NC}"
+fi
+
+echo -e "${GREEN}✓ 环境准备完成${NC}"
+echo
+
+# ========== 第一步：下载项目文件 ==========
+echo -e "${CYAN}[ 1/5 ] 下载项目文件...${NC}"
 
 # 克隆项目
 if [ -d "$PANEL_DIR" ]; then
@@ -53,7 +87,7 @@ echo -e "${GREEN}✓ 项目文件下载完成${NC}"
 echo
 
 # ========== 第二步：配置信息 ==========
-echo -e "${CYAN}[ 2/4 ] 配置信息${NC}"
+echo -e "${CYAN}[ 2/5 ] 配置信息${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
 # 检测是否通过管道运行
@@ -107,7 +141,7 @@ echo -e "${GREEN}✓ 配置完成${NC}"
 echo
 
 # ========== 第三步：安装SSR ==========
-echo -e "${CYAN}[ 3/4 ] 安装 ShadowsocksR${NC}"
+echo -e "${CYAN}[ 3/5 ] 安装 ShadowsocksR${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
 if [ -d "$SSR_DIR" ]; then
@@ -124,45 +158,27 @@ set timeout 120
 
 log_user 1
 
-# 运行SSR安装脚本
 spawn bash /opt/ssr-admin-panel/ssrmu.sh
 
-# 等待菜单出现，选择1安装
 expect {
     "请输入数字" { send "1\r" }
     timeout { puts "超时等待菜单"; exit 1 }
 }
 
-# 自动应答所有配置
-# 用户名
 expect -re "默认.*doubi.*:" { send "\r" }
-# 端口
 expect -re "默认.*2333.*:" { send "\r" }
-# 密码
 expect -re "默认.*doub.io.*:" { send "\r" }
-# 加密方式
 expect -re "默认.*5.*aes" { send "\r" }
-# 协议
 expect -re "默认.*3.*auth" { send "\r" }
-# 协议兼容
 expect "Y/n" { send "\r" }
-# 混淆
 expect -re "默认.*1.*plain" { send "\r" }
-# 混淆兼容
 expect "Y/n" { send "\r" }
-# 设备数限制
 expect -re "默认.*无限.*:" { send "\r" }
-# 单线程限速
 expect -re "默认.*无限.*:" { send "\r" }
-# 总限速
 expect -re "默认.*无限.*:" { send "\r" }
-# 流量限制
 expect -re "默认.*无限.*:" { send "\r" }
-# 禁止端口
 expect -re "默认为空.*:" { send "\r" }
-# 是否启用
 expect -re "默认.*Y.*:" { send "\r" }
-# 服务器IP - 关键修复：匹配完整提示
 expect {
     -re "服务器IP或域名" { send "\r"; exp_continue }
     -re "自动检测外网IP" { send "\r"; exp_continue }
@@ -177,11 +193,8 @@ expect eof
 EXPECT
 
     chmod +x /tmp/ssr_auto_install.exp
-    
-    # 运行自动安装
     /tmp/ssr_auto_install.exp
     
-    # 确保SSR目录存在
     if [ -d "$SSR_DIR" ]; then
         echo -e "${GREEN}✓ SSR安装完成${NC}"
     else
@@ -192,7 +205,7 @@ fi
 echo
 
 # ========== 第四步：安装管理面板 ==========
-echo -e "${CYAN}[ 4/4 ] 安装管理面板${NC}"
+echo -e "${CYAN}[ 4/5 ] 安装管理面板${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
 echo -e "${GREEN}安装 Python 依赖...${NC}"
@@ -232,6 +245,7 @@ systemctl enable ssr-admin
 systemctl restart ssr-admin
 
 # ========== 完成 ==========
+echo -e "${CYAN}[ 5/5 ] 完成${NC}"
 sleep 2
 echo
 echo -e "${GREEN}============================================${NC}"
@@ -244,10 +258,13 @@ echo -e "  访问地址: ${YELLOW}http://${IP}:5000${NC}"
 echo -e "  用户名:   ${YELLOW}${ADMIN_USER}${NC}"
 echo -e "  密码:     ${YELLOW}${ADMIN_PASS}${NC}"
 echo
+echo -e "${CYAN}服务器配置:${NC}"
+echo -e "  虚拟内存: ${YELLOW}2GB${NC}"
+echo -e "  SSR目录:  ${YELLOW}${SSR_DIR}${NC}"
+echo
 echo -e "${CYAN}常用命令:${NC}"
 echo -e "  重启面板:     ${YELLOW}systemctl restart ssr-admin${NC}"
-echo -e "  查看面板状态: ${YELLOW}systemctl status ssr-admin${NC}"
-echo -e "  管理SSR用户:  ${YELLOW}bash /usr/local/shadowsocksr/shadowsocks/mujson_mgr.sh${NC}"
+echo -e "  管理SSR:      ${YELLOW}bash /usr/local/shadowsocksr/ssrmu.sh${NC}"
 echo
 echo -e "${GREEN}感谢使用！${NC}"
 echo
