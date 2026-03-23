@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import app as panel_app
 
@@ -23,6 +24,8 @@ class AppSecurityTests(unittest.TestCase):
             "SSR_WORKDIR": panel_app.SSR_WORKDIR,
             "SSR_SERVER": panel_app.SSR_SERVER,
             "SSR_LOG_FILE": panel_app.SSR_LOG_FILE,
+            "SSR_INIT_SCRIPT": panel_app.SSR_INIT_SCRIPT,
+            "SSR_PYTHON_BIN": panel_app.SSR_PYTHON_BIN,
             "BACKUP_DIR": panel_app.BACKUP_DIR,
         }
 
@@ -31,6 +34,8 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_WORKDIR = self.ssr_dir / "shadowsocks"
         panel_app.SSR_SERVER = panel_app.SSR_WORKDIR / "server.py"
         panel_app.SSR_LOG_FILE = self.log_file
+        panel_app.SSR_INIT_SCRIPT = self.base_path / "etc" / "init.d" / "ssrmu"
+        panel_app.SSR_PYTHON_BIN = ""
         panel_app.BACKUP_DIR = self.backup_dir
         panel_app.app.config["TESTING"] = True
 
@@ -45,6 +50,8 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_WORKDIR = self.original_state["SSR_WORKDIR"]
         panel_app.SSR_SERVER = self.original_state["SSR_SERVER"]
         panel_app.SSR_LOG_FILE = self.original_state["SSR_LOG_FILE"]
+        panel_app.SSR_INIT_SCRIPT = self.original_state["SSR_INIT_SCRIPT"]
+        panel_app.SSR_PYTHON_BIN = self.original_state["SSR_PYTHON_BIN"]
         panel_app.BACKUP_DIR = self.original_state["BACKUP_DIR"]
         self.temp_dir.cleanup()
 
@@ -145,6 +152,72 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(payload["user"]["user"], "demo-user")
         self.assertTrue(payload["user"]["generated_password"])
         self.assertNotIn("passwd", payload["user"])
+
+    def test_execute_ssr_command_prefers_init_script(self):
+        panel_app.SSR_INIT_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
+        panel_app.SSR_INIT_SCRIPT.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        with mock.patch.object(
+            panel_app,
+            "run_process",
+            return_value={"success": True, "output": "started", "error": ""},
+        ) as run_process_mock, mock.patch.object(
+            panel_app, "wait_for_ssr_status", return_value=True
+        ), mock.patch.object(panel_app, "get_ssr_status", return_value="running"):
+            result = panel_app.execute_ssr_command("start")
+
+        self.assertTrue(result["success"])
+        run_process_mock.assert_called_once_with([str(panel_app.SSR_INIT_SCRIPT), "start"])
+
+    def test_execute_ssr_command_falls_back_to_server_script(self):
+        panel_app.SSR_WORKDIR.mkdir(parents=True, exist_ok=True)
+        panel_app.SSR_SERVER.write_text("print('ok')\n", encoding="utf-8")
+
+        with mock.patch.object(
+            panel_app, "get_ssr_python_candidates", return_value=["/usr/bin/python2"]
+        ), mock.patch.object(
+            panel_app,
+            "run_process",
+            return_value={"success": True, "output": "started", "error": ""},
+        ) as run_process_mock, mock.patch.object(
+            panel_app, "wait_for_ssr_status", return_value=True
+        ), mock.patch.object(panel_app, "get_ssr_status", return_value="running"):
+            result = panel_app.execute_ssr_command("start")
+
+        self.assertTrue(result["success"])
+        run_process_mock.assert_called_once_with(
+            ["/usr/bin/python2", "server.py", "-d", "start"],
+            cwd=panel_app.SSR_WORKDIR,
+        )
+
+    def test_execute_ssr_command_accepts_expected_final_state(self):
+        panel_app.SSR_INIT_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
+        panel_app.SSR_INIT_SCRIPT.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        with mock.patch.object(
+            panel_app,
+            "run_process",
+            return_value={"success": False, "output": "", "error": "ShadowsocksR 未运行 !"},
+        ), mock.patch.object(panel_app, "wait_for_ssr_status", return_value=True), mock.patch.object(
+            panel_app, "get_ssr_status", return_value="stopped"
+        ):
+            result = panel_app.execute_ssr_command("stop")
+
+        self.assertTrue(result["success"])
+        self.assertIn("ShadowsocksR 未运行", result["error"])
+
+    def test_get_ssr_status_detects_running_process_from_ps(self):
+        completed = mock.Mock(returncode=0, stdout="python server.py -d start\n")
+        with mock.patch.object(panel_app.subprocess, "run", return_value=completed):
+            self.assertEqual(panel_app.get_ssr_status(), "running")
+
+        completed = mock.Mock(returncode=0, stdout="python3 server.py -d start\n")
+        with mock.patch.object(panel_app.subprocess, "run", return_value=completed):
+            self.assertEqual(panel_app.get_ssr_status(), "running")
+
+        completed = mock.Mock(returncode=0, stdout="python app.py\n")
+        with mock.patch.object(panel_app.subprocess, "run", return_value=completed):
+            self.assertEqual(panel_app.get_ssr_status(), "stopped")
 
 
 if __name__ == "__main__":

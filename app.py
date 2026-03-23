@@ -19,12 +19,14 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from config import ADMIN_PASS, ADMIN_USER, MUDB_FILE, SECRET_KEY
+    import config as app_config
 except ImportError:
-    ADMIN_USER = "admin"
-    ADMIN_PASS = "admin123"
-    SECRET_KEY = "default-secret-key-change-me"
-    MUDB_FILE = "/usr/local/shadowsocksr/mudb.json"
+    app_config = None
+
+ADMIN_USER = getattr(app_config, "ADMIN_USER", "admin")
+ADMIN_PASS = getattr(app_config, "ADMIN_PASS", "admin123")
+SECRET_KEY = getattr(app_config, "SECRET_KEY", "default-secret-key-change-me")
+MUDB_FILE = getattr(app_config, "MUDB_FILE", "/usr/local/shadowsocksr/mudb.json")
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -37,6 +39,8 @@ SSR_DIR = Path("/usr/local/shadowsocksr")
 SSR_WORKDIR = SSR_DIR / "shadowsocks"
 SSR_SERVER = SSR_WORKDIR / "server.py"
 SSR_LOG_FILE = SSR_DIR / "ssserver.log"
+SSR_INIT_SCRIPT = Path(getattr(app_config, "SSR_INIT_SCRIPT", "/etc/init.d/ssrmu"))
+SSR_PYTHON_BIN = getattr(app_config, "SSR_PYTHON_BIN", "")
 BACKUP_DIR = Path("/opt/ssr-admin-panel/backups")
 DEFAULT_TRANSFER = 268435456000
 
@@ -294,11 +298,27 @@ def get_system_info():
 
 
 def get_ssr_python():
-    for candidate in ("python3", "python"):
-        resolved = shutil.which(candidate)
-        if resolved:
-            return resolved
-    return sys.executable
+    return get_ssr_python_candidates()[0]
+
+
+def resolve_binary(candidate):
+    if not candidate:
+        return None
+
+    candidate_path = Path(candidate)
+    if candidate_path.is_absolute():
+        return str(candidate_path) if candidate_path.exists() else None
+
+    return shutil.which(candidate)
+
+
+def get_ssr_python_candidates():
+    candidates = []
+    for candidate in (SSR_PYTHON_BIN, "python2", "python", "python3", sys.executable):
+        resolved = resolve_binary(candidate)
+        if resolved and resolved not in candidates:
+            candidates.append(resolved)
+    return candidates or [sys.executable]
 
 
 def run_process(args, cwd=None):
@@ -320,38 +340,142 @@ def run_process(args, cwd=None):
         return {"success": False, "output": "", "error": str(e)}
 
 
-def execute_ssr_command(action):
-    if action not in {"start", "stop", "restart"}:
-        return {"success": False, "output": "", "error": "不支持的操作"}
+def get_expected_ssr_status(action):
+    return "stopped" if action == "stop" else "running"
+
+
+def is_ssr_process_command(command):
+    parts = command.split()
+    if not parts:
+        return False
+
+    python_name = Path(parts[0]).name.lower()
+    if python_name.startswith("python") and len(parts) > 1 and parts[1] == "server.py":
+        return True
+
+    for part in parts:
+        if part.endswith("server.py") and "shadowsocks" in part:
+            return True
+
+    return False
+
+
+def wait_for_ssr_status(expected_status, retries=10, delay=0.5):
+    for attempt in range(max(1, retries)):
+        if get_ssr_status() == expected_status:
+            return True
+        if attempt < retries - 1:
+            time.sleep(delay)
+    return False
+
+
+def merge_process_results(results):
+    return {
+        "success": any(result.get("success") for result in results),
+        "output": "\n".join(filter(None, (result.get("output", "").strip() for result in results))),
+        "error": "\n".join(filter(None, (result.get("error", "").strip() for result in results))),
+    }
+
+
+def run_ssr_init_script(action):
+    if not SSR_INIT_SCRIPT.exists():
+        return None
+    return run_process([str(SSR_INIT_SCRIPT), action])
+
+
+def run_ssr_server_command_once(action):
     if not SSR_SERVER.exists():
         return {"success": False, "output": "", "error": f"未找到 SSR 服务脚本: {SSR_SERVER}"}
 
+    failures = []
+    for python_bin in get_ssr_python_candidates():
+        result = run_process([python_bin, "server.py", "-d", action], cwd=SSR_WORKDIR)
+        if result["success"]:
+            return result
+        failures.append((python_bin, result))
+
+    messages = []
+    for python_bin, result in failures:
+        details = result["error"] or result["output"] or "命令执行失败"
+        messages.append(f"{python_bin}: {details}")
+    return {"success": False, "output": "", "error": "\n".join(messages)}
+
+
+def run_ssr_server_command(action):
     if action == "restart":
-        stop_result = run_process([get_ssr_python(), "server.py", "-d", "stop"], cwd=SSR_WORKDIR)
-        start_result = run_process([get_ssr_python(), "server.py", "-d", "start"], cwd=SSR_WORKDIR)
-        if not stop_result["success"] and not stop_result["error"]:
-            stop_result["error"] = "停止 SSR 失败"
-        if not start_result["success"] and not start_result["error"]:
-            start_result["error"] = "启动 SSR 失败"
+        return merge_process_results(
+            [run_ssr_server_command_once("stop"), run_ssr_server_command_once("start")]
+        )
+    return run_ssr_server_command_once(action)
+
+
+def execute_ssr_command(action):
+    if action not in {"start", "stop", "restart"}:
+        return {"success": False, "output": "", "error": "不支持的操作"}
+
+    runners = []
+    if SSR_INIT_SCRIPT.exists():
+        runners.append(run_ssr_init_script)
+    if SSR_SERVER.exists():
+        runners.append(run_ssr_server_command)
+
+    if not runners:
         return {
-            "success": start_result["success"],
-            "output": "\n".join(filter(None, [stop_result["output"], start_result["output"]])),
-            "error": "\n".join(filter(None, [stop_result["error"], start_result["error"]])),
+            "success": False,
+            "output": "",
+            "error": f"未找到 SSR 控制脚本: {SSR_INIT_SCRIPT}，也未找到 SSR 服务脚本: {SSR_SERVER}",
         }
 
-    return run_process([get_ssr_python(), "server.py", "-d", action], cwd=SSR_WORKDIR)
+    expected_status = get_expected_ssr_status(action)
+    attempted_results = []
+
+    for runner in runners:
+        result = runner(action)
+        if result is None:
+            continue
+        attempted_results.append(result)
+        if wait_for_ssr_status(expected_status):
+            merged = merge_process_results(attempted_results)
+            if not merged["output"]:
+                merged["output"] = f"SSR 当前状态: {expected_status}"
+            merged["success"] = True
+            return merged
+
+    merged = merge_process_results(attempted_results)
+    merged["success"] = False
+    merged["error"] = "\n".join(
+        filter(None, [merged["error"], f"执行后 SSR 状态仍未达到预期，当前状态: {get_ssr_status()}"])
+    )
+    return merged
 
 
 def get_ssr_status():
     try:
+        if SSR_INIT_SCRIPT.exists():
+            result = run_process([str(SSR_INIT_SCRIPT), "status"])
+            output = "\n".join(filter(None, [result["output"], result["error"]])).lower()
+            if any(keyword in output for keyword in ("running", "active", "正在运行", "已运行")):
+                return "running"
+            if any(keyword in output for keyword in ("not running", "stopped", "inactive", "未运行", "已停止")):
+                return "stopped"
+
         result = subprocess.run(
-            ["pgrep", "-f", "server.py"],
+            ["ps", "-eo", "args="],
             capture_output=True,
             text=True,
             timeout=5,
             check=False,
         )
-        return "running" if result.returncode == 0 else "stopped"
+        if result.returncode != 0:
+            return "unknown"
+
+        for command in result.stdout.splitlines():
+            normalized = command.strip()
+            if not normalized or "grep" in normalized:
+                continue
+            if is_ssr_process_command(normalized):
+                return "running"
+        return "stopped"
     except (OSError, subprocess.SubprocessError):
         return "unknown"
 

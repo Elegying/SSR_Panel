@@ -90,8 +90,42 @@ systemctl restart ssr-admin
 # 查看面板日志
 journalctl -u ssr-admin -f
 
+# 更新面板到最新版本
+bash /opt/ssr-admin-panel/update.sh
+
 # 管理SSR用户
 bash /usr/local/shadowsocksr/shadowsocks/mujson_mgr.sh
+```
+
+## 🔄 更新机制
+
+项目现在内置了版本文件 `VERSION` 和一键更新脚本 `update.sh`。
+
+线上服务器更新默认只需要执行：
+
+```bash
+bash /opt/ssr-admin-panel/update.sh
+```
+
+脚本会自动：
+
+- 从 GitHub 拉取最新代码
+- 保留现有 `config.py`
+- 备份配置到 `/opt/ssr-admin-panel/backups/`
+- 重启 `ssr-admin` 服务
+
+查看当前部署版本：
+
+```bash
+bash /opt/ssr-admin-panel/update.sh --version
+```
+
+如果你维护的是自己的 GitHub 分支或 fork，也可以临时指定更新源：
+
+```bash
+SSR_ADMIN_REPO_URL="https://github.com/your-name/ssr-admin-panel.git" \
+SSR_ADMIN_UPDATE_REF="main" \
+bash /opt/ssr-admin-panel/update.sh
 ```
 
 ---

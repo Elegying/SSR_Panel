@@ -31,7 +31,8 @@ fi
 PANEL_DIR="/opt/ssr-admin-panel"
 SSR_DIR="/usr/local/shadowsocksr"
 MUDB_FILE="${SSR_DIR}/mudb.json"
-REPO_URL="https://github.com/Elegying/ssr-admin-panel.git"
+REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/ssr-admin-panel.git}"
+REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
 PYTHON3_BIN="/usr/bin/python3"
 
 # 检测系统类型
@@ -164,18 +165,19 @@ echo -e "${CYAN}[ 1/5 ] 下载项目文件...${NC}"
 if [ -d "$PANEL_DIR" ]; then
     if [ -d "$PANEL_DIR/.git" ]; then
         cd $PANEL_DIR
-        git pull --ff-only -q 2>/dev/null || true
+        git pull --ff-only -q origin "$REPO_REF" 2>/dev/null || true
     else
         TMP_CLONE_DIR=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
-        git clone --depth 1 "$REPO_URL" "$TMP_CLONE_DIR" -q
+        git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$TMP_CLONE_DIR" -q
         cp -R "$TMP_CLONE_DIR"/. "$PANEL_DIR"/
         rm -rf "$TMP_CLONE_DIR"
     fi
 else
-    git clone --depth 1 "$REPO_URL" "$PANEL_DIR" -q
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$PANEL_DIR" -q
 fi
 
 cd $PANEL_DIR
+chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" 2>/dev/null || true
 
 echo -e "${GREEN}✓ 项目文件下载完成${NC}"
 echo
@@ -261,6 +263,9 @@ echo -e "${YELLOW}----------------------------------------${NC}"
 install_flask_runtime
 
 echo -e "${GREEN}生成配置文件...${NC}"
+if [ -f "$PANEL_DIR/config.py" ]; then
+    echo -e "${YELLOW}检测到现有配置文件，已保留: $PANEL_DIR/config.py${NC}"
+else
 SECRET_KEY=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
 PANEL_DIR="$PANEL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" python3 << 'PY'
 import os
@@ -279,6 +284,7 @@ with config_path.open("w", encoding="utf-8") as f:
     for key, value in values.items():
         f.write(f"{key} = {value!r}\n")
 PY
+fi
 
 echo -e "${GREEN}配置系统服务...${NC}"
 cat > /etc/systemd/system/ssr-admin.service <<SERVICE
@@ -302,6 +308,8 @@ systemctl daemon-reload
 systemctl enable ssr-admin
 systemctl restart ssr-admin
 
+APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null || echo "unknown")
+
 # ========== 完成 ==========
 echo -e "${CYAN}[ 5/5 ] 完成${NC}"
 sleep 2
@@ -315,6 +323,7 @@ echo -e "${CYAN}管理面板信息:${NC}"
 echo -e "  访问地址: ${YELLOW}http://${IP}:5000${NC}"
 echo -e "  用户名:   ${YELLOW}${ADMIN_USER}${NC}"
 echo -e "  密码:     ${YELLOW}${ADMIN_PASS}${NC}"
+echo -e "  版本:     ${YELLOW}${APP_VERSION}${NC}"
 echo
 echo -e "${CYAN}SSR默认用户:${NC}"
 echo -e "  用户名:   ${YELLOW}doubi${NC}"
@@ -323,6 +332,7 @@ echo -e "  密码:     ${YELLOW}doub.io${NC}"
 echo
 echo -e "${CYAN}常用命令:${NC}"
 echo -e "  重启面板:     ${YELLOW}systemctl restart ssr-admin${NC}"
+echo -e "  更新面板:     ${YELLOW}bash /opt/ssr-admin-panel/update.sh${NC}"
 echo -e "  管理SSR:      ${YELLOW}bash /opt/ssr-admin-panel/ssrmu.sh${NC}"
 echo
 echo -e "${GREEN}感谢使用！${NC}"

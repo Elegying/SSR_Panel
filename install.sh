@@ -25,7 +25,8 @@ fi
 # 安装目录
 INSTALL_DIR="/opt/ssr-admin-panel"
 MUDB_FILE="/usr/local/shadowsocksr/mudb.json"
-REPO_URL="https://github.com/Elegying/ssr-admin-panel.git"
+REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/ssr-admin-panel.git}"
+REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
 PYTHON3_BIN="/usr/bin/python3"
 
 ensure_basic_runtime() {
@@ -139,18 +140,23 @@ mkdir -p $INSTALL_DIR/templates
 echo -e "${GREEN}[4/6] 下载项目文件...${NC}"
 if [ -d "$INSTALL_DIR/.git" ]; then
     cd $INSTALL_DIR
-    git pull --ff-only -q 2>/dev/null || true
+    git pull --ff-only -q origin "$REPO_REF" 2>/dev/null || true
 elif [ -d "$INSTALL_DIR" ]; then
     TMP_CLONE_DIR=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
-    git clone --depth 1 "$REPO_URL" "$TMP_CLONE_DIR" -q
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$TMP_CLONE_DIR" -q
     cp -R "$TMP_CLONE_DIR"/. "$INSTALL_DIR"/
     rm -rf "$TMP_CLONE_DIR"
 else
-    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" -q
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$INSTALL_DIR" -q
 fi
+
+chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" 2>/dev/null || true
 
 # 创建配置文件
 echo -e "${GREEN}[5/6] 生成配置文件...${NC}"
+if [ -f "$INSTALL_DIR/config.py" ]; then
+    echo -e "${YELLOW}检测到现有配置文件，已保留: $INSTALL_DIR/config.py${NC}"
+else
 SECRET_KEY=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
 INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" python3 << 'PY'
 import os
@@ -172,6 +178,7 @@ with config_path.open("w", encoding="utf-8") as f:
 PY
 
 echo -e "${GREEN}✓ 配置文件已生成: $INSTALL_DIR/config.py${NC}"
+fi
 
 # 创建systemd服务
 echo -e "${GREEN}[6/6] 配置系统服务...${NC}"
@@ -204,6 +211,8 @@ else
     SERVICE_STATUS="${RED}启动失败${NC}"
 fi
 
+APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
+
 echo
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}         安装完成！${NC}"
@@ -211,6 +220,7 @@ echo -e "${GREEN}========================================${NC}"
 echo
 echo -e "项目目录: ${CYAN}$INSTALL_DIR${NC}"
 echo -e "配置文件: ${CYAN}$INSTALL_DIR/config.py${NC}"
+echo -e "当前版本: ${CYAN}$APP_VERSION${NC}"
 echo -e "服务状态: $SERVICE_STATUS"
 echo
 echo -e "访问地址: ${YELLOW}http://your-server-ip:5000${NC}"
@@ -218,4 +228,6 @@ echo -e "管理员账号: ${YELLOW}${ADMIN_USER}${NC}"
 echo
 echo -e "${CYAN}提示: 如需修改账号密码，编辑 config.py 后执行:${NC}"
 echo -e "${CYAN}  systemctl restart ssr-admin${NC}"
+echo -e "${CYAN}更新命令:${NC}"
+echo -e "${CYAN}  bash /opt/ssr-admin-panel/update.sh${NC}"
 echo
