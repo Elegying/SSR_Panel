@@ -70,6 +70,62 @@ check_and_install() {
     fi
 }
 
+install_compatible_python() {
+    echo -e "${GREEN}检查Python环境...${NC}"
+
+    if ! command -v python3 &> /dev/null; then
+        echo -e "${YELLOW}Python3 未安装，正在安装...${NC}"
+        if [ "$SYS" = "centos" ]; then
+            yum install -y python3 python3-pip -q 2>/dev/null || {
+                echo -e "${RED}Python3 安装失败，请手动安装后重试${NC}"
+                exit 1
+            }
+        else
+            apt-get install -y python3 python3-pip -qq 2>/dev/null || {
+                echo -e "${RED}Python3 安装失败，请手动安装后重试${NC}"
+                exit 1
+            }
+        fi
+    fi
+
+    if ! command -v pip3 &> /dev/null; then
+        echo -e "${YELLOW}pip3 未安装，正在安装...${NC}"
+        if [ "$SYS" = "centos" ]; then
+            yum install -y python3-pip -q 2>/dev/null || true
+        else
+            apt-get install -y python3-pip -qq 2>/dev/null || true
+        fi
+    fi
+
+    if ! command -v python &> /dev/null; then
+        echo -e "${YELLOW}未找到 python 命令，正在创建兼容入口...${NC}"
+        if [ "$SYS" = "debian" ] || [ "$SYS" = "ubuntu" ]; then
+            apt-get install -y python-is-python3 -qq 2>/dev/null || true
+        fi
+
+        if ! command -v python &> /dev/null; then
+            local python3_path
+            python3_path=$(command -v python3 2>/dev/null || true)
+            if [ -n "$python3_path" ]; then
+                ln -sf "$python3_path" /usr/local/bin/python
+            fi
+        fi
+    fi
+
+    if ! command -v pip &> /dev/null; then
+        local pip3_path
+        pip3_path=$(command -v pip3 2>/dev/null || true)
+        if [ -n "$pip3_path" ]; then
+            ln -sf "$pip3_path" /usr/local/bin/pip
+        fi
+    fi
+
+    if ! command -v python &> /dev/null; then
+        echo -e "${RED}兼容 python 命令准备失败，请手动检查 Python 环境${NC}"
+        exit 1
+    fi
+}
+
 # 更新包列表
 echo -e "${GREEN}更新软件源...${NC}"
 if [ "$SYS" = "centos" ]; then
@@ -87,48 +143,11 @@ check_and_install "unzip" "unzip"
 check_and_install "vim" "vim"
 check_and_install "cron" "cron"
 
-# 检查Python
-echo -e "${GREEN}检查Python环境...${NC}"
-if ! command -v python &> /dev/null && ! command -v python2 &> /dev/null; then
-    echo -e "${YELLOW}Python2 未安装，正在安装...${NC}"
-    if [ "$SYS" = "centos" ]; then
-        yum install -y python python-pip -q 2>/dev/null || yum install -y python2 python2-pip -q 2>/dev/null
-    else
-        apt-get install -y python python-pip -qq 2>/dev/null || apt-get install -y python2 python2-pip -qq 2>/dev/null
-    fi
-fi
-
-if ! command -v python3 &> /dev/null; then
-    echo -e "${YELLOW}Python3 未安装，正在安装...${NC}"
-    if [ "$SYS" = "centos" ]; then
-        yum install -y python3 python3-pip -q 2>/dev/null
-    else
-        apt-get install -y python3 python3-pip -qq 2>/dev/null
-    fi
-fi
-
-# 确保有pip
-if ! command -v pip &> /dev/null && ! command -v pip2 &> /dev/null; then
-    echo -e "${YELLOW}pip 未安装，正在安装...${NC}"
-    if [ "$SYS" = "centos" ]; then
-        yum install -y python-pip -q 2>/dev/null || yum install -y python2-pip -q 2>/dev/null
-    else
-        apt-get install -y python-pip -qq 2>/dev/null || apt-get install -y python2-pip -qq 2>/dev/null
-    fi
-fi
-
-if ! command -v pip3 &> /dev/null; then
-    echo -e "${YELLOW}pip3 未安装，正在安装...${NC}"
-    if [ "$SYS" = "centos" ]; then
-        yum install -y python3-pip -q 2>/dev/null
-    else
-        apt-get install -y python3-pip -qq 2>/dev/null
-    fi
-fi
+install_compatible_python
 
 # 安装Python依赖
 echo -e "${GREEN}安装Python依赖...${NC}"
-pip install cymysql -q 2>/dev/null || pip2 install cymysql -q 2>/dev/null || echo "cymysql安装跳过"
+python3 -m pip install cymysql -q 2>/dev/null || pip install cymysql -q 2>/dev/null || echo "cymysql安装跳过"
 
 # 配置虚拟内存
 echo -e "${GREEN}配置虚拟内存 (2GB)...${NC}"
@@ -156,9 +175,9 @@ fi
 # 显示环境状态
 echo
 echo -e "${CYAN}环境状态:${NC}"
-echo -e "  Python:  $(python --version 2>&1 || python2 --version 2>&1 || echo '未安装')"
+echo -e "  Python:  $(python --version 2>&1 || echo '未安装')"
 echo -e "  Python3: $(python3 --version 2>&1 || echo '未安装')"
-echo -e "  pip:     $(pip --version 2>&1 | cut -d' ' -f1-2 || pip2 --version 2>&1 | cut -d' ' -f1-2 || echo '未安装')"
+echo -e "  pip:     $(pip --version 2>&1 | cut -d' ' -f1-2 || echo '未安装')"
 echo -e "  pip3:    $(pip3 --version 2>&1 | cut -d' ' -f1-2 || echo '未安装')"
 echo -e "  git:     $(git --version 2>&1 | cut -d' ' -f3)"
 echo -e "  wget:    $(wget --version 2>&1 | head -1 | cut -d' ' -f3)"
