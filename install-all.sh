@@ -4,7 +4,6 @@
 # SSR + 管理面板 一键部署脚本
 # Author: Elegying
 # GitHub: https://github.com/Elegying/ssr-admin-panel
-# 包含逗比的SSR脚本 (https://github.com/ToyoDAdoubiBackup/doubi)
 #=================================================
 
 set -e
@@ -57,9 +56,13 @@ echo
 echo -e "${CYAN}[ 2/4 ] 配置信息${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
+# 从终端读取输入（解决curl|bash管道问题）
+exec < /dev/tty
+
 # 读取管理员用户名
 while true; do
-    read -p "请输入管理面板用户名: " ADMIN_USER
+    echo -ne "请输入管理面板用户名: "
+    read ADMIN_USER < /dev/tty
     if [ -z "$ADMIN_USER" ]; then
         echo -e "${RED}用户名不能为空！${NC}"
     else
@@ -69,13 +72,15 @@ done
 
 # 读取管理员密码
 while true; do
-    read -s -p "请输入管理面板密码: " ADMIN_PASS
+    echo -ne "请输入管理面板密码: "
+    read -s ADMIN_PASS < /dev/tty
     echo
     if [ -z "$ADMIN_PASS" ]; then
         echo -e "${RED}密码不能为空！${NC}"
         continue
     fi
-    read -s -p "请再次输入密码确认: " ADMIN_PASS_CONFIRM
+    echo -ne "请再次输入密码确认: "
+    read -s ADMIN_PASS_CONFIRM < /dev/tty
     echo
     if [ "$ADMIN_PASS" != "$ADMIN_PASS_CONFIRM" ]; then
         echo -e "${RED}两次密码不一致！${NC}"
@@ -158,7 +163,7 @@ echo -e "${GREEN}           安装完成！${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo
 echo -e "${CYAN}管理面板信息:${NC}"
-echo -e "  访问地址: ${YELLOW}http://$(curl -s ip.sb):5000${NC}"
+echo -e "  访问地址: ${YELLOW}http://$(curl -s ip.sb 2>/dev/null || echo 'your-server-ip'):5000${NC}"
 echo -e "  用户名:   ${YELLOW}${ADMIN_USER}${NC}"
 echo -e "  密码:     ${YELLOW}${ADMIN_PASS}${NC}"
 echo
