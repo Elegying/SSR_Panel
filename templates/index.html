@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SSR 用户管理面板</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --primary: #667eea;
+    --secondary: #764ba2;
+    --success: #48bb78;
+    --danger: #f56565;
+    --warning: #ed8936;
+    --bg-dark: #1a1a2e;
+    --bg-card: rgba(255,255,255,0.05);
+    --text: #e2e8f0;
+    --text-muted: #a0aec0;
+}
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(135deg, var(--bg-dark) 0%, #16213e 50%, #0f3460 100%);
+    color: var(--text);
+    padding: 20px;
+}
+.container { max-width: 1400px; margin: 0 auto; }
+header { position: relative;
+    text-align: center;
+    margin-bottom: 30px;
+    padding: 20px;
+    background: var(--bg-card);
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+h1 {
+    font-size: 2rem;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 10px;
+}
+.subtitle { color: var(--text-muted); font-size: 0.9rem; }
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 30px;
+}
+.stat-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.1);
+    transition: transform 0.3s, box-shadow 0.3s;
+}
+.stat-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 30px rgba(102,126,234,0.2);
+}
+.stat-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.stat-label { color: var(--text-muted); font-size: 0.85rem; margin-top: 5px; }
+.actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.btn {
+    padding: 12px 24px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition: all 0.3s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-primary {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+}
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(102,126,234,0.4); }
+.btn-success { background: var(--success); color: white; }
+.btn-danger { background: var(--danger); color: white; }
+.btn-warning { background: var(--warning); color: white; }
+.btn-info { background: #4299e1; color: white; }
+.btn:hover { opacity: 0.9; }
+.btn.active { box-shadow: 0 0 0 3px rgba(102,126,234,0.5); }
+.users-table {
+    background: var(--bg-card);
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.1);
+    overflow: hidden;
+}
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 14px 16px; text-align: left; }
+th {
+    background: rgba(102,126,234,0.2);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+}
+th:hover { background: rgba(102,126,234,0.35); }
+th.sortable::after { content: ' ⇅'; opacity: 0.5; }
+th.sorted-asc::after { content: ' ↑'; opacity: 1; color: var(--primary); }
+th.sorted-desc::after { content: ' ↓'; opacity: 1; color: var(--primary); }
+tr { border-bottom: 1px solid rgba(255,255,255,0.05); }
+tr:hover { background: rgba(255,255,255,0.03); }
+td { font-size: 0.9rem; }
+.status-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.status-on { background: rgba(72,187,120,0.2); color: var(--success); }
+.status-off { background: rgba(245,101,101,0.2); color: var(--danger); }
+.progress-bar {
+    height: 8px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    min-width: 100px;
+}
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--success), #38b2ac);
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+.progress-fill.warning { background: linear-gradient(90deg, var(--warning), #dd6b20); }
+.progress-fill.danger { background: linear-gradient(90deg, var(--danger), #e53e3e); }
+.action-btns { display: flex; gap: 8px; }
+.action-btns button {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+}
+.modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+.modal.show { display: flex; }
+.modal-content {
+    background: #1e293b;
+    border-radius: 16px;
+    padding: 30px;
+    width: 90%;
+    max-width: 500px;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+.modal-header { position: relative;
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+.form-group { margin-bottom: 16px; }
+.form-group label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+.form-group input, .form-group select {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    font-size: 0.95rem;
+}
+.form-actions { display: flex; gap: 12px; margin-top: 24px; }
+.search-box {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    font-size: 0.9rem;
+    min-width: 200px;
+}
+.search-box:focus { border-color: var(--primary); outline: none; }
+.sort-info {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 8px 16px;
+    background: rgba(102,126,234,0.1);
+    border-radius: 8px;
+    margin-left: auto;
+}
+@media (max-width: 768px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    table { font-size: 0.8rem; }
+    th, td { padding: 10px 8px; }
+    .actions { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+    <h1>🛡️ SSR 用户管理面板</h1>
+    <p class="subtitle">实时监控 · 便捷管理 · 数据可视化</p><a href="/logout" style="position:absolute;top:20px;right:20px;color:#a0aec0;text-decoration:none;font-size:0.9rem;">🚪 退出</a>
+</header>
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value" id="stat-users">{{ total_users }}</div>
+        <div class="stat-label">用户总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" id="stat-active">{{ inactive_users }}</div>
+        <div class="stat-label">不活跃用户</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ format_bytes(total_upload) }}</div>
+        <div class="stat-label">总上传</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ format_bytes(total_download) }}</div>
+        <div class="stat-label">总下载</div>
+    </div>
+</div>
+<div class="actions">
+    <button class="btn btn-primary" onclick="showAddModal()">➕ 添加用户</button>
+    <button class="btn btn-success" onclick="refreshData()">🔄 刷新数据</button>
+    <button class="btn btn-info" id="sortBtn" onclick="toggleSort()">📊 流量排序</button>
+    <input type="text" class="search-box" id="search" placeholder="搜索用户名/端口..." oninput="filterUsers()">
+    <span class="sort-info" id="sortInfo">点击表头或按钮排序</span>
+</div>
+<div class="users-table">
+    <table>
+        <thead>
+            <tr>
+                <th class="sortable" data-sort="user">用户名</th>
+                <th class="sortable" data-sort="port">端口</th>
+                <th class="sortable" data-sort="enable">状态</th>
+                <th class="sortable" data-sort="upload">上传</th>
+                <th class="sortable" data-sort="download">下载</th>
+                <th class="sortable" data-sort="usage">流量使用</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="users-body">
+        </tbody>
+    </table>
+</div>
+</div>
+<div class="modal" id="addModal">
+    <div class="modal-content">
+        <div class="modal-header">添加新用户</div>
+        <div class="form-group">
+            <label>端口</label>
+            <input type="number" id="new-port" placeholder="如: 10001">
+        </div>
+        <div class="form-group">
+            <label>用户名 (可选，默认与端口相同)</label>
+            <input type="text" id="new-user" placeholder="用户名">
+        </div>
+        <div class="form-group">
+            <label>密码 (留空自动生成)</label>
+            <input type="text" id="new-password" placeholder="密码">
+        </div>
+        <div class="form-group">
+            <label>流量限额 (GB)</label>
+            <input type="number" id="new-transfer" placeholder="默认250" value="250">
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-primary" onclick="addUser()">确认添加</button>
+            <button class="btn" style="background:#4a5568" onclick="closeModal()">取消</button>
+        </div>
+    </div>
+</div>
+<script>
+let usersData = [];
+let sortField = '';
+let sortDirection = 'desc';
+
+function formatBytes(b){if(!b)return'0 B';const u=['B','KB','MB','GB','TB'];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++;}return b.toFixed(2)+' '+u[i];}
+
+function loadUsers(){
+    fetch('/api/users').then(r=>r.json()).then(d=>{
+        if(d.success){usersData=d.data;renderUsers();}
+    });
+}
+
+function sortUsers(field){
+    if(sortField === field){
+        sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
+    } else {
+        sortField = field;
+        sortDirection = 'desc';
+    }
+    
+    const sortMap = {
+        'user': u => u.user,
+        'port': u => u.port,
+        'enable': u => u.enable,
+        'upload': u => u.u || 0,
+        'download': u => u.d || 0,
+        'usage': u => (u.u || 0) + (u.d || 0)
+    };
+    
+    usersData.sort((a, b) => {
+        let va = sortMap[field](a);
+        let vb = sortMap[field](b);
+        if(typeof va === 'string'){
+            return sortDirection === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+        }
+        return sortDirection === 'asc' ? va - vb : vb - va;
+    });
+    
+    updateSortUI();
+    renderUsers();
+}
+
+function toggleSort(){
+    sortUsers('usage');
+}
+
+function updateSortUI(){
+    document.querySelectorAll('th.sortable').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        if(th.dataset.sort === sortField){
+            th.classList.add(sortDirection === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+    });
+    
+    const sortBtn = document.getElementById('sortBtn');
+    const sortInfo = document.getElementById('sortInfo');
+    if(sortField === 'usage'){
+        sortBtn.classList.add('active');
+        sortInfo.textContent = sortDirection === 'desc' ? '流量从高到低' : '流量从低到高';
+    } else {
+        sortBtn.classList.remove('active');
+        sortInfo.textContent = '点击表头或按钮排序';
+    }
+}
+
+document.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => sortUsers(th.dataset.sort));
+});
+
+function renderUsers(filter=''){
+    const tbody=document.getElementById('users-body');
+    let filtered=usersData;
+    if(filter){filtered=usersData.filter(u=>u.user.includes(filter)||String(u.port).includes(filter));}
+    tbody.innerHTML=filtered.map(u=>{
+        const total=(u.u||0)+(u.d||0);
+        const pct=u.usage_percent||0;
+        const pctClass=pct>90?'danger':pct>70?'warning':'';
+        return '<tr><td><strong>'+u.user+'</strong></td><td>'+u.port+'</td><td><span class="status-badge '+(u.enable?'status-on':'status-off')+'">'+(u.enable?'启用':'禁用')+'</span></td><td>'+formatBytes(u.u)+'</td><td>'+formatBytes(u.d)+'</td><td><div class="progress-bar"><div class="progress-fill '+pctClass+'" style="width:'+Math.min(100,pct)+'%"></div></div><small style="color:var(--text-muted)">'+formatBytes(total)+' / '+u.transfer_limit_human+'</small></td><td class="action-btns"><button class="btn-warning" onclick="resetUser(\''+u.user+'\')">重置</button><button onclick="toggleUser(\''+u.user+'\')">'+(u.enable?'禁用':'启用')+'</button><button class="btn-danger" onclick="deleteUser(\''+u.user+'\')">删除</button></td></tr>';
+    }).join('');
+}
+
+function refreshData(){loadUsers();}
+function filterUsers(){renderUsers(document.getElementById('search').value);}
+function showAddModal(){document.getElementById('addModal').classList.add('show');}
+function closeModal(){document.getElementById('addModal').classList.remove('show');}
+function addUser(){
+    const data={
+        port:document.getElementById('new-port').value,
+        user:document.getElementById('new-user').value,
+        password:document.getElementById('new-password').value,
+        transfer:document.getElementById('new-transfer').value*1024*1024*1024
+    };
+    fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).then(d=>{
+        alert(d.success?'添加成功!':'错误: '+d.error);
+        if(d.success){closeModal();loadUsers();}
+    });
+}
+function deleteUser(user){if(confirm('确定删除用户 '+user+'?')){fetch('/api/delete/'+user).then(r=>r.json()).then(d=>{alert(d.message);loadUsers();});}}
+function resetUser(user){if(confirm('确定重置用户 '+user+' 的流量?')){fetch('/api/reset/'+user).then(r=>r.json()).then(d=>{alert(d.message);loadUsers();});}}
+function toggleUser(user){fetch('/api/toggle/'+user).then(r=>r.json()).then(d=>{alert(d.message);loadUsers();});}
+loadUsers();
+setInterval(loadUsers,30000);
+</script>
+</body>
+</html>
