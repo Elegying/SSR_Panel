@@ -31,8 +31,8 @@ curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/insta
 
 安装过程中会提示：
 1. 设置管理面板用户名/密码
-2. 设置SSR端口/密码
-3. 自动完成全部安装
+2. 自动安装SSR
+3. 自动部署管理面板
 
 ### 方式二：仅安装管理面板
 
@@ -49,14 +49,6 @@ curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/insta
 - 操作系统: CentOS 6+ / Debian 8+ / Ubuntu 16.04+
 - Python: 3.7+
 - 内存: 512MB+
-
----
-
-## 📸 截图
-
-| 登录页面 | 管理面板 |
-|---------|---------|
-| ![Login](screenshots/login.png) | ![Dashboard](screenshots/dashboard.png) |
 
 ---
 
@@ -87,6 +79,7 @@ ssr-admin-panel/
 ├── requirements.txt    # Python依赖
 ├── install.sh          # 单独安装面板
 ├── install-all.sh      # SSR+面板一键安装
+├── ssrmu.sh            # SSR安装脚本（内置）
 ├── templates/
 │   ├── index.html      # 主页面
 │   └── login.html      # 登录页面
@@ -107,8 +100,8 @@ systemctl restart ssr-admin
 # 查看面板日志
 journalctl -u ssr-admin -f
 
-# 查看SSR状态
-bash /usr/local/shadowsocksr/shadowsocks/logrun.sh
+# 管理SSR用户
+bash /usr/local/shadowsocksr/shadowsocks/mujson_mgr.sh
 ```
 
 ---
@@ -128,6 +121,7 @@ bash /usr/local/shadowsocksr/shadowsocks/logrun.sh
 - 登录验证
 - 流量排序功能
 - SSR一键部署集成
+- 内置SSR安装脚本
 
 ---
 
