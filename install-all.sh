@@ -79,11 +79,7 @@ ensure_minimal_command() {
 prepare_minimal_runtime() {
     echo -e "${GREEN}快速检查最小运行环境...${NC}"
     ensure_minimal_command "git" "git"
-    ensure_minimal_command "python3" "python3 python3-pip"
-
-    if ! command -v pip3 &> /dev/null; then
-        ensure_minimal_command "pip3" "python3-pip"
-    fi
+    ensure_minimal_command "python3" "python3"
 
     if ! command -v python &> /dev/null; then
         echo -e "${YELLOW}未找到 python 命令，正在创建兼容入口...${NC}"
@@ -100,6 +96,31 @@ prepare_minimal_runtime() {
     fi
 
     PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
+
+    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
+        echo -e "${YELLOW}未检测到可用的 pip 模块，尝试启用 ensurepip...${NC}"
+        "$PYTHON3_BIN" -m ensurepip --upgrade >/dev/null 2>&1 || true
+    fi
+
+    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
+        echo -e "${YELLOW}尝试安装 python3-pip...${NC}"
+        if [ "$SYS" = "centos" ]; then
+            yum install -y python3-pip -q 2>/dev/null || true
+        else
+            apt-get install -y python3-pip -qq 2>/dev/null || true
+        fi
+    fi
+
+    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
+        echo -e "${YELLOW}当前环境缺少 pip，将优先依赖系统包安装 Flask${NC}"
+    else
+        if ! command -v pip3 &> /dev/null; then
+            ln -sf "$("$PYTHON3_BIN" -m site --user-base 2>/dev/null)/bin/pip3" /usr/local/bin/pip3 2>/dev/null || true
+        fi
+        if ! command -v pip &> /dev/null; then
+            ln -sf "$(command -v pip3 2>/dev/null || true)" /usr/local/bin/pip 2>/dev/null || true
+        fi
+    fi
 }
 
 install_flask_runtime() {
@@ -114,7 +135,7 @@ PY
     echo -e "${GREEN}安装 Flask 运行时...${NC}"
     if [ "$SYS" = "debian" ] || [ "$SYS" = "ubuntu" ]; then
         apt-get install -y python3-flask -qq 2>/dev/null || \
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q || true
     else
         "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q || \
         yum install -y python3-flask -q 2>/dev/null || true

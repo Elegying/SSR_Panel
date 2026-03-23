@@ -38,13 +38,22 @@ ensure_basic_runtime() {
 
     if ! command -v python3 &> /dev/null; then
         echo -e "${YELLOW}python3 未安装，正在安装...${NC}"
-        apt-get install -y python3 python3-pip -qq 2>/dev/null || yum install -y python3 python3-pip -q 2>/dev/null
+        apt-get install -y python3 -qq 2>/dev/null || yum install -y python3 -q 2>/dev/null
         PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
     fi
 
-    if ! command -v pip3 &> /dev/null; then
-        echo -e "${YELLOW}pip3 未安装，正在安装...${NC}"
-        apt-get install -y python3-pip -qq 2>/dev/null || yum install -y python3-pip -q 2>/dev/null
+    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
+        echo -e "${YELLOW}未检测到可用的 pip 模块，尝试启用 ensurepip...${NC}"
+        "$PYTHON3_BIN" -m ensurepip --upgrade >/dev/null 2>&1 || true
+    fi
+
+    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
+        echo -e "${YELLOW}尝试安装 python3-pip...${NC}"
+        apt-get install -y python3-pip -qq 2>/dev/null || yum install -y python3-pip -q 2>/dev/null || true
+    fi
+
+    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
+        echo -e "${YELLOW}当前环境缺少 pip，将优先依赖系统包安装 Flask${NC}"
     fi
 }
 
