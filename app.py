@@ -3,21 +3,24 @@ import json
 import os
 import random
 import string
-from flask import Flask, render_template, jsonify, request, redirect, url_for, session, flash
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+import sys
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session
 from functools import wraps
 
+# 添加项目目录到路径
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 尝试导入配置，如果不存在则使用默认值
+try:
+    from config import ADMIN_USER, ADMIN_PASS, SECRET_KEY, MUDB_FILE
+except ImportError:
+    ADMIN_USER = 'admin'
+    ADMIN_PASS = 'admin123'
+    SECRET_KEY = 'default-secret-key-change-me'
+    MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'
+
 app = Flask(__name__)
-app.secret_key = 'ssr-admin-secret-key-2026'
-
-# 用户配置
-ADMIN_USER = 'Elegy'
-ADMIN_PASS = 'J.199326'
-
-# 简单的用户类
-class User(UserMixin):
-    def __init__(self, username):
-        self.id = username
+app.secret_key = SECRET_KEY
 
 def check_auth(username, password):
     return username == ADMIN_USER and password == ADMIN_PASS
@@ -29,8 +32,6 @@ def requires_auth(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated
-
-MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'
 
 def load_users():
     with open(MUDB_FILE, 'r', encoding='utf-8') as f:

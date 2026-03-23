@@ -1,0 +1,12 @@
+# SSR Admin Panel 配置文件示例
+# 复制此文件为 config.py 并修改相应配置
+
+# 管理员账号
+ADMIN_USER = 'admin'
+ADMIN_PASS = 'your-password'
+
+# Session密钥 (自动生成，请勿修改)
+SECRET_KEY = 'change-this-to-random-string'
+
+# mudb.json 文件路径
+MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'
