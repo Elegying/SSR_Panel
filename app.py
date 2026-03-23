@@ -4,6 +4,7 @@ import os
 import random
 import string
 import sys
+import subprocess
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session
 from functools import wraps
 
@@ -21,6 +22,8 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+
+SSR_DIR = '/usr/local/shadowsocksr'
 
 def check_auth(username, password):
     return username == ADMIN_USER and password == ADMIN_PASS
@@ -52,6 +55,14 @@ def format_bytes(bytes_val):
         bytes_val /= 1024
     return f"{bytes_val:.2f} PB"
 
+def run_ssr_command(cmd):
+    """执行SSR命令并返回结果"""
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        return {'success': True, 'output': result.stdout, 'error': result.stderr}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
@@ -81,6 +92,15 @@ def index():
     total_download = sum(u.get('d', 0) for u in users)
     total_transfer = total_upload + total_download
     inactive_users = sum(1 for u in users if (u.get('u', 0) + u.get('d', 0)) == 0)
+    
+    # 检查SSR服务状态
+    ssr_status = 'unknown'
+    try:
+        result = subprocess.run('ps aux | grep -v grep | grep server.py', shell=True, capture_output=True)
+        ssr_status = 'running' if result.returncode == 0 else 'stopped'
+    except:
+        ssr_status = 'unknown'
+    
     return render_template('index.html', 
                          users=users,
                          total_users=total_users,
@@ -88,8 +108,42 @@ def index():
                          total_download=total_download,
                          total_transfer=total_transfer,
                          inactive_users=inactive_users,
-                         format_bytes=format_bytes)
+                         format_bytes=format_bytes,
+                         ssr_status=ssr_status)
 
+# ========== SSR服务控制API ==========
+@app.route('/api/ssr/start')
+@requires_auth
+def ssr_start():
+    result = run_ssr_command(f'cd {SSR_DIR}/shadowsocks && python server.py -d start')
+    return jsonify(result)
+
+@app.route('/api/ssr/stop')
+@requires_auth
+def ssr_stop():
+    result = run_ssr_command(f'cd {SSR_DIR}/shadowsocks && python server.py -d stop')
+    return jsonify(result)
+
+@app.route('/api/ssr/restart')
+@requires_auth
+def ssr_restart():
+    run_ssr_command(f'cd {SSR_DIR}/shadowsocks && python server.py -d stop')
+    result = run_ssr_command(f'cd {SSR_DIR}/shadowsocks && python server.py -d start')
+    return jsonify(result)
+
+@app.route('/api/ssr/status')
+@requires_auth
+def ssr_status():
+    result = run_ssr_command('ps aux | grep -v grep | grep server.py')
+    return jsonify({'running': 'server.py' in result.get('output', '')})
+
+@app.route('/api/ssr/log')
+@requires_auth
+def ssr_log():
+    result = run_ssr_command(f'tail -50 {SSR_DIR}/ssserver.log')
+    return jsonify(result)
+
+# ========== 用户管理API ==========
 @app.route('/api/users')
 @requires_auth
 def api_users():
@@ -116,7 +170,6 @@ def add_user():
         'protocol': data.get('protocol', 'auth_aes128_md5'),
         'obfs': data.get('obfs', 'tls1.2_ticket_auth'),
         'obfs_param': data.get('obfs_param', 'www.baidu.com'),
-        'protocol_param': data.get('protocol_param', '3#'),
         'transfer_enable': int(data.get('transfer', 268435456000)),
         'enable': 1,
         'd': 0,
