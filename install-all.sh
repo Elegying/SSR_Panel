@@ -47,54 +47,40 @@ fi
 echo -e "${CYAN}系统检测: ${YELLOW}${SYS}${NC}"
 echo
 
-# ========== 第零步：环境检查与依赖安装 ==========
-echo -e "${CYAN}[ 0/5 ] 环境检查与依赖安装...${NC}"
+# ========== 第零步：快速准备 ==========
+echo -e "${CYAN}[ 0/5 ] 快速准备（跳过依赖检测）...${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
+ensure_minimal_command() {
+    local binary=$1
+    shift
+    local packages="$*"
 
-# 定义需要的工具列表
-REQUIRED_TOOLS="wget curl git python python3 pip pip3 unzip vim cron"
+    if command -v "$binary" &> /dev/null; then
+        echo -e "${GREEN}✓ ${binary} 已就绪${NC}"
+        return
+    fi
 
-check_and_install() {
-    local tool=$1
-    local pkg=$2
-    
-    if ! command -v $tool &> /dev/null; then
-        echo -e "${YELLOW}$tool 未安装，正在安装...${NC}"
-        if [ "$SYS" = "centos" ]; then
-            yum install -y $pkg -q 2>/dev/null || echo "安装 $pkg 失败"
-        else
-            apt-get install -y $pkg -qq 2>/dev/null || echo "安装 $pkg 失败"
-        fi
+    echo -e "${YELLOW}${binary} 未找到，正在安装最小依赖...${NC}"
+    if [ "$SYS" = "centos" ]; then
+        yum install -y ${packages} -q 2>/dev/null || {
+            echo -e "${RED}${binary} 安装失败，请手动安装后重试${NC}"
+            exit 1
+        }
     else
-        echo -e "${GREEN}✓ $tool 已安装${NC}"
+        apt-get install -y ${packages} -qq 2>/dev/null || {
+            echo -e "${RED}${binary} 安装失败，请手动安装后重试${NC}"
+            exit 1
+        }
     fi
 }
 
-install_compatible_python() {
-    echo -e "${GREEN}检查Python环境...${NC}"
-
-    if ! command -v python3 &> /dev/null; then
-        echo -e "${YELLOW}Python3 未安装，正在安装...${NC}"
-        if [ "$SYS" = "centos" ]; then
-            yum install -y python3 python3-pip -q 2>/dev/null || {
-                echo -e "${RED}Python3 安装失败，请手动安装后重试${NC}"
-                exit 1
-            }
-        else
-            apt-get install -y python3 python3-pip -qq 2>/dev/null || {
-                echo -e "${RED}Python3 安装失败，请手动安装后重试${NC}"
-                exit 1
-            }
-        fi
-    fi
+prepare_minimal_runtime() {
+    echo -e "${GREEN}快速检查最小运行环境...${NC}"
+    ensure_minimal_command "git" "git"
+    ensure_minimal_command "python3" "python3 python3-pip"
 
     if ! command -v pip3 &> /dev/null; then
-        echo -e "${YELLOW}pip3 未安装，正在安装...${NC}"
-        if [ "$SYS" = "centos" ]; then
-            yum install -y python3-pip -q 2>/dev/null || true
-        else
-            apt-get install -y python3-pip -qq 2>/dev/null || true
-        fi
+        ensure_minimal_command "pip3" "python3-pip"
     fi
 
     if ! command -v python &> /dev/null; then
@@ -102,88 +88,22 @@ install_compatible_python() {
         if [ "$SYS" = "debian" ] || [ "$SYS" = "ubuntu" ]; then
             apt-get install -y python-is-python3 -qq 2>/dev/null || true
         fi
-
         if ! command -v python &> /dev/null; then
-            local python3_path
-            python3_path=$(command -v python3 2>/dev/null || true)
-            if [ -n "$python3_path" ]; then
-                ln -sf "$python3_path" /usr/local/bin/python
-            fi
+            ln -sf "$(command -v python3)" /usr/local/bin/python
         fi
     fi
 
-    if ! command -v pip &> /dev/null; then
-        local pip3_path
-        pip3_path=$(command -v pip3 2>/dev/null || true)
-        if [ -n "$pip3_path" ]; then
-            ln -sf "$pip3_path" /usr/local/bin/pip
-        fi
-    fi
-
-    if ! command -v python &> /dev/null; then
-        echo -e "${RED}兼容 python 命令准备失败，请手动检查 Python 环境${NC}"
-        exit 1
+    if ! command -v pip &> /dev/null && command -v pip3 &> /dev/null; then
+        ln -sf "$(command -v pip3)" /usr/local/bin/pip
     fi
 }
 
-# 更新包列表
-echo -e "${GREEN}更新软件源...${NC}"
-if [ "$SYS" = "centos" ]; then
-    yum update -y -q 2>/dev/null
-else
-    apt-get update -qq 2>/dev/null
-fi
+prepare_minimal_runtime
 
-# 检查并安装必要工具
-echo -e "${GREEN}检查并安装必要工具...${NC}"
-check_and_install "wget" "wget"
-check_and_install "curl" "curl"
-check_and_install "git" "git"
-check_and_install "unzip" "unzip"
-check_and_install "vim" "vim"
-check_and_install "cron" "cron"
-
-install_compatible_python
-
-# 安装Python依赖
-echo -e "${GREEN}安装Python依赖...${NC}"
-python3 -m pip install cymysql -q 2>/dev/null || pip install cymysql -q 2>/dev/null || echo "cymysql安装跳过"
-
-# 配置虚拟内存
-echo -e "${GREEN}配置虚拟内存 (2GB)...${NC}"
-SWAP_SIZE=$(free -m | grep Swap | awk '{print $2}')
-if [ "$SWAP_SIZE" -lt 2048 ]; then
-    if [ -f /swapfile ]; then
-        swapoff /swapfile 2>/dev/null
-        rm -f /swapfile
-    fi
-    
-    dd if=/dev/zero of=/swapfile bs=1M count=2048 status=progress 2>/dev/null
-    chmod 600 /swapfile
-    mkswap /swapfile
-    swapon /swapfile
-    
-    if ! grep -q '/swapfile' /etc/fstab; then
-        echo '/swapfile none swap sw 0 0' >> /etc/fstab
-    fi
-    
-    echo -e "${GREEN}✓ 虚拟内存已设置为 2GB${NC}"
-else
-    echo -e "${GREEN}✓ 虚拟内存已足够 (${SWAP_SIZE}MB)${NC}"
-fi
-
-# 显示环境状态
 echo
-echo -e "${CYAN}环境状态:${NC}"
-echo -e "  Python:  $(python --version 2>&1 || echo '未安装')"
-echo -e "  Python3: $(python3 --version 2>&1 || echo '未安装')"
-echo -e "  pip:     $(pip --version 2>&1 | cut -d' ' -f1-2 || echo '未安装')"
-echo -e "  pip3:    $(pip3 --version 2>&1 | cut -d' ' -f1-2 || echo '未安装')"
-echo -e "  git:     $(git --version 2>&1 | cut -d' ' -f3)"
-echo -e "  wget:    $(wget --version 2>&1 | head -1 | cut -d' ' -f3)"
-echo
-
-echo -e "${GREEN}✓ 环境准备完成${NC}"
+echo -e "${GREEN}快速模式已启用${NC}"
+echo -e "${CYAN}已跳过:${NC} 软件源更新 / 额外工具检测 / cymysql 安装 / 自动 Swap 配置"
+echo -e "${CYAN}保留最小依赖:${NC} git / python3 / pip3 / python 兼容入口"
 echo
 
 # ========== 第一步：下载项目文件 ==========
