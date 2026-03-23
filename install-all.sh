@@ -35,9 +35,9 @@ MUDB_FILE="${SSR_DIR}/mudb.json"
 # ========== 第一步：下载项目文件 ==========
 echo -e "${CYAN}[ 1/4 ] 下载项目文件...${NC}"
 
-# 安装git
+# 安装依赖
 apt-get update -qq 2>/dev/null || yum update -q 2>/dev/null
-apt-get install -y git python3-pip -qq 2>/dev/null || yum install -y git python3-pip -q 2>/dev/null
+apt-get install -y git python3-pip expect -qq 2>/dev/null || yum install -y git python3-pip expect -q 2>/dev/null
 
 # 克隆项目
 if [ -d "$PANEL_DIR" ]; then
@@ -58,10 +58,8 @@ echo -e "${YELLOW}----------------------------------------${NC}"
 
 # 检测是否通过管道运行
 if [ -t 0 ]; then
-    # 直接运行，正常读取
     READ_MODE="normal"
 else
-    # 管道运行，使用 /dev/tty
     READ_MODE="tty"
 fi
 
@@ -115,13 +113,86 @@ echo -e "${YELLOW}----------------------------------------${NC}"
 if [ -d "$SSR_DIR" ]; then
     echo -e "${GREEN}检测到已安装SSR，跳过安装...${NC}"
 else
-    echo -e "${GREEN}开始安装 SSR...${NC}"
-    echo -e "${YELLOW}提示: 请按照提示操作，选择 1 安装 SSR${NC}"
-    echo -e "${YELLOW}安装完成后输入其他命令可退出脚本${NC}"
-    echo
+    echo -e "${GREEN}开始自动安装 SSR...${NC}"
     
     chmod +x $PANEL_DIR/ssrmu.sh
-    bash $PANEL_DIR/ssrmu.sh
+    
+    # 创建自动应答脚本
+    cat > /tmp/ssr_auto_install.exp << 'EXPECT'
+#!/usr/bin/expect -f
+set timeout 300
+
+# 运行SSR安装脚本
+spawn bash /opt/ssr-admin-panel/ssrmu.sh
+
+# 等待菜单出现，选择1安装
+expect {
+    "请输入数字" {
+        send "1\r"
+    }
+    timeout {
+        puts "超时"
+        exit 1
+    }
+}
+
+# 自动应答所有配置（全部使用默认值）
+# 用户名
+expect "默认: doubi" { send "\r" }
+# 端口
+expect "默认: 2333" { send "\r" }
+# 密码
+expect "默认: doub.io" { send "\r" }
+# 加密方式
+expect "默认: 5" { send "\r" }
+# 协议
+expect "默认: 3" { send "\r" }
+# 协议兼容
+expect "Y/n" { send "\r" }
+# 混淆
+expect "默认: 1" { send "\r" }
+# 混淆兼容
+expect "Y/n" { send "\r" }
+# 设备数限制
+expect "默认: 无限" { send "\r" }
+# 单线程限速
+expect "默认: 无限" { send "\r" }
+# 总限速
+expect "默认: 无限" { send "\r" }
+# 流量限制
+expect "默认: 无限" { send "\r" }
+# 禁止端口
+expect "默认为空" { send "\r" }
+# 是否启用
+expect "默认: Y" { send "\r" }
+# 服务器IP
+expect -re "默认自动检测|手动输入" { send "\r" }
+
+# 等待安装完成
+expect {
+    "安装完毕" {
+        puts "\nSSR安装完成！"
+    }
+    "所有步骤 安装完毕" {
+        puts "\nSSR安装完成！"
+    }
+    eof {
+        puts "\nSSR安装脚本结束"
+    }
+    timeout {
+        puts "安装超时"
+    }
+}
+
+expect eof
+EXPECT
+
+    chmod +x /tmp/ssr_auto_install.exp
+    
+    # 运行自动安装
+    /tmp/ssr_auto_install.exp
+    
+    echo -e "${GREEN}✓ SSR安装完成${NC}"
 fi
 
 echo
