@@ -31,6 +31,8 @@ fi
 PANEL_DIR="/opt/ssr-admin-panel"
 SSR_DIR="/usr/local/shadowsocksr"
 MUDB_FILE="${SSR_DIR}/mudb.json"
+REPO_URL="https://github.com/Elegying/ssr-admin-panel.git"
+PYTHON3_BIN="/usr/bin/python3"
 
 # 检测系统类型
 if [ -f /etc/debian_version ]; then
@@ -96,6 +98,35 @@ prepare_minimal_runtime() {
     if ! command -v pip &> /dev/null && command -v pip3 &> /dev/null; then
         ln -sf "$(command -v pip3)" /usr/local/bin/pip
     fi
+
+    PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
+}
+
+install_flask_runtime() {
+    if "$PYTHON3_BIN" - <<'PY' &>/dev/null
+import flask
+PY
+    then
+        echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
+        return
+    fi
+
+    echo -e "${GREEN}安装 Flask 运行时...${NC}"
+    if [ "$SYS" = "debian" ] || [ "$SYS" = "ubuntu" ]; then
+        apt-get install -y python3-flask -qq 2>/dev/null || \
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q
+    else
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q || \
+        yum install -y python3-flask -q 2>/dev/null || true
+    fi
+
+    if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
+import flask
+PY
+    then
+        echo -e "${RED}Flask 安装失败，请手动安装后重试${NC}"
+        exit 1
+    fi
 }
 
 prepare_minimal_runtime
@@ -110,10 +141,17 @@ echo
 echo -e "${CYAN}[ 1/5 ] 下载项目文件...${NC}"
 
 if [ -d "$PANEL_DIR" ]; then
-    cd $PANEL_DIR
-    git pull -q 2>/dev/null || true
+    if [ -d "$PANEL_DIR/.git" ]; then
+        cd $PANEL_DIR
+        git pull --ff-only -q 2>/dev/null || true
+    else
+        TMP_CLONE_DIR=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
+        git clone --depth 1 "$REPO_URL" "$TMP_CLONE_DIR" -q
+        cp -R "$TMP_CLONE_DIR"/. "$PANEL_DIR"/
+        rm -rf "$TMP_CLONE_DIR"
+    fi
 else
-    git clone https://github.com/Elegying/ssr-admin-panel.git $PANEL_DIR -q
+    git clone --depth 1 "$REPO_URL" "$PANEL_DIR" -q
 fi
 
 cd $PANEL_DIR
@@ -199,8 +237,7 @@ echo
 echo -e "${CYAN}[ 4/5 ] 安装管理面板${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
-echo -e "${GREEN}安装 Python 依赖...${NC}"
-pip3 install flask gunicorn -q 2>/dev/null
+install_flask_runtime
 
 echo -e "${GREEN}生成配置文件...${NC}"
 SECRET_KEY=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
@@ -232,7 +269,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/ssr-admin-panel
-ExecStart=/usr/bin/python3 /opt/ssr-admin-panel/app.py
+ExecStart=${PYTHON3_BIN} /opt/ssr-admin-panel/app.py
 Restart=always
 RestartSec=5
 

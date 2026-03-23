@@ -25,6 +25,51 @@ fi
 # 安装目录
 INSTALL_DIR="/opt/ssr-admin-panel"
 MUDB_FILE="/usr/local/shadowsocksr/mudb.json"
+REPO_URL="https://github.com/Elegying/ssr-admin-panel.git"
+PYTHON3_BIN="/usr/bin/python3"
+
+ensure_basic_runtime() {
+    PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
+
+    if ! command -v git &> /dev/null; then
+        echo -e "${YELLOW}git 未安装，正在安装...${NC}"
+        apt-get install -y git -qq 2>/dev/null || yum install -y git -q 2>/dev/null
+    fi
+
+    if ! command -v python3 &> /dev/null; then
+        echo -e "${YELLOW}python3 未安装，正在安装...${NC}"
+        apt-get install -y python3 python3-pip -qq 2>/dev/null || yum install -y python3 python3-pip -q 2>/dev/null
+        PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
+    fi
+
+    if ! command -v pip3 &> /dev/null; then
+        echo -e "${YELLOW}pip3 未安装，正在安装...${NC}"
+        apt-get install -y python3-pip -qq 2>/dev/null || yum install -y python3-pip -q 2>/dev/null
+    fi
+}
+
+install_flask_runtime() {
+    if "$PYTHON3_BIN" - <<'PY' &>/dev/null
+import flask
+PY
+    then
+        echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
+        return
+    fi
+
+    echo -e "${GREEN}安装 Flask 运行时...${NC}"
+    apt-get install -y python3-flask -qq 2>/dev/null || \
+    yum install -y python3-flask -q 2>/dev/null || \
+    "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q
+
+    if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
+import flask
+PY
+    then
+        echo -e "${RED}Flask 安装失败，请手动安装后重试${NC}"
+        exit 1
+    fi
+}
 
 # ========== 交互式配置 ==========
 echo
@@ -71,12 +116,11 @@ fi
 
 # 安装依赖
 echo -e "${GREEN}[1/6] 安装系统依赖...${NC}"
-apt-get update -qq 2>/dev/null || yum update -q 2>/dev/null
-apt-get install -y python3-pip git -qq 2>/dev/null || yum install -y python3-pip git -q 2>/dev/null
+ensure_basic_runtime
 
 # 安装Python依赖
 echo -e "${GREEN}[2/6] 安装Python依赖...${NC}"
-pip3 install flask gunicorn -q
+install_flask_runtime
 
 # 创建目录
 echo -e "${GREEN}[3/6] 创建项目目录...${NC}"
@@ -86,9 +130,14 @@ mkdir -p $INSTALL_DIR/templates
 echo -e "${GREEN}[4/6] 下载项目文件...${NC}"
 if [ -d "$INSTALL_DIR/.git" ]; then
     cd $INSTALL_DIR
-    git pull -q
+    git pull --ff-only -q
+elif [ -d "$INSTALL_DIR" ]; then
+    TMP_CLONE_DIR=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
+    git clone --depth 1 "$REPO_URL" "$TMP_CLONE_DIR" -q
+    cp -R "$TMP_CLONE_DIR"/. "$INSTALL_DIR"/
+    rm -rf "$TMP_CLONE_DIR"
 else
-    git clone https://github.com/Elegying/ssr-admin-panel.git $INSTALL_DIR -q
+    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" -q
 fi
 
 # 创建配置文件
@@ -126,7 +175,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/ssr-admin-panel
-ExecStart=/usr/bin/python3 /opt/ssr-admin-panel/app.py
+ExecStart=${PYTHON3_BIN} /opt/ssr-admin-panel/app.py
 Restart=always
 RestartSec=5
 

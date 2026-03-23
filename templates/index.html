@@ -147,7 +147,7 @@ body {
 }
 .ops-grid {
     display: grid;
-    grid-template-columns: minmax(320px, 1.15fr) minmax(320px, 0.85fr);
+    grid-template-columns: 1fr;
     gap: 16px;
     margin-bottom: 24px;
 }
@@ -246,6 +246,12 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
 }
+.insights-grid {
+    display: grid;
+    grid-template-columns: minmax(320px, 0.95fr) minmax(320px, 1.05fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
 .metric-card {
     padding: 16px;
     border-radius: 18px;
@@ -266,31 +272,206 @@ body {
     color: var(--text-muted);
     font-size: 0.82rem;
 }
-.backup-list, .log-viewer {
-    background: var(--bg-soft);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+.insight-stack {
+    display: grid;
+    gap: 16px;
+}
+.split-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.9fr) minmax(240px, 1.1fr);
+    gap: 18px;
+    align-items: center;
+}
+.donut-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.donut-chart {
+    width: 200px;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    position: relative;
+    background: conic-gradient(var(--primary) 0deg 180deg, rgba(255,255,255,0.08) 180deg 360deg);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+.donut-chart::before {
+    content: "";
+    position: absolute;
+    inset: 20px;
+    border-radius: 50%;
+    background: rgba(9, 17, 31, 0.96);
+    border: 1px solid rgba(255,255,255,0.06);
+}
+.donut-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    text-align: center;
+    padding: 0 32px;
+}
+.donut-center strong {
+    font-size: 1.5rem;
+    letter-spacing: -0.03em;
+}
+.donut-center span {
+    margin-top: 4px;
+    font-size: 0.84rem;
+    color: var(--text-muted);
+}
+.legend-list {
+    display: grid;
+    gap: 10px;
+}
+.legend-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.legend-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-muted);
+}
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+}
+.legend-value {
+    text-align: right;
+}
+.legend-value strong {
+    display: block;
+    font-size: 0.94rem;
+}
+.legend-value span {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+.mini-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+.mini-stat {
+    padding: 14px;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.mini-stat-label {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-bottom: 8px;
+}
+.mini-stat-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+.chart-shell {
+    padding: 18px;
     border-radius: 18px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.05);
 }
-.backup-list {
-    min-height: 168px;
-    overflow: hidden;
+.top-users-list {
+    display: grid;
+    gap: 12px;
 }
-.backup-item {
+.top-user-row {
+    display: grid;
+    gap: 8px;
+}
+.top-user-head {
     display: flex;
     justify-content: space-between;
     gap: 12px;
-    padding: 14px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.88rem;
 }
-.backup-item:last-child { border-bottom: none; }
-.backup-item strong {
+.top-user-name {
+    font-weight: 600;
+}
+.top-user-meta {
+    color: var(--text-muted);
+}
+.top-user-bar {
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.07);
+    overflow: hidden;
+}
+.top-user-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--primary), var(--secondary));
+}
+.trend-shell {
+    display: grid;
+    gap: 16px;
+}
+.trend-svg {
+    width: 100%;
+    height: 260px;
     display: block;
-    font-size: 0.92rem;
-    margin-bottom: 4px;
 }
-.backup-meta {
+.trend-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+}
+.trend-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.trend-note {
     color: var(--text-muted);
     font-size: 0.82rem;
+}
+.chart-empty {
+    min-height: 220px;
+}
+.password-card {
+    padding: 16px;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.06);
+}
+.password-grid {
+    display: grid;
+    gap: 12px;
+}
+.password-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: center;
+}
+.password-row-label {
+    color: var(--text-muted);
+    font-size: 0.84rem;
+}
+.password-row-value {
+    font-weight: 700;
+    text-align: right;
+    word-break: break-all;
+}
+.password-secret {
+    font-family: "SFMono-Regular", "Fira Code", monospace;
+    font-size: 1rem;
+    letter-spacing: 0.04em;
 }
 .empty-state {
     display: flex;
@@ -300,18 +481,6 @@ body {
     text-align: center;
     color: var(--text-muted);
     padding: 16px;
-}
-.log-viewer {
-    padding: 16px;
-    min-height: 220px;
-}
-.log-viewer pre {
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-family: "SFMono-Regular", "Fira Code", monospace;
-    font-size: 0.82rem;
-    line-height: 1.6;
-    color: #dce7ff;
 }
 .toolbar {
     display: flex;
@@ -504,6 +673,8 @@ td { font-size: 0.92rem; }
 }
 @media (max-width: 1024px) {
     .ops-grid { grid-template-columns: 1fr; }
+    .insights-grid { grid-template-columns: 1fr; }
+    .split-layout { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
     body { padding: 16px; }
@@ -511,6 +682,7 @@ td { font-size: 0.92rem; }
     .header-actions { width: 100%; }
     .header-actions > * { flex: 1; justify-content: center; }
     .metrics-grid { grid-template-columns: 1fr 1fr; }
+    .mini-stats { grid-template-columns: 1fr; }
     .toolbar { flex-direction: column; align-items: stretch; }
     .sort-info { width: 100%; }
     table, thead, tbody, tr, td { display: block; }
@@ -541,7 +713,7 @@ td { font-size: 0.92rem; }
         <div class="hero-top">
             <div>
                 <h1>SSR 用户管理面板</h1>
-                <p>把用户管理、服务控制、系统资源、备份记录和最近日志整合到一个页面里，适合日常运维快速决策。</p>
+                <p>把用户管理、服务控制和系统资源整合到一个页面里，适合日常运维快速决策。</p>
                 <div class="hero-meta">
                     <span class="meta-pill">
                         <span>服务状态</span>
@@ -554,7 +726,6 @@ td { font-size: 0.92rem; }
                 </div>
             </div>
             <div class="header-actions">
-                <button class="btn btn-info" id="backupBtn">立即备份</button>
                 <a class="logout-link" href="/logout">退出登录</a>
             </div>
         </div>
@@ -627,27 +798,89 @@ td { font-size: 0.92rem; }
             </div>
         </article>
 
+    </section>
+
+    <section class="insights-grid">
         <article class="panel">
             <div class="panel-header">
                 <div>
-                    <div class="panel-title">备份与日志</div>
-                    <div class="panel-desc">备份一键可用，最近日志也能直接在面板里查看。</div>
-                </div>
-                <button class="btn btn-primary" id="refreshLogsBtn">刷新日志</button>
-            </div>
-
-            <div style="margin-bottom: 16px;">
-                <div class="panel-desc" style="margin-bottom: 10px;">最近备份</div>
-                <div class="backup-list" id="backupList">
-                    <div class="empty-state">正在读取备份记录...</div>
+                    <div class="panel-title">流量洞察</div>
+                    <div class="panel-desc">快速看总流量结构、活跃率和最占带宽的用户。</div>
                 </div>
             </div>
-
-            <div>
-                <div class="panel-desc" style="margin-bottom: 10px;">最近日志</div>
-                <div class="log-viewer">
-                    <pre id="logOutput">正在读取日志...</pre>
+            <div class="insight-stack">
+                <div class="chart-shell split-layout">
+                    <div class="donut-wrap">
+                        <div class="donut-chart" id="trafficDonut">
+                            <div class="donut-center">
+                                <strong id="donutTotal">0 B</strong>
+                                <span>总流量</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="legend-list">
+                        <div class="legend-item">
+                            <div class="legend-left">
+                                <span class="legend-dot" style="background: var(--primary);"></span>
+                                <span>上传流量</span>
+                            </div>
+                            <div class="legend-value">
+                                <strong id="legendUploadValue">0 B</strong>
+                                <span id="legendUploadPercent">0%</span>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-left">
+                                <span class="legend-dot" style="background: var(--secondary);"></span>
+                                <span>下载流量</span>
+                            </div>
+                            <div class="legend-value">
+                                <strong id="legendDownloadValue">0 B</strong>
+                                <span id="legendDownloadPercent">0%</span>
+                            </div>
+                        </div>
+                        <div class="mini-stats">
+                            <div class="mini-stat">
+                                <div class="mini-stat-label">活跃用户率</div>
+                                <div class="mini-stat-value" id="activeRateValue">0%</div>
+                            </div>
+                            <div class="mini-stat">
+                                <div class="mini-stat-label">人均总流量</div>
+                                <div class="mini-stat-value" id="avgUsageValue">0 B</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+                <div class="chart-shell">
+                    <div class="panel-header" style="margin-bottom: 12px;">
+                        <div>
+                            <div class="panel-title">高流量用户排行</div>
+                            <div class="panel-desc">当前最占带宽的 5 个用户</div>
+                        </div>
+                    </div>
+                    <div class="top-users-list" id="topUsersList">
+                        <div class="empty-state">暂无用户流量数据</div>
+                    </div>
+                </div>
+            </div>
+        </article>
+
+        <article class="panel">
+            <div class="panel-header">
+                <div>
+                    <div class="panel-title">用户趋势视图</div>
+                    <div class="panel-desc">基于最近自动刷新生成的会话趋势，用来观察总流量和活跃用户变化。</div>
+                </div>
+            </div>
+            <div class="trend-shell">
+                <div class="chart-shell chart-empty" id="trendChartShell">
+                    <svg class="trend-svg" id="trendChart" viewBox="0 0 760 260" preserveAspectRatio="none" aria-label="流量趋势图"></svg>
+                </div>
+                <div class="trend-legend">
+                    <span><span class="legend-dot" style="background: var(--primary);"></span>总流量走势</span>
+                    <span><span class="legend-dot" style="background: var(--warning);"></span>活跃用户数走势</span>
+                </div>
+                <div class="trend-note" id="trendNote">趋势会在本次会话中每 30 秒自动记录一次，刷新页面后也会尽量保留最近快照。</div>
             </div>
         </article>
     </section>
@@ -716,16 +949,45 @@ td { font-size: 0.92rem; }
     </div>
 </div>
 
+<div class="modal" id="passwordModal">
+    <div class="modal-content panel">
+        <div class="modal-header">新用户已创建</div>
+        <div class="modal-subtitle">这是本次创建用户的密码展示弹层。关闭后密码不会再自动弹出，请及时保存。</div>
+        <div class="password-card">
+            <div class="password-grid">
+                <div class="password-row">
+                    <span class="password-row-label">用户名</span>
+                    <strong class="password-row-value" id="passwordModalUser">-</strong>
+                </div>
+                <div class="password-row">
+                    <span class="password-row-label">端口</span>
+                    <strong class="password-row-value" id="passwordModalPort">-</strong>
+                </div>
+                <div class="password-row">
+                    <span class="password-row-label">密码</span>
+                    <strong class="password-row-value password-secret" id="passwordModalPassword">-</strong>
+                </div>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-primary" id="copyPasswordBtn">复制密码</button>
+            <button class="btn btn-neutral" id="closePasswordModalBtn">关闭</button>
+        </div>
+    </div>
+</div>
+
 <div class="toast-stack" id="toastStack"></div>
 
 <script>
 const csrfToken = {{ csrf_token | tojson }};
 const initialSystemInfo = {{ system_info | tojson }};
 const initialSsrStatus = {{ ssr_status | tojson }};
+const TREND_STORAGE_KEY = 'ssr-admin-panel-traffic-history';
 let usersData = [];
 let sortField = '';
 let sortDirection = 'desc';
 let activeFilter = '';
+let latestCreatedUser = null;
 
 function formatBytes(b){
     if(!b) return '0 B';
@@ -814,6 +1076,271 @@ function updateStats(){
     document.getElementById('stat-download').textContent = formatBytes(totalDownload);
 }
 
+function getActiveUsersCount(users = usersData){
+    return users.filter(user => (user.u || 0) + (user.d || 0) > 0).length;
+}
+
+function getTrafficHistory(){
+    try {
+        const history = JSON.parse(window.localStorage.getItem(TREND_STORAGE_KEY) || '[]');
+        return Array.isArray(history) ? history : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function saveTrafficHistory(history){
+    window.localStorage.setItem(TREND_STORAGE_KEY, JSON.stringify(history));
+}
+
+function recordTrafficSnapshot(){
+    const totalTraffic = usersData.reduce((sum, user) => sum + (user.u || 0) + (user.d || 0), 0);
+    const activeUsers = getActiveUsersCount();
+    const history = getTrafficHistory();
+    const now = Date.now();
+    const lastEntry = history[history.length - 1];
+
+    if(lastEntry && now - lastEntry.timestamp < 15000){
+        lastEntry.totalTraffic = totalTraffic;
+        lastEntry.activeUsers = activeUsers;
+    } else {
+        history.push({
+            timestamp: now,
+            totalTraffic,
+            activeUsers
+        });
+    }
+
+    const trimmed = history.slice(-16);
+    saveTrafficHistory(trimmed);
+    return trimmed;
+}
+
+function setTrafficDonut(totalUpload, totalDownload){
+    const total = totalUpload + totalDownload;
+    const uploadAngle = total > 0 ? (totalUpload / total) * 360 : 180;
+    const donut = document.getElementById('trafficDonut');
+    donut.style.background = `conic-gradient(var(--primary) 0deg ${uploadAngle}deg, var(--secondary) ${uploadAngle}deg 360deg)`;
+
+    document.getElementById('donutTotal').textContent = formatBytes(total);
+    document.getElementById('legendUploadValue').textContent = formatBytes(totalUpload);
+    document.getElementById('legendDownloadValue').textContent = formatBytes(totalDownload);
+    document.getElementById('legendUploadPercent').textContent = `${total > 0 ? ((totalUpload / total) * 100).toFixed(1) : '0.0'}%`;
+    document.getElementById('legendDownloadPercent').textContent = `${total > 0 ? ((totalDownload / total) * 100).toFixed(1) : '0.0'}%`;
+}
+
+function renderTopUsers(){
+    const container = document.getElementById('topUsersList');
+    container.textContent = '';
+
+    const ranked = [...usersData]
+        .map(user => ({
+            name: user.user || `端口 ${user.port}`,
+            total: (user.u || 0) + (user.d || 0),
+            port: user.port || '-'
+        }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 5);
+
+    if(!ranked.length || ranked.every(user => user.total === 0)){
+        const empty = document.createElement('div');
+        empty.className = 'empty-state';
+        empty.textContent = '还没有可展示的流量排行。';
+        container.appendChild(empty);
+        return;
+    }
+
+    const maxTotal = ranked[0].total || 1;
+    ranked.forEach(user => {
+        const row = document.createElement('div');
+        row.className = 'top-user-row';
+
+        const head = document.createElement('div');
+        head.className = 'top-user-head';
+
+        const name = document.createElement('div');
+        name.className = 'top-user-name';
+        name.textContent = user.name;
+
+        const meta = document.createElement('div');
+        meta.className = 'top-user-meta';
+        meta.textContent = `${formatBytes(user.total)} · 端口 ${user.port}`;
+
+        head.appendChild(name);
+        head.appendChild(meta);
+
+        const bar = document.createElement('div');
+        bar.className = 'top-user-bar';
+        const fill = document.createElement('div');
+        fill.className = 'top-user-fill';
+        fill.style.width = `${Math.max(8, (user.total / maxTotal) * 100)}%`;
+        bar.appendChild(fill);
+
+        row.appendChild(head);
+        row.appendChild(bar);
+        container.appendChild(row);
+    });
+}
+
+function formatTrendTime(timestamp){
+    return new Date(timestamp).toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function renderTrendChart(history){
+    const svg = document.getElementById('trendChart');
+    const note = document.getElementById('trendNote');
+    svg.innerHTML = '';
+
+    if(history.length < 2){
+        note.textContent = '趋势图会在后续自动刷新中逐步积累数据，至少需要两次快照。';
+        const empty = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        empty.setAttribute('x', '380');
+        empty.setAttribute('y', '132');
+        empty.setAttribute('text-anchor', 'middle');
+        empty.setAttribute('fill', 'rgba(159,178,209,0.9)');
+        empty.setAttribute('font-size', '16');
+        empty.textContent = '正在等待更多趋势样本...';
+        svg.appendChild(empty);
+        return;
+    }
+
+    note.textContent = `当前展示最近 ${history.length} 次快照，最后更新于 ${formatTrendTime(history[history.length - 1].timestamp)}。`;
+
+    const width = 760;
+    const height = 260;
+    const padding = { top: 18, right: 24, bottom: 34, left: 24 };
+    const innerWidth = width - padding.left - padding.right;
+    const innerHeight = height - padding.top - padding.bottom;
+    const maxTraffic = Math.max(...history.map(item => item.totalTraffic), 1);
+    const maxActive = Math.max(...history.map(item => item.activeUsers), 1);
+    const stepX = history.length > 1 ? innerWidth / (history.length - 1) : innerWidth;
+
+    const gridGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    for(let i = 0; i < 4; i += 1){
+        const y = padding.top + (innerHeight / 3) * i;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', String(padding.left));
+        line.setAttribute('x2', String(width - padding.right));
+        line.setAttribute('y1', String(y));
+        line.setAttribute('y2', String(y));
+        line.setAttribute('stroke', 'rgba(255,255,255,0.07)');
+        line.setAttribute('stroke-width', '1');
+        gridGroup.appendChild(line);
+    }
+    svg.appendChild(gridGroup);
+
+    const trafficPoints = history.map((item, index) => {
+        const x = padding.left + stepX * index;
+        const y = padding.top + innerHeight - (item.totalTraffic / maxTraffic) * innerHeight;
+        return [x, y];
+    });
+    const activePoints = history.map((item, index) => {
+        const x = padding.left + stepX * index;
+        const y = padding.top + innerHeight - (item.activeUsers / maxActive) * innerHeight;
+        return [x, y];
+    });
+
+    const trafficArea = trafficPoints.map(([x, y]) => `${x},${y}`).join(' ');
+    const area = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    area.setAttribute('points', `${padding.left},${height - padding.bottom} ${trafficArea} ${width - padding.right},${height - padding.bottom}`);
+    area.setAttribute('fill', 'rgba(79,140,255,0.12)');
+    svg.appendChild(area);
+
+    const trafficPath = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    trafficPath.setAttribute('fill', 'none');
+    trafficPath.setAttribute('stroke', '#4f8cff');
+    trafficPath.setAttribute('stroke-width', '4');
+    trafficPath.setAttribute('stroke-linecap', 'round');
+    trafficPath.setAttribute('stroke-linejoin', 'round');
+    trafficPath.setAttribute('points', trafficPoints.map(point => point.join(',')).join(' '));
+    svg.appendChild(trafficPath);
+
+    const activePath = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    activePath.setAttribute('fill', 'none');
+    activePath.setAttribute('stroke', '#ffb454');
+    activePath.setAttribute('stroke-width', '3');
+    activePath.setAttribute('stroke-linecap', 'round');
+    activePath.setAttribute('stroke-linejoin', 'round');
+    activePath.setAttribute('stroke-dasharray', '6 8');
+    activePath.setAttribute('points', activePoints.map(point => point.join(',')).join(' '));
+    svg.appendChild(activePath);
+
+    history.forEach((item, index) => {
+        const [trafficX, trafficY] = trafficPoints[index];
+        const [activeX, activeY] = activePoints[index];
+
+        const trafficDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        trafficDot.setAttribute('cx', String(trafficX));
+        trafficDot.setAttribute('cy', String(trafficY));
+        trafficDot.setAttribute('r', '4.5');
+        trafficDot.setAttribute('fill', '#4f8cff');
+        svg.appendChild(trafficDot);
+
+        const activeDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        activeDot.setAttribute('cx', String(activeX));
+        activeDot.setAttribute('cy', String(activeY));
+        activeDot.setAttribute('r', '4');
+        activeDot.setAttribute('fill', '#ffb454');
+        svg.appendChild(activeDot);
+
+        if(index === 0 || index === history.length - 1 || index === Math.floor(history.length / 2)){
+            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            label.setAttribute('x', String(trafficX));
+            label.setAttribute('y', String(height - 10));
+            label.setAttribute('text-anchor', 'middle');
+            label.setAttribute('fill', 'rgba(159,178,209,0.9)');
+            label.setAttribute('font-size', '12');
+            label.textContent = formatTrendTime(item.timestamp);
+            svg.appendChild(label);
+        }
+    });
+}
+
+function renderInsights(){
+    const totalUpload = usersData.reduce((sum, user) => sum + (user.u || 0), 0);
+    const totalDownload = usersData.reduce((sum, user) => sum + (user.d || 0), 0);
+    const activeUsers = getActiveUsersCount();
+    const activeRate = usersData.length ? (activeUsers / usersData.length) * 100 : 0;
+    const totalTraffic = totalUpload + totalDownload;
+
+    setTrafficDonut(totalUpload, totalDownload);
+    document.getElementById('activeRateValue').textContent = `${activeRate.toFixed(1)}%`;
+    document.getElementById('avgUsageValue').textContent = usersData.length ? formatBytes(totalTraffic / usersData.length) : '0 B';
+
+    renderTopUsers();
+    const history = recordTrafficSnapshot();
+    renderTrendChart(history);
+}
+
+function openPasswordModal(user){
+    latestCreatedUser = user;
+    document.getElementById('passwordModalUser').textContent = user.user || '-';
+    document.getElementById('passwordModalPort').textContent = String(user.port || '-');
+    document.getElementById('passwordModalPassword').textContent = user.generated_password || '-';
+    document.getElementById('passwordModal').classList.add('show');
+}
+
+function closePasswordModal(){
+    document.getElementById('passwordModal').classList.remove('show');
+}
+
+async function copyCreatedPassword(){
+    if(!latestCreatedUser || !latestCreatedUser.generated_password){
+        showToast('没有可复制的密码', '', 'error');
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(latestCreatedUser.generated_password);
+        showToast('密码已复制', '新建用户密码已经复制到剪贴板。', 'success');
+    } catch (error) {
+        showToast('复制失败', '当前环境不支持自动复制，请手动选择密码。', 'error');
+    }
+}
+
 async function apiFetch(url, options = {}){
     const settings = { ...options };
     const method = (settings.method || 'GET').toUpperCase();
@@ -845,6 +1372,7 @@ async function loadUsers(showErrors = false){
         if(data.success){
             usersData = data.data;
             updateStats();
+            renderInsights();
             if(sortField){
                 sortUsers(sortField, false);
             } else {
@@ -860,17 +1388,13 @@ async function loadUsers(showErrors = false){
 
 async function loadOpsData(showErrors = false){
     try {
-        const [systemInfo, ssrStatus, backups, logs] = await Promise.all([
+        const [systemInfo, ssrStatus] = await Promise.all([
             apiFetch('/api/system'),
-            apiFetch('/api/ssr/status'),
-            apiFetch('/api/backups/list'),
-            apiFetch('/api/ssr/log?lines=20')
+            apiFetch('/api/ssr/status')
         ]);
 
         setSystemInfo(systemInfo);
         setSsrStatus(ssrStatus.status);
-        renderBackups(backups.backups || []);
-        renderLogs(logs.output || '日志为空');
         updateLastUpdated();
     } catch (error) {
         if(showErrors){
@@ -1032,45 +1556,6 @@ function renderUsers(filter = ''){
     });
 }
 
-function renderBackups(backups){
-    const list = document.getElementById('backupList');
-    list.textContent = '';
-
-    if(!backups.length){
-        const empty = document.createElement('div');
-        empty.className = 'empty-state';
-        empty.textContent = '还没有备份记录，建议先点一次“立即备份”。';
-        list.appendChild(empty);
-        return;
-    }
-
-    backups.slice(0, 6).forEach(item => {
-        const row = document.createElement('div');
-        row.className = 'backup-item';
-
-        const left = document.createElement('div');
-        const name = document.createElement('strong');
-        name.textContent = item.name;
-        left.appendChild(name);
-        const meta = document.createElement('div');
-        meta.className = 'backup-meta';
-        meta.textContent = item.time;
-        left.appendChild(meta);
-
-        const right = document.createElement('div');
-        right.className = 'backup-meta';
-        right.textContent = formatBytes(item.size || 0);
-
-        row.appendChild(left);
-        row.appendChild(right);
-        list.appendChild(row);
-    });
-}
-
-function renderLogs(text){
-    document.getElementById('logOutput').textContent = text || '日志为空';
-}
-
 function openAddModal(){
     document.getElementById('addModal').classList.add('show');
     document.getElementById('new-port').focus();
@@ -1112,6 +1597,9 @@ async function addUser(){
         clearAddForm();
         closeAddModal();
         await loadUsers();
+        if(result.user){
+            openPasswordModal(result.user);
+        }
     } catch (error) {
         showToast('添加失败', error.message, 'error');
     } finally {
@@ -1170,23 +1658,10 @@ async function runSsrAction(action, buttonId){
     }
 }
 
-async function createBackup(){
-    setButtonBusy('backupBtn', true, '备份中...');
-    try {
-        const result = await apiFetch('/api/backup', { method: 'POST' });
-        showToast('备份完成', result.message, 'success');
-        await loadOpsData();
-    } catch (error) {
-        showToast('备份失败', error.message, 'error');
-    } finally {
-        setButtonBusy('backupBtn', false);
-    }
-}
-
 async function refreshEverything(showToastOnSuccess = false){
     await Promise.all([loadUsers(true), loadOpsData(true)]);
     if(showToastOnSuccess){
-        showToast('刷新完成', '用户、运行状态、备份和日志都已更新。', 'info');
+        showToast('刷新完成', '用户和运行状态都已更新。', 'info');
     }
 }
 
@@ -1197,23 +1672,29 @@ document.querySelectorAll('th.sortable').forEach(th => {
 document.getElementById('openAddModalBtn').addEventListener('click', openAddModal);
 document.getElementById('closeModalBtn').addEventListener('click', closeAddModal);
 document.getElementById('submitAddUserBtn').addEventListener('click', addUser);
+document.getElementById('copyPasswordBtn').addEventListener('click', copyCreatedPassword);
+document.getElementById('closePasswordModalBtn').addEventListener('click', closePasswordModal);
 document.getElementById('refreshBtn').addEventListener('click', () => refreshEverything(true));
 document.getElementById('sortBtn').addEventListener('click', () => sortUsers('usage'));
 document.getElementById('search').addEventListener('input', event => renderUsers(event.target.value));
 document.getElementById('refreshOpsBtn').addEventListener('click', () => loadOpsData(true));
-document.getElementById('refreshLogsBtn').addEventListener('click', () => loadOpsData(true));
 document.getElementById('startSsrBtn').addEventListener('click', () => runSsrAction('start', 'startSsrBtn'));
 document.getElementById('restartSsrBtn').addEventListener('click', () => runSsrAction('restart', 'restartSsrBtn'));
 document.getElementById('stopSsrBtn').addEventListener('click', () => runSsrAction('stop', 'stopSsrBtn'));
-document.getElementById('backupBtn').addEventListener('click', createBackup);
 document.getElementById('addModal').addEventListener('click', event => {
     if(event.target.id === 'addModal'){
         closeAddModal();
     }
 });
+document.getElementById('passwordModal').addEventListener('click', event => {
+    if(event.target.id === 'passwordModal'){
+        closePasswordModal();
+    }
+});
 document.addEventListener('keydown', event => {
     if(event.key === 'Escape'){
         closeAddModal();
+        closePasswordModal();
     }
 });
 
