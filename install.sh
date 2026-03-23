@@ -93,15 +93,25 @@ fi
 
 # 创建配置文件
 echo -e "${GREEN}[5/6] 生成配置文件...${NC}"
-cat > $INSTALL_DIR/config.py << CONFIG
-# SSR Admin Panel 配置文件
-# 由安装脚本自动生成
+SECRET_KEY=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
+INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" python3 << 'PY'
+import os
+from pathlib import Path
 
-ADMIN_USER = '${ADMIN_USER}'
-ADMIN_PASS = '${ADMIN_PASS}'
-SECRET_KEY = '$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)'
-MUDB_FILE = '${MUDB_FILE}'
-CONFIG
+config_path = Path(os.environ["INSTALL_DIR"]) / "config.py"
+values = {
+    "ADMIN_USER": os.environ["ADMIN_USER"],
+    "ADMIN_PASS": os.environ["ADMIN_PASS"],
+    "SECRET_KEY": os.environ["SECRET_KEY"],
+    "MUDB_FILE": os.environ["MUDB_FILE"],
+}
+
+with config_path.open("w", encoding="utf-8") as f:
+    f.write("# SSR Admin Panel 配置文件\n")
+    f.write("# 由安装脚本自动生成\n\n")
+    for key, value in values.items():
+        f.write(f"{key} = {value!r}\n")
+PY
 
 echo -e "${GREEN}✓ 配置文件已生成: $INSTALL_DIR/config.py${NC}"
 

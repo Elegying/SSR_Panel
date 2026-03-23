@@ -265,14 +265,23 @@ pip3 install flask gunicorn -q 2>/dev/null
 
 echo -e "${GREEN}生成配置文件...${NC}"
 SECRET_KEY=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
+PANEL_DIR="$PANEL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" python3 << 'PY'
+import os
+from pathlib import Path
 
-cat > $PANEL_DIR/config.py << CONFIG
-# SSR Admin Panel 配置文件
-ADMIN_USER = '${ADMIN_USER}'
-ADMIN_PASS = '${ADMIN_PASS}'
-SECRET_KEY = '${SECRET_KEY}'
-MUDB_FILE = '${MUDB_FILE}'
-CONFIG
+config_path = Path(os.environ["PANEL_DIR"]) / "config.py"
+values = {
+    "ADMIN_USER": os.environ["ADMIN_USER"],
+    "ADMIN_PASS": os.environ["ADMIN_PASS"],
+    "SECRET_KEY": os.environ["SECRET_KEY"],
+    "MUDB_FILE": os.environ["MUDB_FILE"],
+}
+
+with config_path.open("w", encoding="utf-8") as f:
+    f.write("# SSR Admin Panel 配置文件\n")
+    for key, value in values.items():
+        f.write(f"{key} = {value!r}\n")
+PY
 
 echo -e "${GREEN}配置系统服务...${NC}"
 cat > /etc/systemd/system/ssr-admin.service << 'SERVICE'

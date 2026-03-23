@@ -95,6 +95,7 @@ h1 {
 .btn-danger { background: var(--danger); color: white; }
 .btn-warning { background: var(--warning); color: white; }
 .btn-info { background: #4299e1; color: white; }
+.btn-neutral { background: #4a5568; color: white; }
 .btn:hover { opacity: 0.9; }
 .btn.active { box-shadow: 0 0 0 3px rgba(102,126,234,0.5); }
 .users-table {
@@ -247,10 +248,10 @@ td { font-size: 0.9rem; }
     </div>
 </div>
 <div class="actions">
-    <button class="btn btn-primary" onclick="showAddModal()">➕ 添加用户</button>
-    <button class="btn btn-success" onclick="refreshData()">🔄 刷新数据</button>
-    <button class="btn btn-info" id="sortBtn" onclick="toggleSort()">📊 流量排序</button>
-    <input type="text" class="search-box" id="search" placeholder="搜索用户名/端口..." oninput="filterUsers()">
+    <button class="btn btn-primary" id="openAddModalBtn">➕ 添加用户</button>
+    <button class="btn btn-success" id="refreshBtn">🔄 刷新数据</button>
+    <button class="btn btn-info" id="sortBtn">📊 流量排序</button>
+    <input type="text" class="search-box" id="search" placeholder="搜索用户名/端口...">
     <span class="sort-info" id="sortInfo">点击表头或按钮排序</span>
 </div>
 <div class="users-table">
@@ -291,28 +292,65 @@ td { font-size: 0.9rem; }
             <input type="number" id="new-transfer" placeholder="默认250" value="250">
         </div>
         <div class="form-actions">
-            <button class="btn btn-primary" onclick="addUser()">确认添加</button>
-            <button class="btn" style="background:#4a5568" onclick="closeModal()">取消</button>
+            <button class="btn btn-primary" id="submitAddUserBtn">确认添加</button>
+            <button class="btn btn-neutral" id="closeModalBtn">取消</button>
         </div>
     </div>
 </div>
 <script>
+const csrfToken = {{ csrf_token | tojson }};
 let usersData = [];
 let sortField = '';
 let sortDirection = 'desc';
 
 function formatBytes(b){if(!b)return'0 B';const u=['B','KB','MB','GB','TB'];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++;}return b.toFixed(2)+' '+u[i];}
 
-function loadUsers(){
-    fetch('/api/users').then(r=>r.json()).then(d=>{
-        if(d.success){usersData=d.data;renderUsers();}
-    });
+async function apiFetch(url, options = {}){
+    const settings = { ...options };
+    const method = (settings.method || 'GET').toUpperCase();
+    const headers = new Headers(settings.headers || {});
+    if(method !== 'GET'){
+        headers.set('X-CSRF-Token', csrfToken);
+    }
+    settings.method = method;
+    settings.headers = headers;
+
+    const response = await fetch(url, settings);
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch (error) {
+        payload = { success: false, error: '服务器返回了无效响应' };
+    }
+
+    if(!response.ok){
+        const message = payload && payload.error ? payload.error : `请求失败 (${response.status})`;
+        throw new Error(message);
+    }
+
+    return payload;
 }
 
-function sortUsers(field){
-    if(sortField === field){
+async function loadUsers(){
+    try {
+        const data = await apiFetch('/api/users');
+        if(data.success){
+            usersData = data.data;
+            if(sortField){
+                sortUsers(sortField, false);
+            } else {
+                renderUsers();
+            }
+        }
+    } catch (error) {
+        alert(error.message);
+    }
+}
+
+function sortUsers(field, shouldToggle = true){
+    if(shouldToggle && sortField === field){
         sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
-    } else {
+    } else if(sortField !== field){
         sortField = field;
         sortDirection = 'desc';
     }
@@ -327,8 +365,9 @@ function sortUsers(field){
     };
     
     usersData.sort((a, b) => {
-        let va = sortMap[field](a);
-        let vb = sortMap[field](b);
+        const mapper = sortMap[field];
+        let va = mapper ? mapper(a) : '';
+        let vb = mapper ? mapper(b) : '';
         if(typeof va === 'string'){
             return sortDirection === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
         }
@@ -366,37 +405,166 @@ document.querySelectorAll('th.sortable').forEach(th => {
     th.addEventListener('click', () => sortUsers(th.dataset.sort));
 });
 
+function currentFilter(){
+    return document.getElementById('search').value.trim();
+}
+
+function createActionButton(label, className, handler){
+    const button = document.createElement('button');
+    if(className){
+        button.className = className;
+    }
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', handler);
+    return button;
+}
+
 function renderUsers(filter=''){
-    const tbody=document.getElementById('users-body');
-    let filtered=usersData;
-    if(filter){filtered=usersData.filter(u=>u.user.includes(filter)||String(u.port).includes(filter));}
-    tbody.innerHTML=filtered.map(u=>{
-        const total=(u.u||0)+(u.d||0);
-        const pct=u.usage_percent||0;
-        const pctClass=pct>90?'danger':pct>70?'warning':'';
-        return '<tr><td><strong>'+u.user+'</strong></td><td>'+u.port+'</td><td><span class="status-badge '+(u.enable?'status-on':'status-off')+'">'+(u.enable?'启用':'禁用')+'</span></td><td>'+formatBytes(u.u)+'</td><td>'+formatBytes(u.d)+'</td><td><div class="progress-bar"><div class="progress-fill '+pctClass+'" style="width:'+Math.min(100,pct)+'%"></div></div><small style="color:var(--text-muted)">'+formatBytes(total)+' / '+u.transfer_limit_human+'</small></td><td class="action-btns"><button class="btn-warning" onclick="resetUser(\''+u.user+'\')">重置</button><button onclick="toggleUser(\''+u.user+'\')">'+(u.enable?'禁用':'启用')+'</button><button class="btn-danger" onclick="deleteUser(\''+u.user+'\')">删除</button></td></tr>';
-    }).join('');
+    const tbody = document.getElementById('users-body');
+    const normalizedFilter = filter.trim();
+    const filtered = normalizedFilter
+        ? usersData.filter(u => (u.user || '').includes(normalizedFilter) || String(u.port).includes(normalizedFilter))
+        : usersData;
+
+    tbody.textContent = '';
+
+    filtered.forEach(u => {
+        const total = (u.u || 0) + (u.d || 0);
+        const pct = u.usage_percent || 0;
+        const pctClass = pct > 90 ? 'danger' : pct > 70 ? 'warning' : '';
+
+        const tr = document.createElement('tr');
+
+        const userCell = document.createElement('td');
+        const strong = document.createElement('strong');
+        strong.textContent = u.user || '';
+        userCell.appendChild(strong);
+        tr.appendChild(userCell);
+
+        const portCell = document.createElement('td');
+        portCell.textContent = String(u.port ?? '');
+        tr.appendChild(portCell);
+
+        const statusCell = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.className = `status-badge ${u.enable ? 'status-on' : 'status-off'}`;
+        badge.textContent = u.enable ? '启用' : '禁用';
+        statusCell.appendChild(badge);
+        tr.appendChild(statusCell);
+
+        const uploadCell = document.createElement('td');
+        uploadCell.textContent = formatBytes(u.u);
+        tr.appendChild(uploadCell);
+
+        const downloadCell = document.createElement('td');
+        downloadCell.textContent = formatBytes(u.d);
+        tr.appendChild(downloadCell);
+
+        const usageCell = document.createElement('td');
+        const progressBar = document.createElement('div');
+        progressBar.className = 'progress-bar';
+        const progressFill = document.createElement('div');
+        progressFill.className = `progress-fill ${pctClass}`.trim();
+        progressFill.style.width = `${Math.min(100, pct)}%`;
+        progressBar.appendChild(progressFill);
+        usageCell.appendChild(progressBar);
+
+        const usageText = document.createElement('small');
+        usageText.style.color = 'var(--text-muted)';
+        usageText.textContent = `${formatBytes(total)} / ${u.transfer_limit_human}`;
+        usageCell.appendChild(usageText);
+        tr.appendChild(usageCell);
+
+        const actionCell = document.createElement('td');
+        actionCell.className = 'action-btns';
+        actionCell.appendChild(createActionButton('重置', 'btn-warning', () => resetUser(u.user)));
+        actionCell.appendChild(createActionButton(u.enable ? '禁用' : '启用', 'btn-neutral', () => toggleUser(u.user)));
+        actionCell.appendChild(createActionButton('删除', 'btn-danger', () => deleteUser(u.user)));
+        tr.appendChild(actionCell);
+
+        tbody.appendChild(tr);
+    });
 }
 
 function refreshData(){loadUsers();}
 function filterUsers(){renderUsers(document.getElementById('search').value);}
 function showAddModal(){document.getElementById('addModal').classList.add('show');}
 function closeModal(){document.getElementById('addModal').classList.remove('show');}
-function addUser(){
+async function addUser(){
+    const port = document.getElementById('new-port').value.trim();
+    if(!port){
+        alert('请先填写端口');
+        return;
+    }
+
     const data={
-        port:document.getElementById('new-port').value,
-        user:document.getElementById('new-user').value,
-        password:document.getElementById('new-password').value,
-        transfer:document.getElementById('new-transfer').value*1024*1024*1024
+        port,
+        user:document.getElementById('new-user').value.trim(),
+        password:document.getElementById('new-password').value.trim(),
+        transfer:Number(document.getElementById('new-transfer').value || 0) * 1024 * 1024 * 1024
     };
-    fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).then(d=>{
-        alert(d.success?'添加成功!':'错误: '+d.error);
-        if(d.success){closeModal();loadUsers();}
-    });
+
+    try {
+        const result = await apiFetch('/api/add', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify(data)
+        });
+        const generatedPassword = result.user && result.user.generated_password ? `\n密码: ${result.user.generated_password}` : '';
+        alert(`添加成功!${generatedPassword}`);
+        if(result.success){
+            closeModal();
+            loadUsers();
+        }
+    } catch (error) {
+        alert(`错误: ${error.message}`);
+    }
 }
-function deleteUser(user){if(confirm('确定删除用户 '+user+'?')){fetch('/api/delete/'+user).then(r=>r.json()).then(d=>{alert(d.message);loadUsers();});}}
-function resetUser(user){if(confirm('确定重置用户 '+user+' 的流量?')){fetch('/api/reset/'+user).then(r=>r.json()).then(d=>{alert(d.message);loadUsers();});}}
-function toggleUser(user){fetch('/api/toggle/'+user).then(r=>r.json()).then(d=>{alert(d.message);loadUsers();});}
+
+async function deleteUser(user){
+    if(!confirm(`确定删除用户 ${user}?`)){
+        return;
+    }
+    try {
+        const result = await apiFetch(`/api/delete/${encodeURIComponent(user)}`, { method:'POST' });
+        alert(result.message);
+        loadUsers();
+    } catch (error) {
+        alert(error.message);
+    }
+}
+
+async function resetUser(user){
+    if(!confirm(`确定重置用户 ${user} 的流量?`)){
+        return;
+    }
+    try {
+        const result = await apiFetch(`/api/reset/${encodeURIComponent(user)}`, { method:'POST' });
+        alert(result.message);
+        loadUsers();
+    } catch (error) {
+        alert(error.message);
+    }
+}
+
+async function toggleUser(user){
+    try {
+        const result = await apiFetch(`/api/toggle/${encodeURIComponent(user)}`, { method:'POST' });
+        alert(result.message);
+        loadUsers();
+    } catch (error) {
+        alert(error.message);
+    }
+}
+
+document.getElementById('openAddModalBtn').addEventListener('click', showAddModal);
+document.getElementById('refreshBtn').addEventListener('click', refreshData);
+document.getElementById('sortBtn').addEventListener('click', toggleSort);
+document.getElementById('search').addEventListener('input', filterUsers);
+document.getElementById('submitAddUserBtn').addEventListener('click', addUser);
+document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+
 loadUsers();
 setInterval(loadUsers,30000);
 </script>
