@@ -151,6 +151,15 @@ PY
     fi
 }
 
+apply_ssr_python_compatibility_fix() {
+    if [ ! -d "$SSR_DIR" ]; then
+        return 0
+    fi
+
+    echo -e "${GREEN}修复 ShadowsocksR 的 Python 3.10+ 兼容性...${NC}"
+    "$PYTHON3_BIN" "$PANEL_DIR/scripts/patch_ssr_python_compat.py" "$SSR_DIR"
+}
+
 prepare_minimal_runtime
 
 echo
@@ -253,6 +262,8 @@ else
         echo -e "${RED}SSR安装可能失败，请检查${NC}"
     fi
 fi
+
+apply_ssr_python_compatibility_fix
 
 echo
 

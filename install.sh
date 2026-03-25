@@ -25,6 +25,7 @@ fi
 # 安装目录
 INSTALL_DIR="/opt/ssr-admin-panel"
 MUDB_FILE="/usr/local/shadowsocksr/mudb.json"
+SSR_DIR="/usr/local/shadowsocksr"
 REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/ssr-admin-panel.git}"
 REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
 PYTHON3_BIN="/usr/bin/python3"
@@ -79,6 +80,15 @@ PY
         echo -e "${RED}Flask 安装失败，请手动安装后重试${NC}"
         exit 1
     fi
+}
+
+apply_ssr_python_compatibility_fix() {
+    if [ ! -d "$SSR_DIR" ]; then
+        return 0
+    fi
+
+    echo -e "${GREEN}检测到 SSR 目录，正在修复 Python 3.10+ 兼容性...${NC}"
+    "$PYTHON3_BIN" "$INSTALL_DIR/scripts/patch_ssr_python_compat.py" "$SSR_DIR"
 }
 
 # ========== 交互式配置 ==========
@@ -151,6 +161,7 @@ else
 fi
 
 chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" 2>/dev/null || true
+apply_ssr_python_compatibility_fix
 
 # 创建配置文件
 echo -e "${GREEN}[5/6] 生成配置文件...${NC}"

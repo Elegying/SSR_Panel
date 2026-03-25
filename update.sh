@@ -9,6 +9,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 PANEL_DIR="${SSR_ADMIN_PANEL_DIR:-/opt/ssr-admin-panel}"
+SSR_DIR="${SSR_ADMIN_SSR_DIR:-/usr/local/shadowsocksr}"
 REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/ssr-admin-panel.git}"
 TARGET_REF="${1:-${SSR_ADMIN_UPDATE_REF:-main}}"
 SERVICE_NAME="${SSR_ADMIN_SERVICE_NAME:-ssr-admin}"
@@ -65,6 +66,10 @@ fi
 if [ ! -x "${PYTHON3_BIN}" ]; then
     echo -e "${RED}未检测到可用的 python3，可执行路径: ${PYTHON3_BIN}${NC}"
     exit 1
+fi
+
+if [ -d "${SSR_DIR}" ]; then
+    echo -e "${CYAN}检测到 SSR 目录，应用 Python 兼容修复...${NC}"
 fi
 
 CURRENT_VERSION="$(read_version "${PANEL_DIR}")"
@@ -126,6 +131,10 @@ sync_dir(source, target)
 PY
 
 chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" 2>/dev/null || true
+
+if [ -d "${SSR_DIR}" ]; then
+    "${PYTHON3_BIN}" "${PANEL_DIR}/scripts/patch_ssr_python_compat.py" "${SSR_DIR}"
+fi
 
 systemctl daemon-reload
 systemctl restart "${SERVICE_NAME}"
