@@ -818,6 +818,10 @@ body::before {
 }
 .insights-grid {
     grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+    align-items: start;
+}
+.insights-grid > .panel {
+    height: auto;
 }
 .panel {
     padding: 22px;
@@ -895,29 +899,45 @@ body::before {
     font-size: 1.5rem;
 }
 .chart-shell {
-    padding: 20px;
+    padding: 16px;
     border-radius: 20px;
     background: rgba(255,255,255,0.035);
 }
 .split-layout {
-    grid-template-columns: minmax(200px, 0.78fr) minmax(260px, 1.22fr);
-    gap: 22px;
+    grid-template-columns: minmax(180px, 0.72fr) minmax(240px, 1.28fr);
+    gap: 16px;
+    align-items: center;
 }
 .donut-chart {
-    width: min(220px, 100%);
+    width: min(170px, 100%);
 }
 .legend-item,
 .mini-stat {
     border-radius: 16px;
 }
+.legend-item {
+    padding: 10px 12px;
+}
+.mini-stat {
+    padding: 12px;
+}
+.mini-stat-value {
+    font-size: 1.05rem;
+}
 .top-users-list {
-    gap: 14px;
+    gap: 10px;
 }
 .top-user-row {
-    padding: 14px 16px;
+    padding: 10px 12px;
     border-radius: 16px;
     background: rgba(255,255,255,0.035);
     border: 1px solid rgba(255,255,255,0.05);
+}
+.top-user-head {
+    font-size: 0.82rem;
+}
+.top-user-bar {
+    height: 8px;
 }
 .toolbar {
     justify-content: space-between;
