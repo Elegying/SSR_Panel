@@ -677,15 +677,393 @@ td { font-size: 0.92rem; }
         margin-bottom: 4px;
     }
 }
+
+:root {
+    --primary: #2f6df6;
+    --secondary: #15b8a6;
+    --success: #4cc38a;
+    --danger: #ff6b74;
+    --warning: #f2b24f;
+    --info: #79a8ff;
+    --bg-dark: #08111d;
+    --bg-panel: rgba(8, 17, 31, 0.78);
+    --bg-soft: rgba(255, 255, 255, 0.045);
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #f4f7fb;
+    --text-muted: #9eabc2;
+    --shadow: 0 28px 60px rgba(1, 8, 20, 0.34);
+}
+body {
+    position: relative;
+    padding: 28px;
+    background:
+        radial-gradient(circle at top left, rgba(47, 109, 246, 0.16), transparent 24%),
+        radial-gradient(circle at 100% 0, rgba(21, 184, 166, 0.14), transparent 26%),
+        linear-gradient(180deg, #08111d 0%, #0b1422 46%, #0d1727 100%);
+}
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,0.35), transparent 82%);
+}
+.container {
+    position: relative;
+    max-width: 1360px;
+}
+.hero {
+    margin-bottom: 18px;
+    padding: 34px;
+    border-radius: 28px;
+    background:
+        linear-gradient(135deg, rgba(47, 109, 246, 0.2), rgba(21, 184, 166, 0.08)),
+        rgba(8, 17, 31, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.hero::after {
+    inset: auto -8% -42% auto;
+    width: 360px;
+    height: 360px;
+    background: radial-gradient(circle, rgba(255,255,255,0.12), transparent 66%);
+}
+.hero-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.85fr);
+    gap: 24px;
+    align-items: stretch;
+}
+.hero-copy {
+    display: grid;
+    align-content: start;
+}
+.hero-kicker {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #d9e6ff;
+    font-size: 0.78rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+}
+.hero h1 {
+    max-width: 12ch;
+    line-height: 0.96;
+    margin-bottom: 14px;
+}
+.hero p {
+    max-width: 56ch;
+    font-size: 1rem;
+}
+.hero-meta {
+    gap: 10px;
+    margin-top: 22px;
+}
+.meta-pill {
+    min-height: 44px;
+    padding: 10px 16px;
+    background: rgba(255,255,255,0.06);
+}
+.hero-aside {
+    display: grid;
+    align-content: space-between;
+    gap: 18px;
+    padding: 22px;
+    border-radius: 22px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+}
+.hero-aside-label {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+.hero-aside-value {
+    font-size: 1.55rem;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+}
+.hero-aside p {
+    max-width: none;
+    font-size: 0.94rem;
+}
+.logout-link {
+    justify-content: center;
+    min-height: 46px;
+    background: rgba(255,255,255,0.08);
+}
+.stats-grid {
+    gap: 14px;
+    margin-bottom: 18px;
+}
+.stat-card, .panel {
+    background: rgba(8, 17, 31, 0.76);
+    border-radius: 24px;
+}
+.stat-card {
+    padding: 20px 22px;
+}
+.stat-card::before {
+    height: 3px;
+    opacity: 0.75;
+}
+.stat-value {
+    font-size: clamp(1.8rem, 2vw, 2.2rem);
+}
+.ops-grid,
+.insights-grid {
+    gap: 18px;
+    margin-bottom: 18px;
+}
+.ops-grid {
+    grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr);
+}
+.insights-grid {
+    grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+}
+.panel {
+    padding: 22px;
+}
+.panel-header {
+    margin-bottom: 16px;
+}
+.panel-title {
+    font-size: 1.04rem;
+    letter-spacing: -0.02em;
+}
+.panel-desc {
+    max-width: 42rem;
+    line-height: 1.55;
+}
+.service-panel,
+.metrics-panel {
+    min-height: 100%;
+}
+.service-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}
+.service-actions .btn {
+    width: 100%;
+}
+.service-glance {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+.service-glance-item {
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: var(--bg-soft);
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.service-glance-item span {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+.service-glance-item strong {
+    font-size: 0.96rem;
+}
+.metrics-grid {
+    gap: 10px;
+}
+.metric-card {
+    padding: 18px;
+    border-radius: 16px;
+}
+.metric-value {
+    font-size: 1.5rem;
+}
+.chart-shell {
+    padding: 20px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.035);
+}
+.split-layout {
+    grid-template-columns: minmax(200px, 0.78fr) minmax(260px, 1.22fr);
+    gap: 22px;
+}
+.donut-chart {
+    width: min(220px, 100%);
+}
+.legend-item,
+.mini-stat {
+    border-radius: 16px;
+}
+.top-users-list {
+    gap: 14px;
+}
+.top-user-row {
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.toolbar {
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 16px;
+}
+.toolbar-actions,
+.toolbar-search {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.toolbar-actions {
+    flex: 0 0 auto;
+}
+.toolbar-search {
+    flex: 1 1 360px;
+    justify-content: flex-end;
+}
+.search-box {
+    max-width: 360px;
+    background: rgba(255,255,255,0.04);
+}
+.sort-info {
+    white-space: nowrap;
+}
+.users-table {
+    border-radius: 18px;
+    overflow: auto;
+    border: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.025);
+}
+table {
+    min-width: 100%;
+}
+th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: rgba(23, 39, 68, 0.94);
+}
+th, td {
+    padding: 16px 18px;
+}
+tr {
+    border-bottom-color: rgba(255,255,255,0.04);
+}
+.user-row:hover {
+    background: rgba(255,255,255,0.025);
+}
+.user-name {
+    display: block;
+    font-size: 0.96rem;
+}
+.cell-meta {
+    margin-top: 5px;
+    color: var(--text-muted);
+    font-size: 0.79rem;
+}
+.port-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.06);
+    font-family: "SFMono-Regular", "Fira Code", monospace;
+    font-size: 0.85rem;
+}
+.data-value {
+    font-weight: 600;
+}
+.progress-wrap {
+    min-width: 180px;
+}
+.progress-bar {
+    height: 9px;
+}
+.usage-text {
+    font-size: 0.8rem;
+}
+.action-cell {
+    min-width: 180px;
+}
+.action-btns {
+    align-items: center;
+}
+.action-btns button {
+    padding: 8px 12px;
+}
+.modal-content {
+    width: min(100%, 520px);
+    padding: 30px;
+}
+.toast-stack {
+    right: 22px;
+    bottom: 22px;
+}
+@media (max-width: 1180px) {
+    .hero-top,
+    .ops-grid,
+    .insights-grid {
+        grid-template-columns: 1fr;
+    }
+    .toolbar-search {
+        justify-content: flex-start;
+    }
+}
+@media (max-width: 768px) {
+    body {
+        padding: 16px;
+    }
+    .hero,
+    .panel,
+    .stat-card {
+        border-radius: 20px;
+    }
+    .hero {
+        padding: 24px 20px;
+    }
+    .hero h1 {
+        max-width: none;
+    }
+    .service-actions,
+    .service-glance,
+    .metrics-grid,
+    .mini-stats,
+    .split-layout {
+        grid-template-columns: 1fr;
+    }
+    .toolbar-actions,
+    .toolbar-search {
+        width: 100%;
+    }
+    .toolbar-actions > *,
+    .toolbar-search > * {
+        width: 100%;
+    }
+    .search-box {
+        max-width: none;
+    }
+}
 </style>
 </head>
 <body>
 <div class="container">
     <header class="hero">
         <div class="hero-top">
-            <div>
+            <div class="hero-copy">
+                <div class="hero-kicker">SSR Control Center</div>
                 <h1>SSR 用户管理面板</h1>
-                <p>把用户管理、服务控制和系统资源整合到一个页面里，适合日常运维快速决策。</p>
+                <p>聚合服务状态、系统资源与用户配置，让日常巡检、账号管理和服务控制都能在一个页面里快速完成。</p>
                 <div class="hero-meta">
                     <span class="meta-pill">
                         <span>服务状态</span>
@@ -695,10 +1073,21 @@ td { font-size: 0.92rem; }
                         <span>最近刷新</span>
                         <strong id="lastUpdatedText">刚刚</strong>
                     </span>
+                    <span class="meta-pill">
+                        <span>当前用户</span>
+                        <strong id="heroTotalUsers">{{ total_users }}</strong>
+                    </span>
                 </div>
             </div>
-            <div class="header-actions">
-                <a class="logout-link" href="/logout">退出登录</a>
+            <div class="hero-aside">
+                <div>
+                    <div class="hero-aside-label">运维概览</div>
+                    <div class="hero-aside-value">简洁、集中、可快速判断</div>
+                </div>
+                <p>保留高频操作，弱化低价值噪音。刷新、启停服务、查看流量和管理用户都尽量一步到位。</p>
+                <div class="header-actions">
+                    <a class="logout-link" href="/logout">退出登录</a>
+                </div>
             </div>
         </div>
     </header>
@@ -727,11 +1116,11 @@ td { font-size: 0.92rem; }
     </section>
 
     <section class="ops-grid">
-        <article class="panel">
+        <article class="panel service-panel">
             <div class="panel-header">
                 <div>
-                    <div class="panel-title">服务与资源</div>
-                    <div class="panel-desc">常用运维动作和系统状态都在这里，适合快速巡检。</div>
+                    <div class="panel-title">服务控制</div>
+                    <div class="panel-desc">常用启停与刷新动作集中在这里，先看状态，再做操作。</div>
                 </div>
                 <div class="status-pill status-unknown" id="ssrStatusBadge">
                     <span class="status-dot"></span>
@@ -739,13 +1128,31 @@ td { font-size: 0.92rem; }
                 </div>
             </div>
 
-            <div class="button-row" style="margin-bottom: 18px;">
+            <div class="service-actions">
                 <button class="btn btn-success" id="startSsrBtn">启动 SSR</button>
                 <button class="btn btn-warning" id="restartSsrBtn">重启 SSR</button>
                 <button class="btn btn-danger" id="stopSsrBtn">停止 SSR</button>
                 <button class="btn btn-neutral" id="refreshOpsBtn">刷新状态</button>
             </div>
+            <div class="service-glance">
+                <div class="service-glance-item">
+                    <span>控制方式</span>
+                    <strong>本机脚本 / 面板 API</strong>
+                </div>
+                <div class="service-glance-item">
+                    <span>自动同步</span>
+                    <strong>每 30 秒刷新一次</strong>
+                </div>
+            </div>
+        </article>
 
+        <article class="panel metrics-panel">
+            <div class="panel-header">
+                <div>
+                    <div class="panel-title">系统资源</div>
+                    <div class="panel-desc">保留最重要的四项资源指标，方便判断机器当前承载情况。</div>
+                </div>
+            </div>
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">CPU 使用率</div>
@@ -769,70 +1176,70 @@ td { font-size: 0.92rem; }
                 </div>
             </div>
         </article>
-
     </section>
 
     <section class="insights-grid">
         <article class="panel">
             <div class="panel-header">
                 <div>
-                    <div class="panel-title">流量洞察</div>
-                    <div class="panel-desc">快速看总流量结构、活跃率和最占带宽的用户。</div>
+                    <div class="panel-title">流量概览</div>
+                    <div class="panel-desc">用更简洁的方式看总流量结构、活跃率和人均使用情况。</div>
                 </div>
             </div>
-            <div class="insight-stack">
-                <div class="chart-shell split-layout">
-                    <div class="donut-wrap">
-                        <div class="donut-chart" id="trafficDonut">
-                            <div class="donut-center">
-                                <strong id="donutTotal">0 B</strong>
-                                <span>总流量</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="legend-list">
-                        <div class="legend-item">
-                            <div class="legend-left">
-                                <span class="legend-dot" style="background: var(--primary);"></span>
-                                <span>上传流量</span>
-                            </div>
-                            <div class="legend-value">
-                                <strong id="legendUploadValue">0 B</strong>
-                                <span id="legendUploadPercent">0%</span>
-                            </div>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-left">
-                                <span class="legend-dot" style="background: var(--secondary);"></span>
-                                <span>下载流量</span>
-                            </div>
-                            <div class="legend-value">
-                                <strong id="legendDownloadValue">0 B</strong>
-                                <span id="legendDownloadPercent">0%</span>
-                            </div>
-                        </div>
-                        <div class="mini-stats">
-                            <div class="mini-stat">
-                                <div class="mini-stat-label">活跃用户率</div>
-                                <div class="mini-stat-value" id="activeRateValue">0%</div>
-                            </div>
-                            <div class="mini-stat">
-                                <div class="mini-stat-label">人均总流量</div>
-                                <div class="mini-stat-value" id="avgUsageValue">0 B</div>
-                            </div>
+            <div class="chart-shell split-layout">
+                <div class="donut-wrap">
+                    <div class="donut-chart" id="trafficDonut">
+                        <div class="donut-center">
+                            <strong id="donutTotal">0 B</strong>
+                            <span>总流量</span>
                         </div>
                     </div>
                 </div>
-                <div class="chart-shell">
-                    <div class="panel-header" style="margin-bottom: 12px;">
-                        <div>
-                            <div class="panel-title">高流量用户排行</div>
-                            <div class="panel-desc">当前最占带宽的 5 个用户</div>
+                <div class="legend-list">
+                    <div class="legend-item">
+                        <div class="legend-left">
+                            <span class="legend-dot" style="background: var(--primary);"></span>
+                            <span>上传流量</span>
+                        </div>
+                        <div class="legend-value">
+                            <strong id="legendUploadValue">0 B</strong>
+                            <span id="legendUploadPercent">0%</span>
                         </div>
                     </div>
-                    <div class="top-users-list" id="topUsersList">
-                        <div class="empty-state">暂无用户流量数据</div>
+                    <div class="legend-item">
+                        <div class="legend-left">
+                            <span class="legend-dot" style="background: var(--secondary);"></span>
+                            <span>下载流量</span>
+                        </div>
+                        <div class="legend-value">
+                            <strong id="legendDownloadValue">0 B</strong>
+                            <span id="legendDownloadPercent">0%</span>
+                        </div>
                     </div>
+                    <div class="mini-stats">
+                        <div class="mini-stat">
+                            <div class="mini-stat-label">活跃用户率</div>
+                            <div class="mini-stat-value" id="activeRateValue">0%</div>
+                        </div>
+                        <div class="mini-stat">
+                            <div class="mini-stat-label">人均总流量</div>
+                            <div class="mini-stat-value" id="avgUsageValue">0 B</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </article>
+
+        <article class="panel">
+            <div class="panel-header">
+                <div>
+                    <div class="panel-title">高流量用户</div>
+                    <div class="panel-desc">只保留当前最占带宽的 5 个用户，方便快速定位重点账号。</div>
+                </div>
+            </div>
+            <div class="chart-shell">
+                <div class="top-users-list" id="topUsersList">
+                    <div class="empty-state">暂无用户流量数据</div>
                 </div>
             </div>
         </article>
@@ -843,16 +1250,20 @@ td { font-size: 0.92rem; }
         <div class="panel-header">
             <div>
                 <div class="panel-title">用户管理</div>
-                <div class="panel-desc">支持搜索、排序、批量巡检，以及更直观的流量使用查看。</div>
+                <div class="panel-desc">支持搜索、排序、增删账号与启停状态切换，保留最常用的维护动作。</div>
             </div>
         </div>
 
         <div class="toolbar">
-            <button class="btn btn-primary" id="openAddModalBtn">添加用户</button>
-            <button class="btn btn-neutral" id="refreshBtn">刷新用户数据</button>
-            <button class="btn btn-info" id="sortBtn">按流量排序</button>
-            <input type="text" class="search-box" id="search" placeholder="搜索用户名 / 端口">
-            <span class="sort-info" id="sortInfo">点击表头可切换排序方式</span>
+            <div class="toolbar-actions">
+                <button class="btn btn-primary" id="openAddModalBtn">添加用户</button>
+                <button class="btn btn-neutral" id="refreshBtn">刷新列表</button>
+                <button class="btn btn-neutral" id="sortBtn">按流量排序</button>
+            </div>
+            <div class="toolbar-search">
+                <input type="text" class="search-box" id="search" placeholder="搜索用户名 / 端口">
+                <span class="sort-info" id="sortInfo">点击表头可切换排序方式</span>
+            </div>
         </div>
 
         <div class="users-table">
@@ -1024,6 +1435,7 @@ function updateStats(){
     const totalDownload = usersData.reduce((sum, user) => sum + (user.d || 0), 0);
 
     document.getElementById('stat-users').textContent = usersData.length;
+    document.getElementById('heroTotalUsers').textContent = usersData.length;
     document.getElementById('stat-inactive').textContent = inactiveUsers;
     document.getElementById('stat-upload').textContent = formatBytes(totalUpload);
     document.getElementById('stat-download').textContent = formatBytes(totalDownload);
@@ -1293,17 +1705,27 @@ function renderUsers(filter = ''){
         const pctClass = pct > 90 ? 'danger' : pct > 70 ? 'warning' : '';
 
         const row = document.createElement('tr');
+        row.className = 'user-row';
 
         const userCell = document.createElement('td');
         userCell.dataset.label = '用户名';
+        userCell.className = 'user-cell';
         const strong = document.createElement('strong');
+        strong.className = 'user-name';
         strong.textContent = user.user || '';
         userCell.appendChild(strong);
+        const userMeta = document.createElement('div');
+        userMeta.className = 'cell-meta';
+        userMeta.textContent = `流量上限 ${user.transfer_limit_human}`;
+        userCell.appendChild(userMeta);
         row.appendChild(userCell);
 
         const portCell = document.createElement('td');
         portCell.dataset.label = '端口';
-        portCell.textContent = String(user.port || '');
+        const portChip = document.createElement('span');
+        portChip.className = 'port-chip';
+        portChip.textContent = String(user.port || '');
+        portCell.appendChild(portChip);
         row.appendChild(portCell);
 
         const statusCell = document.createElement('td');
@@ -1316,12 +1738,26 @@ function renderUsers(filter = ''){
 
         const uploadCell = document.createElement('td');
         uploadCell.dataset.label = '上传';
-        uploadCell.textContent = formatBytes(user.u);
+        const uploadValue = document.createElement('div');
+        uploadValue.className = 'data-value';
+        uploadValue.textContent = formatBytes(user.u);
+        uploadCell.appendChild(uploadValue);
+        const uploadMeta = document.createElement('div');
+        uploadMeta.className = 'cell-meta';
+        uploadMeta.textContent = '累计上传';
+        uploadCell.appendChild(uploadMeta);
         row.appendChild(uploadCell);
 
         const downloadCell = document.createElement('td');
         downloadCell.dataset.label = '下载';
-        downloadCell.textContent = formatBytes(user.d);
+        const downloadValue = document.createElement('div');
+        downloadValue.className = 'data-value';
+        downloadValue.textContent = formatBytes(user.d);
+        downloadCell.appendChild(downloadValue);
+        const downloadMeta = document.createElement('div');
+        downloadMeta.className = 'cell-meta';
+        downloadMeta.textContent = '累计下载';
+        downloadCell.appendChild(downloadMeta);
         row.appendChild(downloadCell);
 
         const usageCell = document.createElement('td');
@@ -1344,7 +1780,7 @@ function renderUsers(filter = ''){
 
         const actionCell = document.createElement('td');
         actionCell.dataset.label = '操作';
-        actionCell.className = 'action-btns';
+        actionCell.className = 'action-btns action-cell';
         actionCell.appendChild(createActionButton('重置', 'btn-warning', () => resetUser(user.user)));
         actionCell.appendChild(createActionButton(user.enable ? '禁用' : '启用', 'btn-neutral', () => toggleUser(user.user)));
         actionCell.appendChild(createActionButton('删除', 'btn-danger', () => deleteUser(user.user)));
