@@ -1038,7 +1038,7 @@ th {
     letter-spacing: 0.1em;
 }
 th, td {
-    padding: 12px 14px;
+    padding: 10px 12px;
 }
 tr {
     border-bottom-color: rgba(255,255,255,0.04);
@@ -1066,64 +1066,74 @@ tr {
 }
 .users-table th:nth-child(6),
 .users-table td:nth-child(6) {
-    width: 21%;
+    width: 20%;
 }
 .users-table th:nth-child(7),
 .users-table td:nth-child(7) {
-    width: 17%;
+    width: 19%;
+}
+.user-cell {
+    line-height: 1.25;
 }
 .user-name {
     display: block;
-    font-size: 0.94rem;
+    font-size: 0.9rem;
 }
 .cell-meta {
-    margin-top: 4px;
+    margin-top: 2px;
     color: var(--text-muted);
-    font-size: 0.76rem;
-    line-height: 1.4;
+    font-size: 0.74rem;
+    line-height: 1.25;
 }
 .port-chip {
     display: inline-flex;
     align-items: center;
-    min-height: 32px;
-    padding: 0 11px;
+    min-height: 28px;
+    padding: 0 10px;
     border-radius: 999px;
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.06);
     font-family: "SFMono-Regular", "Fira Code", monospace;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-variant-numeric: tabular-nums;
+}
+.status-badge {
+    padding: 4px 10px;
+    font-size: 0.72rem;
 }
 .data-value {
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 0.86rem;
     font-variant-numeric: tabular-nums;
 }
 .progress-wrap {
-    min-width: 168px;
-    gap: 6px;
+    min-width: 154px;
+    gap: 5px;
 }
 .progress-bar {
-    height: 8px;
+    height: 6px;
 }
 .usage-text {
-    font-size: 0.76rem;
-    line-height: 1.35;
+    font-size: 0.72rem;
+    line-height: 1.2;
     font-variant-numeric: tabular-nums;
 }
 .action-cell {
-    min-width: 164px;
+    min-width: 176px;
 }
 .action-btns {
     align-items: center;
     justify-content: flex-end;
     gap: 6px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
 }
 .action-btns button {
-    min-height: 30px;
-    padding: 6px 10px;
-    border-radius: 10px;
-    font-size: 0.76rem;
+    min-height: 28px;
+    padding: 5px 9px;
+    border-radius: 9px;
+    font-size: 0.72rem;
+    flex: 0 0 auto;
 }
 .numeric-cell,
 .usage-cell {
