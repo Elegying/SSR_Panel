@@ -93,6 +93,47 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(payload["data"][0]["transfer_limit_human"], "不限")
         self.assertNotIn("passwd", payload["data"][0])
 
+    def test_panel_update_check_endpoint_returns_update_info(self):
+        with mock.patch.object(
+            panel_app,
+            "collect_panel_update_info",
+            return_value={
+                "success": True,
+                "current_version": "old123",
+                "latest_version": "new456",
+                "update_available": True,
+                "message": "发现新版本 new456",
+            },
+        ):
+            response = self.client.get("/api/panel/update/check")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["update_available"])
+        self.assertEqual(payload["latest_version"], "new456")
+
+    def test_panel_update_start_requires_csrf(self):
+        response = self.client.post("/api/panel/update")
+        self.assertEqual(response.status_code, 403)
+
+    def test_panel_update_start_endpoint_returns_started_result(self):
+        with mock.patch.object(
+            panel_app,
+            "start_panel_update",
+            return_value={
+                "success": True,
+                "message": "更新任务已启动",
+                "current_version": "old123",
+                "latest_version": "new456",
+            },
+        ):
+            response = self.post_json("/api/panel/update")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["latest_version"], "new456")
+
     def test_ssr_log_rejects_injected_lines_argument(self):
         response = self.client.get("/api/ssr/log?lines=1;echo%20INJECTED")
         payload = response.get_json()

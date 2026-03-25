@@ -876,6 +876,24 @@ body::before {
 .service-glance-item strong {
     font-size: 0.96rem;
 }
+.service-glance-item-wide {
+    grid-column: 1 / -1;
+}
+.update-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+.update-row .btn {
+    flex: 0 0 auto;
+}
+.update-status {
+    margin-top: 10px;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
 .metrics-grid {
     gap: 10px;
 }
@@ -1042,6 +1060,10 @@ tr {
     .split-layout {
         grid-template-columns: 1fr;
     }
+    .update-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
     .toolbar-actions,
     .toolbar-search {
         width: 100%;
@@ -1142,6 +1164,16 @@ tr {
                 <div class="service-glance-item">
                     <span>自动同步</span>
                     <strong>每 30 秒刷新一次</strong>
+                </div>
+                <div class="service-glance-item service-glance-item-wide">
+                    <div class="update-row">
+                        <div>
+                            <span>面板版本</span>
+                            <strong id="panelVersionText">{{ panel_version }}</strong>
+                        </div>
+                        <button class="btn btn-info" id="checkUpdateBtn" type="button">检查更新</button>
+                    </div>
+                    <div class="update-status" id="panelUpdateText">点击检查远程仓库是否有新版本。</div>
                 </div>
             </div>
         </article>
@@ -1347,11 +1379,13 @@ tr {
 const csrfToken = {{ csrf_token | tojson }};
 const initialSystemInfo = {{ system_info | tojson }};
 const initialSsrStatus = {{ ssr_status | tojson }};
+const initialPanelVersion = {{ panel_version | tojson }};
 let usersData = [];
 let sortField = '';
 let sortDirection = 'desc';
 let activeFilter = '';
 let latestCreatedUser = null;
+let panelUpdateWatchTimer = null;
 
 function formatBytes(b){
     if(!b) return '0 B';
@@ -1609,6 +1643,98 @@ async function loadOpsData(showErrors = false){
     } catch (error) {
         if(showErrors){
             showToast('刷新运行状态失败', error.message, 'error');
+        }
+    }
+}
+
+function setPanelVersion(version){
+    document.getElementById('panelVersionText').textContent = version || 'unknown';
+}
+
+function setPanelUpdateText(message){
+    document.getElementById('panelUpdateText').textContent = message || '暂无更新信息';
+}
+
+function stopPanelUpdateWatch(){
+    if(panelUpdateWatchTimer){
+        window.clearInterval(panelUpdateWatchTimer);
+        panelUpdateWatchTimer = null;
+    }
+}
+
+async function pollPanelUpdateStatus(reloadOnComplete = false){
+    try {
+        const status = await apiFetch('/api/panel/update/status');
+        setPanelVersion(status.current_version || initialPanelVersion);
+        setPanelUpdateText(status.message || '暂无更新信息');
+
+        if(status.in_progress){
+            setButtonBusy('checkUpdateBtn', true, '更新中...');
+            return;
+        }
+
+        setButtonBusy('checkUpdateBtn', false, '检查更新');
+        if(reloadOnComplete && Number(status.last_exit_code) === 0){
+            stopPanelUpdateWatch();
+            window.sessionStorage.removeItem('panelUpdateWatching');
+            showToast('面板更新完成', status.message || '新版本已部署，页面即将刷新。', 'success', 4000);
+            window.setTimeout(() => window.location.reload(), 1200);
+            return;
+        }
+
+        if(reloadOnComplete && status.last_exit_code !== null && Number(status.last_exit_code) !== 0){
+            stopPanelUpdateWatch();
+            window.sessionStorage.removeItem('panelUpdateWatching');
+            showToast('面板更新失败', status.message || '请检查更新日志。', 'error', 6000);
+        }
+    } catch (error) {
+        if(reloadOnComplete){
+            setButtonBusy('checkUpdateBtn', true, '更新中...');
+            setPanelUpdateText('面板正在重启，正在等待服务恢复...');
+        }
+    }
+}
+
+function watchPanelUpdate(){
+    stopPanelUpdateWatch();
+    window.sessionStorage.setItem('panelUpdateWatching', '1');
+    pollPanelUpdateStatus(true);
+    panelUpdateWatchTimer = window.setInterval(() => pollPanelUpdateStatus(true), 3000);
+}
+
+async function checkPanelUpdate(){
+    let keepBusy = false;
+    setButtonBusy('checkUpdateBtn', true, '检查中...');
+    try {
+        const result = await apiFetch('/api/panel/update/check');
+        setPanelVersion(result.current_version || initialPanelVersion);
+
+        if(!result.update_available){
+            setPanelUpdateText(`当前已是最新版本 ${result.current_version || initialPanelVersion}。`);
+            showToast('已是最新版本', result.message || '无需更新。', 'info');
+            return;
+        }
+
+        setPanelUpdateText(`发现新版本 ${result.latest_version}，当前版本 ${result.current_version}。`);
+        const confirmed = window.confirm(
+            `发现新版本 ${result.latest_version}。\n当前版本：${result.current_version}\n\n是否立即更新？更新过程中面板会短暂重启。`
+        );
+        if(!confirmed){
+            showToast('已取消更新', '你可以稍后再次检查更新。', 'info');
+            return;
+        }
+
+        const startResult = await apiFetch('/api/panel/update', { method: 'POST' });
+        setPanelUpdateText(startResult.message || '更新任务已启动。');
+        showToast('开始更新', startResult.message || '面板会在完成后自动重启。', 'info', 6000);
+        keepBusy = true;
+        watchPanelUpdate();
+    } catch (error) {
+        setPanelUpdateText(error.message);
+        showToast('检查更新失败', error.message, 'error');
+    } finally {
+        if(!keepBusy){
+            setButtonBusy('checkUpdateBtn', false, '检查更新');
         }
     }
 }
@@ -1910,6 +2036,7 @@ document.getElementById('copyPasswordBtn').addEventListener('click', copyCreated
 document.getElementById('closePasswordModalBtn').addEventListener('click', closePasswordModal);
 document.getElementById('refreshBtn').addEventListener('click', () => refreshEverything(true));
 document.getElementById('sortBtn').addEventListener('click', () => sortUsers('usage'));
+document.getElementById('checkUpdateBtn').addEventListener('click', checkPanelUpdate);
 document.getElementById('search').addEventListener('input', event => renderUsers(event.target.value));
 document.getElementById('refreshOpsBtn').addEventListener('click', () => loadOpsData(true));
 document.getElementById('startSsrBtn').addEventListener('click', () => runSsrAction('start', 'startSsrBtn'));
@@ -1934,9 +2061,13 @@ document.addEventListener('keydown', event => {
 
 setSystemInfo(initialSystemInfo);
 setSsrStatus(initialSsrStatus);
+setPanelVersion(initialPanelVersion);
 updateLastUpdated();
 loadUsers();
 loadOpsData();
+if(window.sessionStorage.getItem('panelUpdateWatching') === '1'){
+    watchPanelUpdate();
+}
 window.setInterval(() => {
     loadUsers();
     loadOpsData();

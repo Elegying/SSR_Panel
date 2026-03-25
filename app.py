@@ -42,6 +42,16 @@ SSR_LOG_FILE = SSR_DIR / "ssserver.log"
 SSR_INIT_SCRIPT = Path(getattr(app_config, "SSR_INIT_SCRIPT", "/etc/init.d/ssrmu"))
 SSR_PYTHON_BIN = getattr(app_config, "SSR_PYTHON_BIN", "")
 BACKUP_DIR = Path("/opt/ssr-admin-panel/backups")
+PANEL_DIR = Path(__file__).resolve().parent
+PANEL_VERSION_FILE = PANEL_DIR / "VERSION"
+PANEL_UPDATE_SCRIPT = PANEL_DIR / "update.sh"
+PANEL_UPDATE_RUNNER = PANEL_DIR / "scripts" / "run_panel_update.py"
+PANEL_UPDATE_LOG = PANEL_DIR / ".panel-update.log"
+PANEL_UPDATE_STATUS_FILE = PANEL_DIR / ".panel-update-status.json"
+PANEL_GIT_REMOTE = getattr(app_config, "PANEL_GIT_REMOTE", "origin")
+PANEL_GIT_BRANCH = getattr(app_config, "PANEL_GIT_BRANCH", "main")
+PANEL_SERVICE_NAME = getattr(app_config, "PANEL_SERVICE_NAME", "ssr-admin")
+PANEL_UPDATE_UNIT = getattr(app_config, "PANEL_UPDATE_UNIT", "ssr-admin-panel-update")
 DEFAULT_TRANSFER = 268435456000
 
 
@@ -160,6 +170,167 @@ def serialize_user(user):
 
 def json_error(message, status=400):
     return jsonify({"success": False, "error": message}), status
+
+
+def read_json_file(path, default):
+    try:
+        with Path(path).open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return default
+
+
+def get_panel_version(ref="HEAD"):
+    if (PANEL_DIR / ".git").exists():
+        result = run_process(["git", "rev-parse", "--short", ref], cwd=PANEL_DIR)
+        if result["success"] and result["output"]:
+            return result["output"]
+
+    try:
+        return PANEL_VERSION_FILE.read_text(encoding="utf-8").strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+def get_panel_update_unit_state():
+    result = run_process(
+        ["systemctl", "show", PANEL_UPDATE_UNIT, "--property=ActiveState", "--value"]
+    )
+    if result["success"] and result["output"]:
+        return result["output"].strip()
+    return "inactive"
+
+
+def collect_panel_update_info(fetch_remote=False):
+    current_version = get_panel_version()
+    info = {
+        "success": True,
+        "current_version": current_version,
+        "latest_version": current_version,
+        "update_available": False,
+        "remote": PANEL_GIT_REMOTE,
+        "branch": PANEL_GIT_BRANCH,
+        "message": "当前已是最新版本",
+    }
+
+    if not (PANEL_DIR / ".git").exists():
+        info["message"] = "当前部署不是 Git 工作区，无法在线检查更新"
+        return info
+
+    if fetch_remote:
+        fetch_result = run_process(
+            ["git", "fetch", PANEL_GIT_REMOTE, PANEL_GIT_BRANCH], cwd=PANEL_DIR
+        )
+        if not fetch_result["success"]:
+            info["success"] = False
+            info["message"] = fetch_result["error"] or fetch_result["output"] or "远程更新检查失败"
+            return info
+
+    latest_version = get_panel_version(f"{PANEL_GIT_REMOTE}/{PANEL_GIT_BRANCH}")
+    info["latest_version"] = latest_version
+    info["update_available"] = latest_version != "unknown" and latest_version != current_version
+    if info["update_available"]:
+        info["message"] = f"发现新版本 {latest_version}"
+    return info
+
+
+def read_panel_update_status():
+    payload = read_json_file(PANEL_UPDATE_STATUS_FILE, {})
+    unit_state = get_panel_update_unit_state()
+    payload.setdefault("in_progress", unit_state == "active")
+    payload["in_progress"] = payload.get("in_progress", False) or unit_state == "active"
+    payload.setdefault("message", "暂无更新任务")
+    payload.setdefault("current_version", get_panel_version())
+    payload.setdefault("latest_version", None)
+    payload.setdefault("last_exit_code", None)
+    payload["unit_state"] = unit_state
+    payload["log_path"] = str(PANEL_UPDATE_LOG)
+    return payload
+
+
+def start_panel_update():
+    if not PANEL_UPDATE_RUNNER.exists():
+        return {"success": False, "message": f"未找到更新执行器: {PANEL_UPDATE_RUNNER}"}
+
+    if read_panel_update_status().get("in_progress"):
+        return {"success": False, "message": "已有更新任务正在执行，请稍后再试"}
+
+    info = collect_panel_update_info(fetch_remote=True)
+    if not info["success"]:
+        return {"success": False, "message": info["message"]}
+    if not info["update_available"]:
+        return {
+            "success": False,
+            "message": f"当前已是最新版本 ({info['current_version']})",
+            "current_version": info["current_version"],
+            "latest_version": info["latest_version"],
+        }
+
+    command = [
+        "systemd-run",
+        "--unit",
+        PANEL_UPDATE_UNIT,
+        "--property=Type=oneshot",
+        sys.executable,
+        str(PANEL_UPDATE_RUNNER),
+        "--panel-dir",
+        str(PANEL_DIR),
+        "--status-file",
+        str(PANEL_UPDATE_STATUS_FILE),
+        "--log-file",
+        str(PANEL_UPDATE_LOG),
+        "--remote",
+        PANEL_GIT_REMOTE,
+        "--branch",
+        PANEL_GIT_BRANCH,
+        "--service",
+        PANEL_SERVICE_NAME,
+    ]
+
+    if shutil.which("systemd-run"):
+        launch_result = run_process(command)
+    else:
+        try:
+            subprocess.Popen(
+                command[4:],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+            )
+            launch_result = {"success": True, "output": "detached", "error": ""}
+        except OSError as e:
+            launch_result = {"success": False, "output": "", "error": str(e)}
+
+    if not launch_result["success"]:
+        return {
+            "success": False,
+            "message": launch_result["error"] or launch_result["output"] or "更新任务启动失败",
+        }
+
+    PANEL_UPDATE_STATUS_FILE.write_text(
+        json.dumps(
+            {
+                "in_progress": True,
+                "started_at": datetime.now().isoformat(),
+                "finished_at": None,
+                "message": f"正在从 {PANEL_GIT_REMOTE}/{PANEL_GIT_BRANCH} 更新到 {info['latest_version']}",
+                "current_version": info["current_version"],
+                "latest_version": info["latest_version"],
+                "last_exit_code": None,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "success": True,
+        "message": f"更新任务已启动，目标版本 {info['latest_version']}。面板会在完成后自动重启。",
+        "current_version": info["current_version"],
+        "latest_version": info["latest_version"],
+    }
 
 
 def read_proc_stat():
@@ -580,6 +751,7 @@ def index():
         format_bytes=format_bytes,
         ssr_status=get_ssr_status(),
         system_info=get_system_info(),
+        panel_version=get_panel_version(),
         csrf_token=ensure_csrf_token(),
     )
 
@@ -622,6 +794,27 @@ def ssr_log():
 @requires_auth
 def api_system():
     return jsonify(get_system_info())
+
+
+@app.route("/api/panel/update/check")
+@requires_auth
+def panel_update_check():
+    info = collect_panel_update_info(fetch_remote=True)
+    return jsonify(info), (200 if info["success"] else 500)
+
+
+@app.route("/api/panel/update/status")
+@requires_auth
+def panel_update_status():
+    return jsonify(read_panel_update_status())
+
+
+@app.route("/api/panel/update", methods=["POST"])
+@requires_auth
+@requires_csrf
+def panel_update():
+    result = start_panel_update()
+    return jsonify(result), (200 if result["success"] else 409)
 
 
 @app.route("/api/backup", methods=["POST"])
