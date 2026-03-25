@@ -967,20 +967,21 @@ body::before {
     gap: 8px;
 }
 .top-user-row {
-    padding: 12px;
+    padding: 10px 12px;
     border-radius: 14px;
     background: rgba(255,255,255,0.035);
     border: 1px solid rgba(255,255,255,0.05);
 }
 .top-user-head {
     align-items: center;
-    font-size: 0.82rem;
+    font-size: 0.8rem;
 }
 .top-user-name {
-    font-size: 0.9rem;
+    font-size: 0.88rem;
 }
 .top-user-meta {
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 .top-user-bar {
     height: 6px;
@@ -1022,19 +1023,22 @@ body::before {
     border-radius: 16px;
     overflow: auto;
     border: 1px solid rgba(255,255,255,0.05);
-    background: rgba(255,255,255,0.025);
+    background: rgba(255,255,255,0.022);
 }
 table {
     min-width: 100%;
+    table-layout: fixed;
 }
 th {
     position: sticky;
     top: 0;
     z-index: 1;
     background: rgba(23, 39, 68, 0.94);
+    font-size: 0.74rem;
+    letter-spacing: 0.1em;
 }
 th, td {
-    padding: 14px 16px;
+    padding: 12px 14px;
 }
 tr {
     border-bottom-color: rgba(255,255,255,0.04);
@@ -1042,14 +1046,41 @@ tr {
 .user-row:hover {
     background: rgba(255,255,255,0.025);
 }
+.users-table th:nth-child(1),
+.users-table td:nth-child(1) {
+    width: 20%;
+}
+.users-table th:nth-child(2),
+.users-table td:nth-child(2) {
+    width: 10%;
+}
+.users-table th:nth-child(3),
+.users-table td:nth-child(3) {
+    width: 10%;
+}
+.users-table th:nth-child(4),
+.users-table td:nth-child(4),
+.users-table th:nth-child(5),
+.users-table td:nth-child(5) {
+    width: 11%;
+}
+.users-table th:nth-child(6),
+.users-table td:nth-child(6) {
+    width: 21%;
+}
+.users-table th:nth-child(7),
+.users-table td:nth-child(7) {
+    width: 17%;
+}
 .user-name {
     display: block;
-    font-size: 0.96rem;
+    font-size: 0.94rem;
 }
 .cell-meta {
-    margin-top: 5px;
+    margin-top: 4px;
     color: var(--text-muted);
-    font-size: 0.79rem;
+    font-size: 0.76rem;
+    line-height: 1.4;
 }
 .port-chip {
     display: inline-flex;
@@ -1061,27 +1092,46 @@ tr {
     border: 1px solid rgba(255,255,255,0.06);
     font-family: "SFMono-Regular", "Fira Code", monospace;
     font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
 }
 .data-value {
     font-weight: 600;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
 }
 .progress-wrap {
     min-width: 168px;
+    gap: 6px;
 }
 .progress-bar {
     height: 8px;
 }
 .usage-text {
-    font-size: 0.8rem;
+    font-size: 0.76rem;
+    line-height: 1.35;
+    font-variant-numeric: tabular-nums;
 }
 .action-cell {
     min-width: 164px;
 }
 .action-btns {
     align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
 }
 .action-btns button {
-    padding: 7px 11px;
+    min-height: 30px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 0.76rem;
+}
+.numeric-cell,
+.usage-cell {
+    text-align: right;
+}
+.numeric-cell .cell-meta,
+.usage-cell .usage-text {
+    text-align: right;
 }
 .modal-content {
     width: min(100%, 520px);
@@ -1104,6 +1154,14 @@ tr {
     }
     .toolbar-search {
         justify-content: flex-start;
+    }
+    .users-table th:nth-child(1),
+    .users-table td:nth-child(1),
+    .users-table th:nth-child(6),
+    .users-table td:nth-child(6),
+    .users-table th:nth-child(7),
+    .users-table td:nth-child(7) {
+        width: auto;
     }
 }
 @media (max-width: 768px) {
@@ -1340,7 +1398,7 @@ tr {
             <div class="panel-header">
                 <div>
                     <div class="panel-title">高流量用户</div>
-                    <div class="panel-desc">只展示当前占用最高的 5 个账号。</div>
+                    <div class="panel-desc">只展示当前占用最高的 3 个账号。</div>
                 </div>
             </div>
             <div class="chart-shell">
@@ -1577,7 +1635,7 @@ function renderTopUsers(){
             port: user.port || '-'
         }))
         .sort((a, b) => b.total - a.total)
-        .slice(0, 5);
+        .slice(0, 3);
 
     if(!ranked.length || ranked.every(user => user.total === 0)){
         const empty = document.createElement('div');
@@ -1938,30 +1996,25 @@ function renderUsers(filter = ''){
 
         const uploadCell = document.createElement('td');
         uploadCell.dataset.label = '上传';
+        uploadCell.className = 'numeric-cell';
         const uploadValue = document.createElement('div');
         uploadValue.className = 'data-value';
         uploadValue.textContent = formatBytes(user.u);
         uploadCell.appendChild(uploadValue);
-        const uploadMeta = document.createElement('div');
-        uploadMeta.className = 'cell-meta';
-        uploadMeta.textContent = '累计上传';
-        uploadCell.appendChild(uploadMeta);
         row.appendChild(uploadCell);
 
         const downloadCell = document.createElement('td');
         downloadCell.dataset.label = '下载';
+        downloadCell.className = 'numeric-cell';
         const downloadValue = document.createElement('div');
         downloadValue.className = 'data-value';
         downloadValue.textContent = formatBytes(user.d);
         downloadCell.appendChild(downloadValue);
-        const downloadMeta = document.createElement('div');
-        downloadMeta.className = 'cell-meta';
-        downloadMeta.textContent = '累计下载';
-        downloadCell.appendChild(downloadMeta);
         row.appendChild(downloadCell);
 
         const usageCell = document.createElement('td');
         usageCell.dataset.label = '流量使用';
+        usageCell.className = 'usage-cell';
         const wrap = document.createElement('div');
         wrap.className = 'progress-wrap';
         const bar = document.createElement('div');
@@ -1973,7 +2026,7 @@ function renderUsers(filter = ''){
         wrap.appendChild(bar);
         const usageText = document.createElement('div');
         usageText.className = 'usage-text';
-        usageText.textContent = `${formatBytes(total)} / ${user.transfer_limit_human}`;
+        usageText.textContent = `${pct.toFixed(0)}% · ${formatBytes(total)} / ${user.transfer_limit_human}`;
         wrap.appendChild(usageText);
         usageCell.appendChild(wrap);
         row.appendChild(usageCell);
