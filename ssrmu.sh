@@ -61,6 +61,24 @@ check_crontab(){
 }
 SSR_installation_status(){
 	[[ ! -e ${ssr_folder} ]] && echo -e "${Error} 没有发现 ShadowsocksR 文件夹，请检查 !" && exit 1
+	Fix_python_collections_compatibility
+}
+Fix_python_collections_compatibility(){
+	[[ ! -d ${ssr_folder} ]] && return 0
+	find "${ssr_folder}" -type f -name "*.py" -print0 2>/dev/null | while IFS= read -r -d '' py_file
+	do
+		sed -i \
+			-e 's/collections\.MutableMapping/collections.abc.MutableMapping/g' \
+			-e 's/collections\.Mapping/collections.abc.Mapping/g' \
+			-e 's/collections\.MutableSet/collections.abc.MutableSet/g' \
+			-e 's/collections\.Set/collections.abc.Set/g' \
+			-e 's/collections\.MutableSequence/collections.abc.MutableSequence/g' \
+			-e 's/collections\.Sequence/collections.abc.Sequence/g' \
+			-e 's/collections\.Iterable/collections.abc.Iterable/g' \
+			-e 's/collections\.Iterator/collections.abc.Iterator/g' \
+			-e 's/collections\.Callable/collections.abc.Callable/g' \
+			"${py_file}"
+	done
 }
 Server_Speeder_installation_status(){
 	[[ ! -e ${Server_Speeder_file} ]] && echo -e "${Error} 没有安装 锐速(Server Speeder)，请检查 !" && exit 1
@@ -938,6 +956,8 @@ Install_SSR(){
 	Installation_dependency
 	echo -e "${Info} 开始下载/安装 ShadowsocksR文件..."
 	Download_SSR
+	echo -e "${Info} 修复 Python 3.10+ collections 兼容性..."
+	Fix_python_collections_compatibility
 	echo -e "${Info} 开始下载/安装 ShadowsocksR服务脚本(init)..."
 	Service_SSR
 	echo -e "${Info} 开始下载/安装 JSNO解析器 JQ..."

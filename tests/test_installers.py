@@ -40,6 +40,11 @@ class InstallerRegressionTests(unittest.TestCase):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn(expected, content)
 
+    def test_ssrmu_applies_python_compatibility_patch_before_startup(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+        self.assertIn("Fix_python_collections_compatibility()", content)
+        self.assertIn("Fix_python_collections_compatibility\n\techo -e", content.replace("\r\n", "\n"))
+
     def test_patch_ssr_python_compat_rewrites_legacy_collections_aliases(self):
         patcher = REPO_ROOT / "scripts" / "patch_ssr_python_compat.py"
         with tempfile.TemporaryDirectory() as tmp_dir:
