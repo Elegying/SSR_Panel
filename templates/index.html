@@ -715,29 +715,32 @@ body::before {
     max-width: 1360px;
 }
 .hero {
-    margin-bottom: 18px;
-    padding: 34px;
-    border-radius: 28px;
+    margin-bottom: 16px;
+    padding: 24px 26px;
+    border-radius: 24px;
     background:
         linear-gradient(135deg, rgba(47, 109, 246, 0.2), rgba(21, 184, 166, 0.08)),
         rgba(8, 17, 31, 0.7);
     border: 1px solid rgba(255, 255, 255, 0.12);
 }
 .hero::after {
-    inset: auto -8% -42% auto;
-    width: 360px;
-    height: 360px;
-    background: radial-gradient(circle, rgba(255,255,255,0.12), transparent 66%);
+    inset: auto -10% -54% auto;
+    width: 280px;
+    height: 280px;
+    background: radial-gradient(circle, rgba(255,255,255,0.08), transparent 68%);
 }
 .hero-top {
-    display: grid;
-    grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.85fr);
-    gap: 24px;
-    align-items: stretch;
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: flex-start;
+    flex-wrap: wrap;
 }
 .hero-copy {
     display: grid;
     align-content: start;
+    gap: 0;
+    flex: 1 1 720px;
 }
 .hero-kicker {
     display: inline-flex;
@@ -751,53 +754,35 @@ body::before {
     font-size: 0.78rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    margin-bottom: 14px;
+    margin-bottom: 10px;
 }
 .hero h1 {
-    max-width: 12ch;
-    line-height: 0.96;
-    margin-bottom: 14px;
+    max-width: none;
+    font-size: clamp(2rem, 4vw, 3.1rem);
+    line-height: 1.02;
+    margin-bottom: 10px;
 }
 .hero p {
-    max-width: 56ch;
-    font-size: 1rem;
+    max-width: 52rem;
+    font-size: 0.98rem;
+    line-height: 1.5;
 }
 .hero-meta {
     gap: 10px;
-    margin-top: 22px;
+    margin-top: 16px;
 }
 .meta-pill {
-    min-height: 44px;
-    padding: 10px 16px;
+    min-height: 40px;
+    padding: 8px 14px;
     background: rgba(255,255,255,0.06);
 }
-.hero-aside {
-    display: grid;
-    align-content: space-between;
-    gap: 18px;
-    padding: 22px;
-    border-radius: 22px;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.08);
-}
-.hero-aside-label {
-    color: var(--text-muted);
-    font-size: 0.82rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-}
-.hero-aside-value {
-    font-size: 1.55rem;
-    font-weight: 700;
-    letter-spacing: -0.04em;
-}
-.hero-aside p {
-    max-width: none;
-    font-size: 0.94rem;
+.header-actions {
+    flex: 0 0 auto;
 }
 .logout-link {
     justify-content: center;
-    min-height: 46px;
+    min-height: 42px;
+    padding: 10px 14px;
     background: rgba(255,255,255,0.08);
 }
 .stats-grid {
@@ -1029,7 +1014,6 @@ tr {
     bottom: 22px;
 }
 @media (max-width: 1180px) {
-    .hero-top,
     .ops-grid,
     .insights-grid {
         grid-template-columns: 1fr;
@@ -1048,10 +1032,13 @@ tr {
         border-radius: 20px;
     }
     .hero {
-        padding: 24px 20px;
+        padding: 20px 18px;
     }
     .hero h1 {
         max-width: none;
+    }
+    .hero-top {
+        flex-direction: column;
     }
     .service-actions,
     .service-glance,
@@ -1101,15 +1088,8 @@ tr {
                     </span>
                 </div>
             </div>
-            <div class="hero-aside">
-                <div>
-                    <div class="hero-aside-label">运维概览</div>
-                    <div class="hero-aside-value">简洁、集中、可快速判断</div>
-                </div>
-                <p>保留高频操作，弱化低价值噪音。刷新、启停服务、查看流量和管理用户都尽量一步到位。</p>
-                <div class="header-actions">
-                    <a class="logout-link" href="/logout">退出登录</a>
-                </div>
+            <div class="header-actions">
+                <a class="logout-link" href="/logout">退出登录</a>
             </div>
         </div>
     </header>
