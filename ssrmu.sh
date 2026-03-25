@@ -63,6 +63,15 @@ SSR_installation_status(){
 	[[ ! -e ${ssr_folder} ]] && echo -e "${Error} 没有发现 ShadowsocksR 文件夹，请检查 !" && exit 1
 	Fix_python_collections_compatibility
 }
+Get_python_bin(){
+	if command -v python >/dev/null 2>&1; then
+		echo "python"
+	elif command -v python3 >/dev/null 2>&1; then
+		echo "python3"
+	else
+		echo ""
+	fi
+}
 Fix_python_collections_compatibility(){
 	[[ ! -d ${ssr_folder} ]] && return 0
 	find "${ssr_folder}" -type f -name "*.py" -print0 2>/dev/null | while IFS= read -r -d '' py_file
@@ -79,6 +88,59 @@ Fix_python_collections_compatibility(){
 			-e 's/collections\.Callable/collections.abc.Callable/g' \
 			"${py_file}"
 	done
+}
+Create_local_ssr_init_script(){
+	local python_bin
+	python_bin=$(Get_python_bin)
+	[[ -z "${python_bin}" ]] && echo -e "${Error} 未找到可用的 Python 解释器，无法生成启动脚本 !" && exit 1
+	cat > /etc/init.d/ssrmu <<EOF
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          ssrmu
+# Required-Start:    \$remote_fs \$syslog
+# Required-Stop:     \$remote_fs \$syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: ShadowsocksR manyuser service
+### END INIT INFO
+
+SSR_DIR="/usr/local/shadowsocksr/shadowsocks"
+PYTHON_BIN="${python_bin}"
+
+case "\$1" in
+  start)
+    cd "\$SSR_DIR" && "\$PYTHON_BIN" server.py -d start
+    ;;
+  stop)
+    cd "\$SSR_DIR" && "\$PYTHON_BIN" server.py -d stop
+    ;;
+  restart)
+    cd "\$SSR_DIR" && "\$PYTHON_BIN" server.py -d restart
+    ;;
+  status)
+    if pgrep -f "server.py" >/dev/null 2>&1; then
+      echo "ShadowsocksR is running"
+      exit 0
+    fi
+    echo "ShadowsocksR is stopped"
+    exit 1
+    ;;
+  *)
+    echo "Usage: \$0 {start|stop|restart|status}"
+    exit 1
+    ;;
+esac
+
+exit \$?
+EOF
+	chmod +x /etc/init.d/ssrmu
+	if command -v update-rc.d >/dev/null 2>&1; then
+		update-rc.d -f ssrmu defaults >/dev/null 2>&1 || true
+	elif command -v chkconfig >/dev/null 2>&1; then
+		chkconfig --add ssrmu >/dev/null 2>&1 || true
+		chkconfig ssrmu on >/dev/null 2>&1 || true
+	fi
+	echo -e "${Info} 已生成本地 ShadowsocksR 服务脚本 /etc/init.d/ssrmu"
 }
 Server_Speeder_installation_status(){
 	[[ ! -e ${Server_Speeder_file} ]] && echo -e "${Error} 没有安装 锐速(Server Speeder)，请检查 !" && exit 1
@@ -896,14 +958,18 @@ Download_SSR(){
 Service_SSR(){
 	if [[ ${release} = "centos" ]]; then
 		if ! wget --no-check-certificate https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/service/ssrmu_centos -O /etc/init.d/ssrmu; then
-			echo -e "${Error} ShadowsocksR服务 管理脚本下载失败 !" && exit 1
+			echo -e "${Error} ShadowsocksR服务 管理脚本下载失败，改用本地兼容脚本..."
+			Create_local_ssr_init_script
+			return 0
 		fi
 		chmod +x /etc/init.d/ssrmu
 		chkconfig --add ssrmu
 		chkconfig ssrmu on
 	else
 		if ! wget --no-check-certificate https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/service/ssrmu_debian -O /etc/init.d/ssrmu; then
-			echo -e "${Error} ShadowsocksR服务 管理脚本下载失败 !" && exit 1
+			echo -e "${Error} ShadowsocksR服务 管理脚本下载失败，改用本地兼容脚本..."
+			Create_local_ssr_init_script
+			return 0
 		fi
 		chmod +x /etc/init.d/ssrmu
 		update-rc.d -f ssrmu defaults
@@ -1456,19 +1522,37 @@ Start_SSR(){
 	SSR_installation_status
 	check_pid
 	[[ ! -z ${PID} ]] && echo -e "${Error} ShadowsocksR 正在运行 !" && exit 1
-	/etc/init.d/ssrmu start
+	if [[ -e "/etc/init.d/ssrmu" ]]; then
+		/etc/init.d/ssrmu start
+	else
+		local python_bin
+		python_bin=$(Get_python_bin)
+		cd "${ssr_folder}/shadowsocks" && "${python_bin}" server.py -d start
+	fi
 }
 Stop_SSR(){
 	SSR_installation_status
 	check_pid
 	[[ -z ${PID} ]] && echo -e "${Error} ShadowsocksR 未运行 !" && exit 1
-	/etc/init.d/ssrmu stop
+	if [[ -e "/etc/init.d/ssrmu" ]]; then
+		/etc/init.d/ssrmu stop
+	else
+		local python_bin
+		python_bin=$(Get_python_bin)
+		cd "${ssr_folder}/shadowsocks" && "${python_bin}" server.py -d stop
+	fi
 }
 Restart_SSR(){
 	SSR_installation_status
 	check_pid
-	[[ ! -z ${PID} ]] && /etc/init.d/ssrmu stop
-	/etc/init.d/ssrmu start
+	if [[ -e "/etc/init.d/ssrmu" ]]; then
+		[[ ! -z ${PID} ]] && /etc/init.d/ssrmu stop
+		/etc/init.d/ssrmu start
+	else
+		local python_bin
+		python_bin=$(Get_python_bin)
+		cd "${ssr_folder}/shadowsocks" && "${python_bin}" server.py -d restart
+	fi
 }
 View_Log(){
 	SSR_installation_status

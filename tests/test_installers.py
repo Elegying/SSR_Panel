@@ -45,6 +45,13 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("Fix_python_collections_compatibility()", content)
         self.assertIn("Fix_python_collections_compatibility\n\techo -e", content.replace("\r\n", "\n"))
 
+    def test_ssrmu_generates_or_bypasses_missing_init_script(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+        self.assertIn("Create_local_ssr_init_script()", content)
+        self.assertIn('cat > /etc/init.d/ssrmu <<EOF', content)
+        self.assertIn('if [[ -e "/etc/init.d/ssrmu" ]]; then', content)
+        self.assertIn('cd "${ssr_folder}/shadowsocks" && "${python_bin}" server.py -d start', content)
+
     def test_patch_ssr_python_compat_rewrites_legacy_collections_aliases(self):
         patcher = REPO_ROOT / "scripts" / "patch_ssr_python_compat.py"
         with tempfile.TemporaryDirectory() as tmp_dir:
