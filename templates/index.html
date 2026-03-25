@@ -716,74 +716,79 @@ body::before {
 }
 .hero {
     margin-bottom: 16px;
-    padding: 24px 26px;
-    border-radius: 24px;
+    padding: 18px 22px;
+    border-radius: 22px;
     background:
         linear-gradient(135deg, rgba(47, 109, 246, 0.2), rgba(21, 184, 166, 0.08)),
         rgba(8, 17, 31, 0.7);
     border: 1px solid rgba(255, 255, 255, 0.12);
 }
 .hero::after {
-    inset: auto -10% -54% auto;
-    width: 280px;
-    height: 280px;
-    background: radial-gradient(circle, rgba(255,255,255,0.08), transparent 68%);
+    inset: auto -12% -70% auto;
+    width: 220px;
+    height: 220px;
+    background: radial-gradient(circle, rgba(255,255,255,0.07), transparent 68%);
 }
 .hero-top {
     display: flex;
     justify-content: space-between;
-    gap: 18px;
-    align-items: flex-start;
+    gap: 14px;
+    align-items: center;
     flex-wrap: wrap;
 }
 .hero-copy {
-    display: grid;
-    align-content: start;
-    gap: 0;
-    flex: 1 1 720px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex: 1 1 760px;
+    flex-wrap: wrap;
+}
+.hero-title-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 .hero-kicker {
     display: inline-flex;
     align-items: center;
     width: fit-content;
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-radius: 999px;
     background: rgba(255,255,255,0.07);
     border: 1px solid rgba(255,255,255,0.08);
     color: #d9e6ff;
-    font-size: 0.78rem;
-    letter-spacing: 0.14em;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    margin-bottom: 10px;
 }
 .hero h1 {
     max-width: none;
-    font-size: clamp(2rem, 4vw, 3.1rem);
-    line-height: 1.02;
-    margin-bottom: 10px;
-}
-.hero p {
-    max-width: 52rem;
-    font-size: 0.98rem;
-    line-height: 1.5;
+    font-size: clamp(1.7rem, 3vw, 2.4rem);
+    line-height: 1.05;
+    margin: 0;
 }
 .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
     gap: 10px;
-    margin-top: 16px;
+    margin-top: 0;
 }
 .meta-pill {
-    min-height: 40px;
-    padding: 8px 14px;
+    min-height: 36px;
+    padding: 6px 12px;
     background: rgba(255,255,255,0.06);
+    font-size: 0.84rem;
 }
 .header-actions {
     flex: 0 0 auto;
 }
 .logout-link {
     justify-content: center;
-    min-height: 42px;
-    padding: 10px 14px;
+    min-height: 38px;
+    padding: 8px 12px;
     background: rgba(255,255,255,0.08);
+    font-size: 0.88rem;
 }
 .stats-grid {
     gap: 14px;
@@ -1032,13 +1037,18 @@ tr {
         border-radius: 20px;
     }
     .hero {
-        padding: 20px 18px;
+        padding: 18px 16px;
     }
     .hero h1 {
         max-width: none;
     }
     .hero-top {
         flex-direction: column;
+        align-items: flex-start;
+    }
+    .hero-copy,
+    .hero-title-group {
+        align-items: flex-start;
     }
     .service-actions,
     .service-glance,
@@ -1070,9 +1080,10 @@ tr {
     <header class="hero">
         <div class="hero-top">
             <div class="hero-copy">
-                <div class="hero-kicker">SSR Control Center</div>
-                <h1>SSR 用户管理面板</h1>
-                <p>聚合服务状态、系统资源与用户配置，让日常巡检、账号管理和服务控制都能在一个页面里快速完成。</p>
+                <div class="hero-title-group">
+                    <div class="hero-kicker">SSR Control Center</div>
+                    <h1>SSR 用户管理面板</h1>
+                </div>
                 <div class="hero-meta">
                     <span class="meta-pill">
                         <span>服务状态</span>
