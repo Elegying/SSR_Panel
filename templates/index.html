@@ -695,11 +695,11 @@ td { font-size: 0.92rem; }
 }
 body {
     position: relative;
-    padding: 28px;
+    padding: 24px;
     background:
-        radial-gradient(circle at top left, rgba(47, 109, 246, 0.16), transparent 24%),
-        radial-gradient(circle at 100% 0, rgba(21, 184, 166, 0.14), transparent 26%),
-        linear-gradient(180deg, #08111d 0%, #0b1422 46%, #0d1727 100%);
+        radial-gradient(circle at top left, rgba(47, 109, 246, 0.14), transparent 24%),
+        radial-gradient(circle at 100% 0, rgba(21, 184, 166, 0.12), transparent 26%),
+        linear-gradient(180deg, #08111d 0%, #0a1422 42%, #0c1727 100%);
 }
 body::before {
     content: "";
@@ -707,135 +707,162 @@ body::before {
     inset: 0;
     pointer-events: none;
     background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 32px 32px;
-    mask-image: linear-gradient(180deg, rgba(0,0,0,0.35), transparent 82%);
+    background-size: 36px 36px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,0.22), transparent 86%);
 }
 .container {
     position: relative;
-    max-width: 1360px;
+    max-width: 1320px;
 }
 .hero {
-    margin-bottom: 16px;
-    padding: 18px 22px;
-    border-radius: 22px;
+    margin-bottom: 18px;
+    padding: 16px 20px;
+    border-radius: 20px;
     background:
-        linear-gradient(135deg, rgba(47, 109, 246, 0.2), rgba(21, 184, 166, 0.08)),
-        rgba(8, 17, 31, 0.7);
+        linear-gradient(135deg, rgba(47, 109, 246, 0.18), rgba(21, 184, 166, 0.07)),
+        rgba(8, 17, 31, 0.72);
     border: 1px solid rgba(255, 255, 255, 0.12);
 }
 .hero::after {
-    inset: auto -12% -70% auto;
-    width: 220px;
-    height: 220px;
-    background: radial-gradient(circle, rgba(255,255,255,0.07), transparent 68%);
+    inset: auto -12% -72% auto;
+    width: 210px;
+    height: 210px;
+    background: radial-gradient(circle, rgba(255,255,255,0.06), transparent 68%);
 }
 .hero-top {
     display: flex;
     justify-content: space-between;
-    gap: 14px;
+    gap: 12px 16px;
     align-items: center;
     flex-wrap: wrap;
 }
 .hero-copy {
     display: flex;
     align-items: center;
-    gap: 18px;
+    gap: 12px 16px;
     flex: 1 1 760px;
     flex-wrap: wrap;
 }
 .hero-title-group {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px 12px;
     flex-wrap: wrap;
 }
 .hero-kicker {
     display: inline-flex;
     align-items: center;
     width: fit-content;
-    padding: 6px 10px;
+    padding: 5px 9px;
     border-radius: 999px;
     background: rgba(255,255,255,0.07);
     border: 1px solid rgba(255,255,255,0.08);
     color: #d9e6ff;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
 }
 .hero h1 {
     max-width: none;
-    font-size: clamp(1.7rem, 3vw, 2.4rem);
-    line-height: 1.05;
+    font-size: clamp(1.55rem, 2.7vw, 2.15rem);
+    line-height: 1.08;
     margin: 0;
 }
 .hero-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
     margin-top: 0;
 }
 .meta-pill {
-    min-height: 36px;
-    padding: 6px 12px;
+    min-height: 34px;
+    padding: 6px 11px;
     background: rgba(255,255,255,0.06);
-    font-size: 0.84rem;
+    font-size: 0.82rem;
 }
 .header-actions {
     flex: 0 0 auto;
+    display: flex;
+    align-items: center;
 }
 .logout-link {
     justify-content: center;
-    min-height: 38px;
+    min-height: 36px;
     padding: 8px 12px;
     background: rgba(255,255,255,0.08);
-    font-size: 0.88rem;
+    font-size: 0.84rem;
 }
 .stats-grid {
-    gap: 14px;
-    margin-bottom: 18px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
 }
 .stat-card, .panel {
     background: rgba(8, 17, 31, 0.76);
-    border-radius: 24px;
+    border-radius: 20px;
 }
 .stat-card {
-    padding: 20px 22px;
+    padding: 18px 18px 16px;
 }
 .stat-card::before {
     height: 3px;
-    opacity: 0.75;
+    opacity: 0.7;
+}
+.stat-label {
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.stat-subtext {
+    margin-top: 6px;
+    line-height: 1.45;
+    font-size: 0.8rem;
 }
 .stat-value {
-    font-size: clamp(1.8rem, 2vw, 2.2rem);
+    font-size: clamp(1.55rem, 1.95vw, 1.95rem);
+    line-height: 1.12;
 }
 .ops-grid,
 .insights-grid {
-    gap: 18px;
+    gap: 16px;
     margin-bottom: 18px;
 }
 .ops-grid {
-    grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr);
+    grid-template-columns: minmax(0, 1.04fr) minmax(0, 0.96fr);
 }
 .insights-grid {
-    grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+    grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
     align-items: start;
 }
 .insights-grid > .panel {
     height: auto;
 }
 .panel {
-    padding: 22px;
+    padding: 20px;
 }
 .panel-header {
-    margin-bottom: 16px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 .panel-title {
-    font-size: 1.04rem;
+    font-size: 1rem;
     letter-spacing: -0.02em;
 }
 .panel-desc {
-    max-width: 42rem;
-    line-height: 1.55;
+    max-width: 34rem;
+    line-height: 1.5;
+    font-size: 0.84rem;
+}
+.btn {
+    min-height: 42px;
+    padding: 10px 15px;
+    border-radius: 12px;
+    font-size: 0.88rem;
+}
+.status-pill {
+    padding: 7px 11px;
+    font-size: 0.8rem;
 }
 .service-panel,
 .metrics-panel {
@@ -843,9 +870,9 @@ body::before {
 }
 .service-actions {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
 }
 .service-actions .btn {
     width: 100%;
@@ -856,64 +883,76 @@ body::before {
     gap: 10px;
 }
 .service-glance-item {
-    padding: 14px 16px;
-    border-radius: 16px;
+    padding: 13px 14px;
+    border-radius: 15px;
     background: var(--bg-soft);
     border: 1px solid rgba(255,255,255,0.05);
 }
 .service-glance-item span {
     display: block;
-    margin-bottom: 8px;
+    margin-bottom: 7px;
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: 0.78rem;
 }
 .service-glance-item strong {
-    font-size: 0.96rem;
+    font-size: 0.92rem;
 }
 .service-glance-item-wide {
     grid-column: 1 / -1;
 }
 .update-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    justify-content: space-between;
-    gap: 14px;
+    gap: 10px;
 }
 .update-row .btn {
     flex: 0 0 auto;
 }
 .update-status {
-    margin-top: 10px;
+    margin-top: 8px;
     color: var(--text-muted);
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     line-height: 1.5;
 }
 .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
 }
 .metric-card {
-    padding: 18px;
-    border-radius: 16px;
+    min-height: 108px;
+    padding: 16px;
+    border-radius: 15px;
 }
 .metric-value {
-    font-size: 1.5rem;
+    font-size: 1.35rem;
 }
 .chart-shell {
-    padding: 16px;
-    border-radius: 20px;
+    padding: 14px;
+    border-radius: 18px;
     background: rgba(255,255,255,0.035);
 }
 .split-layout {
-    grid-template-columns: minmax(180px, 0.72fr) minmax(240px, 1.28fr);
-    gap: 16px;
+    grid-template-columns: minmax(168px, 0.7fr) minmax(240px, 1.3fr);
+    gap: 14px;
     align-items: center;
 }
 .donut-chart {
-    width: min(170px, 100%);
+    width: min(156px, 100%);
+}
+.donut-chart::before {
+    inset: 18px;
+}
+.donut-center strong {
+    font-size: 1.35rem;
+}
+.donut-center span {
+    margin-top: 3px;
+    font-size: 0.78rem;
 }
 .legend-item,
 .mini-stat {
-    border-radius: 16px;
+    border-radius: 14px;
 }
 .legend-item {
     padding: 10px 12px;
@@ -922,32 +961,41 @@ body::before {
     padding: 12px;
 }
 .mini-stat-value {
-    font-size: 1.05rem;
+    font-size: 1rem;
 }
 .top-users-list {
-    gap: 10px;
+    gap: 8px;
 }
 .top-user-row {
-    padding: 10px 12px;
-    border-radius: 16px;
+    padding: 12px;
+    border-radius: 14px;
     background: rgba(255,255,255,0.035);
     border: 1px solid rgba(255,255,255,0.05);
 }
 .top-user-head {
+    align-items: center;
     font-size: 0.82rem;
 }
+.top-user-name {
+    font-size: 0.9rem;
+}
+.top-user-meta {
+    white-space: nowrap;
+}
 .top-user-bar {
-    height: 8px;
+    height: 6px;
 }
 .toolbar {
-    justify-content: space-between;
-    gap: 14px;
-    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: auto minmax(240px, 1fr);
+    gap: 12px 14px;
+    margin-bottom: 14px;
+    align-items: center;
 }
 .toolbar-actions,
 .toolbar-search {
     display: flex;
-    gap: 10px;
+    gap: 8px;
     flex-wrap: wrap;
     align-items: center;
 }
@@ -961,12 +1009,17 @@ body::before {
 .search-box {
     max-width: 360px;
     background: rgba(255,255,255,0.04);
+    border-radius: 12px;
+    padding: 11px 14px;
 }
 .sort-info {
     white-space: nowrap;
+    padding: 9px 12px;
+    border-radius: 12px;
+    font-size: 0.8rem;
 }
 .users-table {
-    border-radius: 18px;
+    border-radius: 16px;
     overflow: auto;
     border: 1px solid rgba(255,255,255,0.05);
     background: rgba(255,255,255,0.025);
@@ -981,7 +1034,7 @@ th {
     background: rgba(23, 39, 68, 0.94);
 }
 th, td {
-    padding: 16px 18px;
+    padding: 14px 16px;
 }
 tr {
     border-bottom-color: rgba(255,255,255,0.04);
@@ -1001,34 +1054,34 @@ tr {
 .port-chip {
     display: inline-flex;
     align-items: center;
-    min-height: 34px;
-    padding: 0 12px;
+    min-height: 32px;
+    padding: 0 11px;
     border-radius: 999px;
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.06);
     font-family: "SFMono-Regular", "Fira Code", monospace;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
 }
 .data-value {
     font-weight: 600;
 }
 .progress-wrap {
-    min-width: 180px;
+    min-width: 168px;
 }
 .progress-bar {
-    height: 9px;
+    height: 8px;
 }
 .usage-text {
     font-size: 0.8rem;
 }
 .action-cell {
-    min-width: 180px;
+    min-width: 164px;
 }
 .action-btns {
     align-items: center;
 }
 .action-btns button {
-    padding: 8px 12px;
+    padding: 7px 11px;
 }
 .modal-content {
     width: min(100%, 520px);
@@ -1039,9 +1092,15 @@ tr {
     bottom: 22px;
 }
 @media (max-width: 1180px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
     .ops-grid,
     .insights-grid {
         grid-template-columns: 1fr;
+    }
+    .service-actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .toolbar-search {
         justify-content: flex-start;
@@ -1054,10 +1113,10 @@ tr {
     .hero,
     .panel,
     .stat-card {
-        border-radius: 20px;
+        border-radius: 18px;
     }
     .hero {
-        padding: 18px 16px;
+        padding: 16px;
     }
     .hero h1 {
         max-width: none;
@@ -1070,6 +1129,7 @@ tr {
     .hero-title-group {
         align-items: flex-start;
     }
+    .stats-grid,
     .service-actions,
     .service-glance,
     .metrics-grid,
@@ -1077,8 +1137,11 @@ tr {
     .split-layout {
         grid-template-columns: 1fr;
     }
+    .toolbar {
+        grid-template-columns: 1fr;
+    }
     .update-row {
-        flex-direction: column;
+        grid-template-columns: 1fr;
         align-items: stretch;
     }
     .toolbar-actions,
@@ -1153,7 +1216,7 @@ tr {
             <div class="panel-header">
                 <div>
                     <div class="panel-title">服务控制</div>
-                    <div class="panel-desc">常用启停与刷新动作集中在这里，先看状态，再做操作。</div>
+                    <div class="panel-desc">启停、重启和面板更新都集中在这里。</div>
                 </div>
                 <div class="status-pill status-unknown" id="ssrStatusBadge">
                     <span class="status-dot"></span>
@@ -1193,7 +1256,7 @@ tr {
             <div class="panel-header">
                 <div>
                     <div class="panel-title">系统资源</div>
-                    <div class="panel-desc">保留最重要的四项资源指标，方便判断机器当前承载情况。</div>
+                    <div class="panel-desc">保留最关键的四项机器指标，方便快速判断负载。</div>
                 </div>
             </div>
             <div class="metrics-grid">
@@ -1222,11 +1285,11 @@ tr {
     </section>
 
     <section class="insights-grid">
-        <article class="panel">
+        <article class="panel overview-panel">
             <div class="panel-header">
                 <div>
                     <div class="panel-title">流量概览</div>
-                    <div class="panel-desc">用更简洁的方式看总流量结构、活跃率和人均使用情况。</div>
+                    <div class="panel-desc">快速查看上传、下载、活跃率和人均用量。</div>
                 </div>
             </div>
             <div class="chart-shell split-layout">
@@ -1273,11 +1336,11 @@ tr {
             </div>
         </article>
 
-        <article class="panel">
+        <article class="panel ranking-panel">
             <div class="panel-header">
                 <div>
                     <div class="panel-title">高流量用户</div>
-                    <div class="panel-desc">只保留当前最占带宽的 5 个用户，方便快速定位重点账号。</div>
+                    <div class="panel-desc">只展示当前占用最高的 5 个账号。</div>
                 </div>
             </div>
             <div class="chart-shell">
@@ -1293,7 +1356,7 @@ tr {
         <div class="panel-header">
             <div>
                 <div class="panel-title">用户管理</div>
-                <div class="panel-desc">支持搜索、排序、增删账号与启停状态切换，保留最常用的维护动作。</div>
+                <div class="panel-desc">搜索、排序和常用维护操作都集中在这里。</div>
             </div>
         </div>
 
