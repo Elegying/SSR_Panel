@@ -52,6 +52,12 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn('if [[ -e "/etc/init.d/ssrmu" ]]; then', content)
         self.assertIn('cd "${ssr_folder}/shadowsocks" && "${python_bin}" server.py -d start', content)
 
+    def test_index_template_no_longer_contains_trend_view(self):
+        content = (REPO_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("用户趋势视图", content)
+        self.assertNotIn("TREND_STORAGE_KEY", content)
+        self.assertNotIn("renderTrendChart", content)
+
     def test_patch_ssr_python_compat_rewrites_legacy_collections_aliases(self):
         patcher = REPO_ROOT / "scripts" / "patch_ssr_python_compat.py"
         with tempfile.TemporaryDirectory() as tmp_dir:

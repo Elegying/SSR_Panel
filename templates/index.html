@@ -248,7 +248,7 @@ body {
 }
 .insights-grid {
     display: grid;
-    grid-template-columns: minmax(320px, 0.95fr) minmax(320px, 1.05fr);
+    grid-template-columns: 1fr;
     gap: 16px;
     margin-bottom: 24px;
 }
@@ -414,34 +414,6 @@ body {
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, var(--primary), var(--secondary));
-}
-.trend-shell {
-    display: grid;
-    gap: 16px;
-}
-.trend-svg {
-    width: 100%;
-    height: 260px;
-    display: block;
-}
-.trend-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    color: var(--text-muted);
-    font-size: 0.84rem;
-}
-.trend-legend span {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-.trend-note {
-    color: var(--text-muted);
-    font-size: 0.82rem;
-}
-.chart-empty {
-    min-height: 220px;
 }
 .password-card {
     padding: 16px;
@@ -865,24 +837,6 @@ td { font-size: 0.92rem; }
             </div>
         </article>
 
-        <article class="panel">
-            <div class="panel-header">
-                <div>
-                    <div class="panel-title">用户趋势视图</div>
-                    <div class="panel-desc">基于最近自动刷新生成的会话趋势，用来观察总流量和活跃用户变化。</div>
-                </div>
-            </div>
-            <div class="trend-shell">
-                <div class="chart-shell chart-empty" id="trendChartShell">
-                    <svg class="trend-svg" id="trendChart" viewBox="0 0 760 260" preserveAspectRatio="none" aria-label="流量趋势图"></svg>
-                </div>
-                <div class="trend-legend">
-                    <span><span class="legend-dot" style="background: var(--primary);"></span>总流量走势</span>
-                    <span><span class="legend-dot" style="background: var(--warning);"></span>活跃用户数走势</span>
-                </div>
-                <div class="trend-note" id="trendNote">趋势会在本次会话中每 30 秒自动记录一次，刷新页面后也会尽量保留最近快照。</div>
-            </div>
-        </article>
     </section>
 
     <section class="panel">
@@ -982,7 +936,6 @@ td { font-size: 0.92rem; }
 const csrfToken = {{ csrf_token | tojson }};
 const initialSystemInfo = {{ system_info | tojson }};
 const initialSsrStatus = {{ ssr_status | tojson }};
-const TREND_STORAGE_KEY = 'ssr-admin-panel-traffic-history';
 let usersData = [];
 let sortField = '';
 let sortDirection = 'desc';
@@ -1080,46 +1033,6 @@ function getActiveUsersCount(users = usersData){
     return users.filter(user => (user.u || 0) + (user.d || 0) > 0).length;
 }
 
-function getTrafficHistory(){
-    try {
-        const history = JSON.parse(window.localStorage.getItem(TREND_STORAGE_KEY) || '[]');
-        return Array.isArray(history) ? history : [];
-    } catch (error) {
-        return [];
-    }
-}
-
-function saveTrafficHistory(history){
-    try {
-        window.localStorage.setItem(TREND_STORAGE_KEY, JSON.stringify(history));
-    } catch (error) {
-        return;
-    }
-}
-
-function recordTrafficSnapshot(){
-    const totalTraffic = usersData.reduce((sum, user) => sum + (user.u || 0) + (user.d || 0), 0);
-    const activeUsers = getActiveUsersCount();
-    const history = getTrafficHistory();
-    const now = Date.now();
-    const lastEntry = history[history.length - 1];
-
-    if(lastEntry && now - lastEntry.timestamp < 15000){
-        lastEntry.totalTraffic = totalTraffic;
-        lastEntry.activeUsers = activeUsers;
-    } else {
-        history.push({
-            timestamp: now,
-            totalTraffic,
-            activeUsers
-        });
-    }
-
-    const trimmed = history.slice(-16);
-    saveTrafficHistory(trimmed);
-    return trimmed;
-}
-
 function setTrafficDonut(totalUpload, totalDownload){
     const total = totalUpload + totalDownload;
     const uploadAngle = total > 0 ? (totalUpload / total) * 360 : 180;
@@ -1186,123 +1099,6 @@ function renderTopUsers(){
     });
 }
 
-function formatTrendTime(timestamp){
-    return new Date(timestamp).toLocaleTimeString('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-}
-
-function renderTrendChart(history){
-    const svg = document.getElementById('trendChart');
-    const note = document.getElementById('trendNote');
-    svg.innerHTML = '';
-
-    if(history.length < 2){
-        note.textContent = '趋势图会在后续自动刷新中逐步积累数据，至少需要两次快照。';
-        const empty = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        empty.setAttribute('x', '380');
-        empty.setAttribute('y', '132');
-        empty.setAttribute('text-anchor', 'middle');
-        empty.setAttribute('fill', 'rgba(159,178,209,0.9)');
-        empty.setAttribute('font-size', '16');
-        empty.textContent = '正在等待更多趋势样本...';
-        svg.appendChild(empty);
-        return;
-    }
-
-    note.textContent = `当前展示最近 ${history.length} 次快照，最后更新于 ${formatTrendTime(history[history.length - 1].timestamp)}。`;
-
-    const width = 760;
-    const height = 260;
-    const padding = { top: 18, right: 24, bottom: 34, left: 24 };
-    const innerWidth = width - padding.left - padding.right;
-    const innerHeight = height - padding.top - padding.bottom;
-    const maxTraffic = Math.max(...history.map(item => item.totalTraffic), 1);
-    const maxActive = Math.max(...history.map(item => item.activeUsers), 1);
-    const stepX = history.length > 1 ? innerWidth / (history.length - 1) : innerWidth;
-
-    const gridGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    for(let i = 0; i < 4; i += 1){
-        const y = padding.top + (innerHeight / 3) * i;
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', String(padding.left));
-        line.setAttribute('x2', String(width - padding.right));
-        line.setAttribute('y1', String(y));
-        line.setAttribute('y2', String(y));
-        line.setAttribute('stroke', 'rgba(255,255,255,0.07)');
-        line.setAttribute('stroke-width', '1');
-        gridGroup.appendChild(line);
-    }
-    svg.appendChild(gridGroup);
-
-    const trafficPoints = history.map((item, index) => {
-        const x = padding.left + stepX * index;
-        const y = padding.top + innerHeight - (item.totalTraffic / maxTraffic) * innerHeight;
-        return [x, y];
-    });
-    const activePoints = history.map((item, index) => {
-        const x = padding.left + stepX * index;
-        const y = padding.top + innerHeight - (item.activeUsers / maxActive) * innerHeight;
-        return [x, y];
-    });
-
-    const trafficArea = trafficPoints.map(([x, y]) => `${x},${y}`).join(' ');
-    const area = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    area.setAttribute('points', `${padding.left},${height - padding.bottom} ${trafficArea} ${width - padding.right},${height - padding.bottom}`);
-    area.setAttribute('fill', 'rgba(79,140,255,0.12)');
-    svg.appendChild(area);
-
-    const trafficPath = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    trafficPath.setAttribute('fill', 'none');
-    trafficPath.setAttribute('stroke', '#4f8cff');
-    trafficPath.setAttribute('stroke-width', '4');
-    trafficPath.setAttribute('stroke-linecap', 'round');
-    trafficPath.setAttribute('stroke-linejoin', 'round');
-    trafficPath.setAttribute('points', trafficPoints.map(point => point.join(',')).join(' '));
-    svg.appendChild(trafficPath);
-
-    const activePath = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    activePath.setAttribute('fill', 'none');
-    activePath.setAttribute('stroke', '#ffb454');
-    activePath.setAttribute('stroke-width', '3');
-    activePath.setAttribute('stroke-linecap', 'round');
-    activePath.setAttribute('stroke-linejoin', 'round');
-    activePath.setAttribute('stroke-dasharray', '6 8');
-    activePath.setAttribute('points', activePoints.map(point => point.join(',')).join(' '));
-    svg.appendChild(activePath);
-
-    history.forEach((item, index) => {
-        const [trafficX, trafficY] = trafficPoints[index];
-        const [activeX, activeY] = activePoints[index];
-
-        const trafficDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        trafficDot.setAttribute('cx', String(trafficX));
-        trafficDot.setAttribute('cy', String(trafficY));
-        trafficDot.setAttribute('r', '4.5');
-        trafficDot.setAttribute('fill', '#4f8cff');
-        svg.appendChild(trafficDot);
-
-        const activeDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        activeDot.setAttribute('cx', String(activeX));
-        activeDot.setAttribute('cy', String(activeY));
-        activeDot.setAttribute('r', '4');
-        activeDot.setAttribute('fill', '#ffb454');
-        svg.appendChild(activeDot);
-
-        if(index === 0 || index === history.length - 1 || index === Math.floor(history.length / 2)){
-            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            label.setAttribute('x', String(trafficX));
-            label.setAttribute('y', String(height - 10));
-            label.setAttribute('text-anchor', 'middle');
-            label.setAttribute('fill', 'rgba(159,178,209,0.9)');
-            label.setAttribute('font-size', '12');
-            label.textContent = formatTrendTime(item.timestamp);
-            svg.appendChild(label);
-        }
-    });
-}
-
 function renderInsights(){
     const totalUpload = usersData.reduce((sum, user) => sum + (user.u || 0), 0);
     const totalDownload = usersData.reduce((sum, user) => sum + (user.d || 0), 0);
@@ -1315,8 +1111,6 @@ function renderInsights(){
     document.getElementById('avgUsageValue').textContent = usersData.length ? formatBytes(totalTraffic / usersData.length) : '0 B';
 
     renderTopUsers();
-    const history = recordTrafficSnapshot();
-    renderTrendChart(history);
 }
 
 function openPasswordModal(user){
