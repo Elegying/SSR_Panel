@@ -1176,45 +1176,118 @@ tr {
 }
 @media (max-width: 768px) {
     body {
-        padding: 16px;
+        padding: 12px;
+        font-size: 14px;
+    }
+    .container {
+        max-width: 100%;
     }
     .hero,
     .panel,
     .stat-card {
-        border-radius: 18px;
-    }
-    .hero {
+        border-radius: 16px;
         padding: 16px;
     }
+    .hero {
+        padding: 18px 16px;
+    }
     .hero h1 {
+        font-size: 1.6rem;
         max-width: none;
+        letter-spacing: -0.02em;
+    }
+    .hero-kicker {
+        font-size: 0.75rem;
+        margin-bottom: 6px;
+    }
+    .hero-copy {
+        width: 100%;
     }
     .hero-top {
         flex-direction: column;
         align-items: flex-start;
+        gap: 16px;
     }
-    .hero-copy,
     .hero-title-group {
-        align-items: flex-start;
+        width: 100%;
     }
-    .stats-grid,
+    .header-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+    .header-actions > * {
+        flex: none;
+        width: auto;
+    }
+    .logout-link {
+        padding: 10px 14px;
+        font-size: 0.85rem;
+    }
+    .hero-meta {
+        gap: 8px;
+        margin-top: 14px;
+    }
+    .meta-pill {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+    }
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    .stat-card {
+        padding: 16px;
+    }
+    .stat-label {
+        font-size: 0.75rem;
+        margin-bottom: 10px;
+    }
+    .stat-value {
+        font-size: 1.5rem;
+    }
+    .stat-subtext {
+        font-size: 0.75rem;
+        margin-top: 6px;
+    }
     .service-actions,
     .service-glance,
     .metrics-grid,
     .mini-stats,
-    .split-layout {
+    .split-layout,
+    .insights-grid {
         grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    .panel {
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+    .panel-title {
+        font-size: 1rem;
+        margin-bottom: 8px;
+    }
+    .panel-desc {
+        font-size: 0.8rem;
+    }
+    .panel-header {
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 14px;
     }
     .toolbar {
         grid-template-columns: 1fr;
+        gap: 10px;
+        margin-bottom: 14px;
     }
     .update-row {
         grid-template-columns: 1fr;
         align-items: stretch;
+        gap: 10px;
     }
     .toolbar-actions,
     .toolbar-search {
         width: 100%;
+        justify-content: flex-start;
     }
     .toolbar-actions > *,
     .toolbar-search > * {
@@ -1222,6 +1295,165 @@ tr {
     }
     .search-box {
         max-width: none;
+        padding: 11px 12px;
+        font-size: 0.9rem;
+        min-width: 0;
+    }
+    .sort-info {
+        font-size: 0.8rem;
+        padding: 10px 12px;
+        width: 100%;
+    }
+    .btn {
+        padding: 11px 14px;
+        font-size: 0.85rem;
+        min-height: 42px;
+        border-radius: 12px;
+    }
+    .action-btns {
+        flex-direction: column;
+        gap: 6px;
+    }
+    .action-btns button {
+        width: 100%;
+        padding: 9px 12px;
+        font-size: 0.8rem;
+        justify-content: center;
+    }
+    .users-table {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    table {
+        min-width: 600px;
+    }
+    th, td {
+        padding: 12px 10px;
+        font-size: 0.85rem;
+    }
+    .status-badge {
+        padding: 4px 10px;
+        font-size: 0.7rem;
+    }
+    .progress-bar {
+        min-width: 80px;
+        height: 6px;
+    }
+    .usage-text {
+        font-size: 0.75rem;
+    }
+    .metric-card {
+        padding: 14px;
+    }
+    .metric-label {
+        font-size: 0.75rem;
+    }
+    .metric-value {
+        font-size: 1.2rem;
+    }
+    .donut-chart {
+        width: 160px;
+    }
+    .donut-center strong {
+        font-size: 1.3rem;
+    }
+    .legend-item {
+        padding: 10px 12px;
+    }
+    .modal-content {
+        width: min(100%, 92%);
+        padding: 20px 16px;
+        margin: 20px 0;
+    }
+    .modal-header {
+        font-size: 1.1rem;
+    }
+    .modal-subtitle {
+        font-size: 0.85rem;
+    }
+    .form-group input {
+        padding: 11px 12px;
+        font-size: 0.9rem;
+    }
+    .form-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+    .form-actions .btn {
+        width: 100%;
+    }
+    .toast-stack {
+        right: 12px;
+        bottom: 12px;
+        left: 12px;
+        width: auto;
+    }
+    .toast {
+        padding: 12px 14px;
+        border-radius: 14px;
+    }
+    .toast-title {
+        font-size: 0.9rem;
+    }
+    .toast-body {
+        font-size: 0.85rem;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 10px;
+        font-size: 13px;
+    }
+    .hero {
+        padding: 14px 12px;
+        border-radius: 14px;
+    }
+    .hero h1 {
+        font-size: 1.4rem;
+    }
+    .hero-kicker {
+        font-size: 0.7rem;
+    }
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    .stat-card {
+        padding: 14px;
+    }
+    .stat-value {
+        font-size: 1.4rem;
+    }
+    .meta-pill {
+        padding: 6px 10px;
+        font-size: 0.75rem;
+    }
+    .hero-meta {
+        gap: 6px;
+    }
+    .panel,
+    .metric-card {
+        padding: 14px 12px;
+    }
+    .btn {
+        padding: 10px 12px;
+        font-size: 0.8rem;
+        min-height: 40px;
+    }
+    .search-box {
+        padding: 10px 11px;
+        font-size: 0.85rem;
+    }
+    table {
+        min-width: 550px;
+    }
+    th, td {
+        padding: 10px 8px;
+        font-size: 0.8rem;
+    }
+    .donut-chart {
+        width: 140px;
     }
 }
 </style>
