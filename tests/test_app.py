@@ -27,6 +27,8 @@ class AppSecurityTests(unittest.TestCase):
             "SSR_INIT_SCRIPT": panel_app.SSR_INIT_SCRIPT,
             "SSR_PYTHON_BIN": panel_app.SSR_PYTHON_BIN,
             "BACKUP_DIR": panel_app.BACKUP_DIR,
+            "PANEL_GIT_URL": panel_app.PANEL_GIT_URL,
+            "SSR_SHARE_HOST": panel_app.SSR_SHARE_HOST,
         }
 
         panel_app.MUDB_FILE = str(self.mudb_path)
@@ -37,6 +39,8 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_INIT_SCRIPT = self.base_path / "etc" / "init.d" / "ssrmu"
         panel_app.SSR_PYTHON_BIN = ""
         panel_app.BACKUP_DIR = self.backup_dir
+        panel_app.PANEL_GIT_URL = "https://github.com/Elegying/ssr-admin-panel.git"
+        panel_app.SSR_SHARE_HOST = ""
         panel_app.app.config["TESTING"] = True
 
         self.client = panel_app.app.test_client()
@@ -53,6 +57,8 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_INIT_SCRIPT = self.original_state["SSR_INIT_SCRIPT"]
         panel_app.SSR_PYTHON_BIN = self.original_state["SSR_PYTHON_BIN"]
         panel_app.BACKUP_DIR = self.original_state["BACKUP_DIR"]
+        panel_app.PANEL_GIT_URL = self.original_state["PANEL_GIT_URL"]
+        panel_app.SSR_SHARE_HOST = self.original_state["SSR_SHARE_HOST"]
         self.temp_dir.cleanup()
 
     def write_users(self, users):
@@ -112,6 +118,21 @@ class AppSecurityTests(unittest.TestCase):
         self.assertTrue(payload["update_available"])
         self.assertEqual(payload["latest_version"], "new456")
 
+    def test_collect_panel_update_info_falls_back_to_repo_check_without_git_workspace(self):
+        with mock.patch.object(panel_app, "is_panel_git_workspace", return_value=False), mock.patch.object(
+            panel_app, "get_panel_version", return_value="1.1.0"
+        ), mock.patch.object(
+            panel_app,
+            "fetch_remote_panel_version_from_repo",
+            return_value={"success": True, "version": "1.2.0", "message": ""},
+        ) as fetch_remote:
+            info = panel_app.collect_panel_update_info(fetch_remote=True)
+
+        self.assertTrue(info["success"])
+        self.assertTrue(info["update_available"])
+        self.assertEqual(info["latest_version"], "1.2.0")
+        fetch_remote.assert_called_once_with()
+
     def test_panel_update_start_requires_csrf(self):
         response = self.client.post("/api/panel/update")
         self.assertEqual(response.status_code, 403)
@@ -133,6 +154,36 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["success"])
         self.assertEqual(payload["latest_version"], "new456")
+
+    def test_start_panel_update_passes_repo_url_to_runner(self):
+        runner_path = self.base_path / "run_panel_update.py"
+        runner_path.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+        with mock.patch.object(panel_app, "PANEL_UPDATE_RUNNER", runner_path), mock.patch.object(
+            panel_app, "read_panel_update_status", return_value={"in_progress": False}
+        ), mock.patch.object(
+            panel_app,
+            "collect_panel_update_info",
+            return_value={
+                "success": True,
+                "current_version": "1.1.0",
+                "latest_version": "1.2.0",
+                "update_available": True,
+                "message": "发现新版本 1.2.0",
+            },
+        ), mock.patch.object(
+            panel_app, "get_panel_repo_url", return_value="https://github.com/Elegying/ssr-admin-panel.git"
+        ), mock.patch.object(
+            panel_app.shutil, "which", return_value="/bin/systemd-run"
+        ), mock.patch.object(
+            panel_app, "run_process", return_value={"success": True, "output": "detached", "error": ""}
+        ) as run_process_mock:
+            result = panel_app.start_panel_update()
+
+        self.assertTrue(result["success"])
+        command = run_process_mock.call_args.args[0]
+        self.assertIn("--repo-url", command)
+        self.assertIn("https://github.com/Elegying/ssr-admin-panel.git", command)
 
     def test_ssr_log_rejects_injected_lines_argument(self):
         response = self.client.get("/api/ssr/log?lines=1;echo%20INJECTED")
@@ -193,6 +244,56 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(payload["user"]["user"], "demo-user")
         self.assertTrue(payload["user"]["generated_password"])
         self.assertNotIn("passwd", payload["user"])
+
+    def test_build_ssr_share_url_matches_expected_format(self):
+        panel_app.SSR_SHARE_HOST = "ssr.ssrvpn.vip"
+
+        share_url = panel_app.build_ssr_share_url(
+            {
+                "user": "私家车-2025",
+                "passwd": "nikuaimobi",
+                "port": 18899,
+                "method": "aes-256-cfb",
+                "protocol": "auth_aes128_md5",
+                "protocol_param": "1000:yingjie1r",
+                "obfs": "tls1.2_ticket_auth",
+                "obfs_param": "www.baidu.com",
+            },
+            "",
+        )
+
+        self.assertEqual(
+            share_url,
+            "ssr://c3NyLnNzcnZwbi52aXA6MTg4OTk6YXV0aF9hZXMxMjhfbWQ1OmFlcy0yNTYtY2ZiOnRsczEuMl90aWNrZXRfYXV0aDpibWxyZFdGcGJXOWlhUS8_cmVtYXJrcz01NmVCNWE2MjZMMm1MVEl3TWpVJnByb3RvcGFyYW09TVRBd01EcDVhVzVuYW1sbE1YSSZvYmZzcGFyYW09ZDNkM0xtSmhhV1IxTG1OdmJR",
+        )
+
+    def test_share_user_returns_ssr_link(self):
+        panel_app.SSR_SHARE_HOST = "panel.example.com"
+        self.write_users(
+            [
+                {
+                    "user": "alice",
+                    "passwd": "secret-pass",
+                    "u": 0,
+                    "d": 0,
+                    "transfer_enable": 1024,
+                    "port": 8080,
+                    "enable": 1,
+                    "method": "aes-256-cfb",
+                    "protocol": "auth_aes128_md5",
+                    "obfs": "tls1.2_ticket_auth",
+                    "obfs_param": "www.baidu.com",
+                    "protocol_param": "16:alice",
+                }
+            ]
+        )
+
+        response = self.client.post("/api/share/alice", headers={"X-CSRF-Token": "test-token"})
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["success"])
+        self.assertTrue(payload["share_url"].startswith("ssr://"))
 
     def test_execute_ssr_command_prefers_init_script(self):
         panel_app.SSR_INIT_SCRIPT.parent.mkdir(parents=True, exist_ok=True)

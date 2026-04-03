@@ -10,3 +10,10 @@ SECRET_KEY = 'change-this-to-random-string'
 
 # mudb.json 文件路径
 MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'
+
+# 在线检查/更新面板使用的仓库地址和分支
+PANEL_GIT_URL = 'https://github.com/Elegying/ssr-admin-panel.git'
+PANEL_GIT_BRANCH = 'main'
+
+# SSR 分享链接使用的域名/IP，不填则默认取当前访问面板的域名
+SSR_SHARE_HOST = 'ssr.example.com'

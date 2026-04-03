@@ -1181,7 +1181,7 @@ tr {
     font-variant-numeric: tabular-nums;
 }
 .action-cell {
-    min-width: 176px;
+    min-width: 212px;
 }
 .action-btns {
     align-items: center;
@@ -1760,10 +1760,34 @@ async function copyCreatedPassword(){
     }
 
     try {
-        await navigator.clipboard.writeText(latestCreatedUser.generated_password);
+        await copyText(latestCreatedUser.generated_password);
         showToast('密码已复制', '新建用户密码已经复制到剪贴板。', 'success');
     } catch (error) {
         showToast('复制失败', '当前环境不支持自动复制，请手动选择密码。', 'error');
+    }
+}
+
+async function copyText(text){
+    if(navigator.clipboard && window.isSecureContext){
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'readonly');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '-9999px';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    const copied = document.execCommand('copy');
+    textarea.remove();
+
+    if(!copied){
+        throw new Error('copy_failed');
     }
 }
 
@@ -2087,6 +2111,7 @@ function renderUsers(filter = ''){
         actionCell.appendChild(createActionButton('重置', 'btn-warning', () => resetUser(user.user)));
         actionCell.appendChild(createActionButton(user.enable ? '禁用' : '启用', 'btn-neutral', () => toggleUser(user.user)));
         actionCell.appendChild(createActionButton('删除', 'btn-danger', () => deleteUser(user.user)));
+        actionCell.appendChild(createActionButton('分享', 'btn-info', () => shareUser(user)));
         row.appendChild(actionCell);
 
         tbody.appendChild(row);
@@ -2155,6 +2180,21 @@ async function deleteUser(user){
         await loadUsers();
     } catch (error) {
         showToast('删除失败', error.message, 'error');
+    }
+}
+
+async function shareUser(user){
+    try {
+        const result = await apiFetch(`/api/share/${encodeURIComponent(user.user)}`, { method: 'POST' });
+        try {
+            await copyText(result.share_url);
+            showToast('分享链接已复制', `用户 ${user.user} 的 SSR 链接已经复制到剪贴板。`, 'success', 5200);
+        } catch (copyError) {
+            window.prompt(`请手动复制用户 ${user.user} 的 SSR 分享链接`, result.share_url);
+            showToast('已生成分享链接', '当前环境不支持自动复制，请在弹窗中手动复制。', 'info', 5200);
+        }
+    } catch (error) {
+        showToast('分享失败', error.message || '生成分享链接时发生错误', 'error');
     }
 }
 

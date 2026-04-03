@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -19,7 +20,7 @@ def write_status(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def run_command(args: list[str], cwd: Path, log_handle) -> subprocess.CompletedProcess:
+def run_command(args: list[str], cwd: Path, log_handle, env: dict | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         args,
         cwd=str(cwd),
@@ -28,6 +29,7 @@ def run_command(args: list[str], cwd: Path, log_handle) -> subprocess.CompletedP
         stdin=subprocess.DEVNULL,
         text=True,
         check=False,
+        env=env,
     )
 
 
@@ -64,12 +66,15 @@ def update_from_git(panel_dir: Path, remote: str, branch: str, log_handle) -> tu
     return True, "Git 更新完成"
 
 
-def update_from_script(panel_dir: Path, branch: str, log_handle) -> tuple[bool, str]:
+def update_from_script(panel_dir: Path, branch: str, repo_url: str, log_handle) -> tuple[bool, str]:
     update_script = panel_dir / "update.sh"
     if not update_script.exists():
         return False, f"未找到更新脚本: {update_script}"
 
-    result = run_command(["bash", str(update_script), branch], panel_dir, log_handle)
+    env = os.environ.copy()
+    if repo_url:
+        env["SSR_ADMIN_REPO_URL"] = repo_url
+    result = run_command(["bash", str(update_script), branch], panel_dir, log_handle, env=env)
     if result.returncode != 0:
         return False, "update.sh 执行失败"
     return True, "脚本更新完成"
@@ -82,6 +87,7 @@ def main() -> int:
     parser.add_argument("--log-file", required=True)
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--branch", default="main")
+    parser.add_argument("--repo-url", default="")
     parser.add_argument("--service", default="ssr-admin")
     args = parser.parse_args()
 
@@ -99,6 +105,7 @@ def main() -> int:
         "last_exit_code": None,
         "branch": args.branch,
         "remote": args.remote,
+        "repo_url": args.repo_url,
     }
     write_status(status_file, status)
 
@@ -110,7 +117,7 @@ def main() -> int:
         if (panel_dir / ".git").is_dir():
             ok, message = update_from_git(panel_dir, args.remote, args.branch, log_handle)
         else:
-            ok, message = update_from_script(panel_dir, args.branch, log_handle)
+            ok, message = update_from_script(panel_dir, args.branch, args.repo_url, log_handle)
 
         exit_code = 0 if ok else 1
         if ok:

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import base64
 import hmac
 import json
 import os
@@ -8,6 +9,7 @@ import shutil
 import string
 import subprocess
 import sys
+import tempfile
 import time
 from collections import deque
 from datetime import datetime
@@ -27,6 +29,7 @@ ADMIN_USER = getattr(app_config, "ADMIN_USER", "admin")
 ADMIN_PASS = getattr(app_config, "ADMIN_PASS", "admin123")
 SECRET_KEY = getattr(app_config, "SECRET_KEY", "default-secret-key-change-me")
 MUDB_FILE = getattr(app_config, "MUDB_FILE", "/usr/local/shadowsocksr/mudb.json")
+SSR_SHARE_HOST = getattr(app_config, "SSR_SHARE_HOST", "")
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -50,6 +53,11 @@ PANEL_UPDATE_LOG = PANEL_DIR / ".panel-update.log"
 PANEL_UPDATE_STATUS_FILE = PANEL_DIR / ".panel-update-status.json"
 PANEL_GIT_REMOTE = getattr(app_config, "PANEL_GIT_REMOTE", "origin")
 PANEL_GIT_BRANCH = getattr(app_config, "PANEL_GIT_BRANCH", "main")
+PANEL_GIT_URL = getattr(
+    app_config,
+    "PANEL_GIT_URL",
+    os.environ.get("SSR_ADMIN_REPO_URL", "https://github.com/Elegying/ssr-admin-panel.git"),
+)
 PANEL_SERVICE_NAME = getattr(app_config, "PANEL_SERVICE_NAME", "ssr-admin")
 PANEL_UPDATE_UNIT = getattr(app_config, "PANEL_UPDATE_UNIT", "ssr-admin-panel-update")
 DEFAULT_TRANSFER = 268435456000
@@ -168,6 +176,59 @@ def serialize_user(user):
     return serialized
 
 
+def urlsafe_b64encode(value):
+    raw = str(value or "").encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def normalize_share_host(host):
+    candidate = str(host or "").split(",", 1)[0].strip()
+    if not candidate:
+        return ""
+
+    if candidate.startswith("[") and "]" in candidate and candidate.count(":") > 1:
+        return candidate.rsplit(":", 1)[0] if not candidate.endswith("]") else candidate
+
+    if ":" in candidate and candidate.count(":") == 1:
+        return candidate.rsplit(":", 1)[0]
+
+    return candidate
+
+
+def get_share_host(request_host=""):
+    configured_host = normalize_share_host(SSR_SHARE_HOST)
+    if configured_host:
+        return configured_host
+    return normalize_share_host(request_host)
+
+
+def build_ssr_share_url(user, host):
+    share_host = get_share_host(host)
+    if not share_host:
+        raise ValueError("未配置 SSR 分享域名，请先设置 SSR_SHARE_HOST")
+
+    port = to_int(user.get("port"), None)
+    if port is None or not 1 <= port <= 65535:
+        raise ValueError("用户端口无效，无法生成分享链接")
+
+    password = str(user.get("passwd") or "").strip()
+    if not password:
+        raise ValueError("用户缺少密码，无法生成分享链接")
+
+    protocol = str(user.get("protocol") or "auth_aes128_md5").replace("_compatible", "")
+    method = str(user.get("method") or "aes-256-cfb")
+    obfs = str(user.get("obfs") or "tls1.2_ticket_auth").replace("_compatible", "")
+    password_b64 = urlsafe_b64encode(password)
+
+    query_parts = [
+        f"remarks={urlsafe_b64encode(user.get('user') or port)}",
+        f"protoparam={urlsafe_b64encode(user.get('protocol_param') or '')}",
+        f"obfsparam={urlsafe_b64encode(user.get('obfs_param') or '')}",
+    ]
+    raw = f"{share_host}:{port}:{protocol}:{method}:{obfs}:{password_b64}/?{'&'.join(query_parts)}"
+    return f"ssr://{urlsafe_b64encode(raw)}"
+
+
 def json_error(message, status=400):
     return jsonify({"success": False, "error": message}), status
 
@@ -201,6 +262,93 @@ def get_panel_update_unit_state():
     return "inactive"
 
 
+def is_panel_git_workspace():
+    return (PANEL_DIR / ".git").is_dir()
+
+
+def read_version_file(path):
+    try:
+        return Path(path).read_text(encoding="utf-8").strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+def run_capture_process(args, cwd=None, timeout=60):
+    try:
+        result = subprocess.run(
+            args,
+            cwd=str(cwd) if cwd else None,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        return {
+            "success": result.returncode == 0,
+            "output": result.stdout.strip(),
+            "error": result.stderr.strip(),
+        }
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"success": False, "output": "", "error": str(e)}
+
+
+def get_panel_repo_url():
+    if PANEL_GIT_URL:
+        return PANEL_GIT_URL
+
+    if is_panel_git_workspace():
+        result = run_capture_process(["git", "remote", "get-url", PANEL_GIT_REMOTE], cwd=PANEL_DIR)
+        if result["success"] and result["output"]:
+            return result["output"]
+
+    return ""
+
+
+def fetch_remote_panel_version_from_repo():
+    repo_url = get_panel_repo_url()
+    if not repo_url:
+        return {"success": False, "version": "unknown", "message": "未配置面板更新仓库地址"}
+
+    with tempfile.TemporaryDirectory(prefix="ssr-admin-panel-update-check-") as tmp_dir:
+        clone_result = run_capture_process(
+            ["git", "clone", "--depth", "1", "--branch", PANEL_GIT_BRANCH, repo_url, tmp_dir],
+            timeout=120,
+        )
+        if not clone_result["success"]:
+            return {
+                "success": False,
+                "version": "unknown",
+                "message": clone_result["error"] or clone_result["output"] or "远程更新检查失败",
+            }
+
+        latest_version = read_version_file(Path(tmp_dir) / "VERSION")
+        if latest_version == "unknown":
+            rev_result = run_capture_process(["git", "rev-parse", "--short", "HEAD"], cwd=tmp_dir)
+            latest_version = rev_result["output"] if rev_result["success"] and rev_result["output"] else "unknown"
+
+    return {"success": True, "version": latest_version, "message": ""}
+
+
+def resolve_latest_panel_version(fetch_remote=False):
+    if is_panel_git_workspace():
+        if fetch_remote:
+            fetch_result = run_process(["git", "fetch", PANEL_GIT_REMOTE, PANEL_GIT_BRANCH], cwd=PANEL_DIR)
+            if not fetch_result["success"]:
+                return {
+                    "success": False,
+                    "version": "unknown",
+                    "message": fetch_result["error"] or fetch_result["output"] or "远程更新检查失败",
+                }
+
+        return {
+            "success": True,
+            "version": get_panel_version(f"{PANEL_GIT_REMOTE}/{PANEL_GIT_BRANCH}"),
+            "message": "",
+        }
+
+    return fetch_remote_panel_version_from_repo()
+
+
 def collect_panel_update_info(fetch_remote=False):
     current_version = get_panel_version()
     info = {
@@ -213,20 +361,13 @@ def collect_panel_update_info(fetch_remote=False):
         "message": "当前已是最新版本",
     }
 
-    if not (PANEL_DIR / ".git").exists():
-        info["message"] = "当前部署不是 Git 工作区，无法在线检查更新"
+    latest_result = resolve_latest_panel_version(fetch_remote=fetch_remote)
+    if not latest_result["success"]:
+        info["success"] = False
+        info["message"] = latest_result["message"]
         return info
 
-    if fetch_remote:
-        fetch_result = run_process(
-            ["git", "fetch", PANEL_GIT_REMOTE, PANEL_GIT_BRANCH], cwd=PANEL_DIR
-        )
-        if not fetch_result["success"]:
-            info["success"] = False
-            info["message"] = fetch_result["error"] or fetch_result["output"] or "远程更新检查失败"
-            return info
-
-    latest_version = get_panel_version(f"{PANEL_GIT_REMOTE}/{PANEL_GIT_BRANCH}")
+    latest_version = latest_result["version"]
     info["latest_version"] = latest_version
     info["update_available"] = latest_version != "unknown" and latest_version != current_version
     if info["update_available"]:
@@ -283,6 +424,8 @@ def start_panel_update():
         PANEL_GIT_REMOTE,
         "--branch",
         PANEL_GIT_BRANCH,
+        "--repo-url",
+        get_panel_repo_url(),
         "--service",
         PANEL_SERVICE_NAME,
     ]
@@ -881,6 +1024,29 @@ def add_user():
     created_user = serialize_user(new_user)
     created_user["generated_password"] = new_user["passwd"]
     return jsonify({"success": True, "message": "用户添加成功", "user": created_user})
+
+
+@app.route("/api/share/<path:user>", methods=["POST"])
+@requires_auth
+@requires_csrf
+def share_user(user):
+    users = load_users()
+    target = find_user(users, user)
+    if not target:
+        return json_error("用户不存在", 404)
+
+    try:
+        share_url = build_ssr_share_url(target, request.host)
+    except ValueError as exc:
+        return json_error(str(exc))
+
+    return jsonify(
+        {
+            "success": True,
+            "message": f"用户 {user} 的分享链接已生成",
+            "share_url": share_url,
+        }
+    )
 
 
 @app.route("/api/delete/<path:user>", methods=["POST"])
