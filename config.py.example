@@ -15,5 +15,12 @@ MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'
 PANEL_GIT_URL = 'https://github.com/Elegying/ssr-admin-panel.git'
 PANEL_GIT_BRANCH = 'main'
 
-# SSR 分享链接使用的域名/IP，不填则默认取当前访问面板的域名
-SSR_SHARE_HOST = 'ssr.example.com'
+# SSR 分享链接固定模板
+SSR_SHARE_HOST = 'ssr.ssrvpn.vip'
+SSR_SHARE_PORT = 18899
+SSR_SHARE_PASSWORD = 'nikuaimobi'
+SSR_SHARE_REMARKS = '私家车-2025'
+SSR_SHARE_PROTOCOL = 'auth_aes128_md5'
+SSR_SHARE_METHOD = 'aes-256-cfb'
+SSR_SHARE_OBFS = 'tls1.2_ticket_auth'
+SSR_SHARE_OBFS_PARAM = 'www.baidu.com'

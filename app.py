@@ -29,7 +29,14 @@ ADMIN_USER = getattr(app_config, "ADMIN_USER", "admin")
 ADMIN_PASS = getattr(app_config, "ADMIN_PASS", "admin123")
 SECRET_KEY = getattr(app_config, "SECRET_KEY", "default-secret-key-change-me")
 MUDB_FILE = getattr(app_config, "MUDB_FILE", "/usr/local/shadowsocksr/mudb.json")
-SSR_SHARE_HOST = getattr(app_config, "SSR_SHARE_HOST", "")
+SSR_SHARE_HOST = getattr(app_config, "SSR_SHARE_HOST", "ssr.ssrvpn.vip")
+SSR_SHARE_PORT = getattr(app_config, "SSR_SHARE_PORT", 18899)
+SSR_SHARE_PASSWORD = getattr(app_config, "SSR_SHARE_PASSWORD", "nikuaimobi")
+SSR_SHARE_REMARKS = getattr(app_config, "SSR_SHARE_REMARKS", "私家车-2025")
+SSR_SHARE_PROTOCOL = getattr(app_config, "SSR_SHARE_PROTOCOL", "auth_aes128_md5")
+SSR_SHARE_METHOD = getattr(app_config, "SSR_SHARE_METHOD", "aes-256-cfb")
+SSR_SHARE_OBFS = getattr(app_config, "SSR_SHARE_OBFS", "tls1.2_ticket_auth")
+SSR_SHARE_OBFS_PARAM = getattr(app_config, "SSR_SHARE_OBFS_PARAM", "www.baidu.com")
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -207,25 +214,36 @@ def build_ssr_share_url(user, host):
     if not share_host:
         raise ValueError("未配置 SSR 分享域名，请先设置 SSR_SHARE_HOST")
 
-    port = to_int(user.get("port"), None)
-    if port is None or not 1 <= port <= 65535:
-        raise ValueError("用户端口无效，无法生成分享链接")
+    share_port = to_int(SSR_SHARE_PORT, None)
+    if share_port is None or not 1 <= share_port <= 65535:
+        raise ValueError("分享端口配置无效，无法生成分享链接")
 
-    password = str(user.get("passwd") or "").strip()
-    if not password:
+    account = str(user.get("user") or "").strip()
+    if not account:
+        raise ValueError("用户缺少账号，无法生成分享链接")
+
+    account_password = str(user.get("passwd") or "").strip()
+    if not account_password:
         raise ValueError("用户缺少密码，无法生成分享链接")
 
-    protocol = str(user.get("protocol") or "auth_aes128_md5").replace("_compatible", "")
-    method = str(user.get("method") or "aes-256-cfb")
-    obfs = str(user.get("obfs") or "tls1.2_ticket_auth").replace("_compatible", "")
-    password_b64 = urlsafe_b64encode(password)
+    share_password = str(SSR_SHARE_PASSWORD or "").strip()
+    if not share_password:
+        raise ValueError("分享密码配置为空，无法生成分享链接")
+
+    protocol = str(SSR_SHARE_PROTOCOL or "auth_aes128_md5").replace("_compatible", "")
+    method = str(SSR_SHARE_METHOD or "aes-256-cfb")
+    obfs = str(SSR_SHARE_OBFS or "tls1.2_ticket_auth").replace("_compatible", "")
+    remarks = str(SSR_SHARE_REMARKS or "").strip()
+    protocol_param = f"{account}:{account_password}"
+    obfs_param = str(SSR_SHARE_OBFS_PARAM or "").strip()
+    password_b64 = urlsafe_b64encode(share_password)
 
     query_parts = [
-        f"remarks={urlsafe_b64encode(user.get('user') or port)}",
-        f"protoparam={urlsafe_b64encode(user.get('protocol_param') or '')}",
-        f"obfsparam={urlsafe_b64encode(user.get('obfs_param') or '')}",
+        f"remarks={urlsafe_b64encode(remarks)}",
+        f"protoparam={urlsafe_b64encode(protocol_param)}",
+        f"obfsparam={urlsafe_b64encode(obfs_param)}",
     ]
-    raw = f"{share_host}:{port}:{protocol}:{method}:{obfs}:{password_b64}/?{'&'.join(query_parts)}"
+    raw = f"{share_host}:{share_port}:{protocol}:{method}:{obfs}:{password_b64}/?{'&'.join(query_parts)}"
     return f"ssr://{urlsafe_b64encode(raw)}"
 
 

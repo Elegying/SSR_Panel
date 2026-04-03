@@ -29,6 +29,13 @@ class AppSecurityTests(unittest.TestCase):
             "BACKUP_DIR": panel_app.BACKUP_DIR,
             "PANEL_GIT_URL": panel_app.PANEL_GIT_URL,
             "SSR_SHARE_HOST": panel_app.SSR_SHARE_HOST,
+            "SSR_SHARE_PORT": panel_app.SSR_SHARE_PORT,
+            "SSR_SHARE_PASSWORD": panel_app.SSR_SHARE_PASSWORD,
+            "SSR_SHARE_REMARKS": panel_app.SSR_SHARE_REMARKS,
+            "SSR_SHARE_PROTOCOL": panel_app.SSR_SHARE_PROTOCOL,
+            "SSR_SHARE_METHOD": panel_app.SSR_SHARE_METHOD,
+            "SSR_SHARE_OBFS": panel_app.SSR_SHARE_OBFS,
+            "SSR_SHARE_OBFS_PARAM": panel_app.SSR_SHARE_OBFS_PARAM,
         }
 
         panel_app.MUDB_FILE = str(self.mudb_path)
@@ -40,7 +47,14 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_PYTHON_BIN = ""
         panel_app.BACKUP_DIR = self.backup_dir
         panel_app.PANEL_GIT_URL = "https://github.com/Elegying/ssr-admin-panel.git"
-        panel_app.SSR_SHARE_HOST = ""
+        panel_app.SSR_SHARE_HOST = "ssr.ssrvpn.vip"
+        panel_app.SSR_SHARE_PORT = 18899
+        panel_app.SSR_SHARE_PASSWORD = "nikuaimobi"
+        panel_app.SSR_SHARE_REMARKS = "私家车-2025"
+        panel_app.SSR_SHARE_PROTOCOL = "auth_aes128_md5"
+        panel_app.SSR_SHARE_METHOD = "aes-256-cfb"
+        panel_app.SSR_SHARE_OBFS = "tls1.2_ticket_auth"
+        panel_app.SSR_SHARE_OBFS_PARAM = "www.baidu.com"
         panel_app.app.config["TESTING"] = True
 
         self.client = panel_app.app.test_client()
@@ -59,6 +73,13 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.BACKUP_DIR = self.original_state["BACKUP_DIR"]
         panel_app.PANEL_GIT_URL = self.original_state["PANEL_GIT_URL"]
         panel_app.SSR_SHARE_HOST = self.original_state["SSR_SHARE_HOST"]
+        panel_app.SSR_SHARE_PORT = self.original_state["SSR_SHARE_PORT"]
+        panel_app.SSR_SHARE_PASSWORD = self.original_state["SSR_SHARE_PASSWORD"]
+        panel_app.SSR_SHARE_REMARKS = self.original_state["SSR_SHARE_REMARKS"]
+        panel_app.SSR_SHARE_PROTOCOL = self.original_state["SSR_SHARE_PROTOCOL"]
+        panel_app.SSR_SHARE_METHOD = self.original_state["SSR_SHARE_METHOD"]
+        panel_app.SSR_SHARE_OBFS = self.original_state["SSR_SHARE_OBFS"]
+        panel_app.SSR_SHARE_OBFS_PARAM = self.original_state["SSR_SHARE_OBFS_PARAM"]
         self.temp_dir.cleanup()
 
     def write_users(self, users):
@@ -246,18 +267,10 @@ class AppSecurityTests(unittest.TestCase):
         self.assertNotIn("passwd", payload["user"])
 
     def test_build_ssr_share_url_matches_expected_format(self):
-        panel_app.SSR_SHARE_HOST = "ssr.ssrvpn.vip"
-
         share_url = panel_app.build_ssr_share_url(
             {
-                "user": "私家车-2025",
-                "passwd": "nikuaimobi",
-                "port": 18899,
-                "method": "aes-256-cfb",
-                "protocol": "auth_aes128_md5",
-                "protocol_param": "1000:yingjie1r",
-                "obfs": "tls1.2_ticket_auth",
-                "obfs_param": "www.baidu.com",
+                "user": "1000",
+                "passwd": "yingjie1r",
             },
             "",
         )
@@ -268,12 +281,11 @@ class AppSecurityTests(unittest.TestCase):
         )
 
     def test_share_user_returns_ssr_link(self):
-        panel_app.SSR_SHARE_HOST = "panel.example.com"
         self.write_users(
             [
                 {
-                    "user": "alice",
-                    "passwd": "secret-pass",
+                    "user": "1000",
+                    "passwd": "yingjie1r",
                     "u": 0,
                     "d": 0,
                     "transfer_enable": 1024,
@@ -288,12 +300,15 @@ class AppSecurityTests(unittest.TestCase):
             ]
         )
 
-        response = self.client.post("/api/share/alice", headers={"X-CSRF-Token": "test-token"})
+        response = self.client.post("/api/share/1000", headers={"X-CSRF-Token": "test-token"})
         payload = response.get_json()
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["success"])
-        self.assertTrue(payload["share_url"].startswith("ssr://"))
+        self.assertEqual(
+            payload["share_url"],
+            "ssr://c3NyLnNzcnZwbi52aXA6MTg4OTk6YXV0aF9hZXMxMjhfbWQ1OmFlcy0yNTYtY2ZiOnRsczEuMl90aWNrZXRfYXV0aDpibWxyZFdGcGJXOWlhUS8_cmVtYXJrcz01NmVCNWE2MjZMMm1MVEl3TWpVJnByb3RvcGFyYW09TVRBd01EcDVhVzVuYW1sbE1YSSZvYmZzcGFyYW09ZDNkM0xtSmhhV1IxTG1OdmJR",
+        )
 
     def test_execute_ssr_command_prefers_init_script(self):
         panel_app.SSR_INIT_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
