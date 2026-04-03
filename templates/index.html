@@ -1266,17 +1266,60 @@ tr {
 }
 
 /* ===== Mobile Layout Fixes ===== */
+/*
+ * 根本原因：文件内第二段 <style> 是无媒体查询的桌面覆盖样式，
+ * 其位置在第一段的 @media 块之后，导致移动端媒体查询全部被覆盖。
+ * 本段放在最后，用于在移动端重新覆盖那些被第二段覆盖的规则。
+ */
 @media (max-width: 768px) {
-    /* Fix: progress-wrap min-width causes overflow in fixed-layout table cells */
+
+    /* === 核心修复：重新覆盖被第二段样式破坏的网格布局 === */
+
+    /* 防止页面级横向溢出 */
+    body {
+        overflow-x: hidden;
+    }
+
+    /* insights-grid: 第二段设置了 minmax(320px,...) 导致窄屏时
+       第一列（流量概览）只剩约 15px，内容大量溢出，修复为单列 */
+    .insights-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+
+    /* split-layout: 第二段设置了 minmax(168px) + minmax(240px)，
+       需要最少 408px，手机屏宽不足直接溢出 */
+    .split-layout {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    /* ops-grid: 第二段设置了两列，手机端改回单列 */
+    .ops-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+
+    /* stats-grid: 第二段设置了 repeat(4, 1fr)，手机端改为 2 列 */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 5px;
+        margin-bottom: 6px;
+    }
+
+    /* === 其他布局修复 === */
+
+    /* Fix: progress-wrap min-width 在 fixed-layout 表格单元中溢出 */
     .progress-wrap {
         min-width: 0;
     }
-    /* Fix: action-cell min-width reset */
     .action-cell {
         min-width: 0;
     }
 
-    /* Fix: toolbar grid overflows on narrow screens — switch to column flex */
+    /* Fix: toolbar 在窄屏溢出，改为垂直堆叠 */
     .toolbar {
         display: flex;
         flex-direction: column;
@@ -1291,7 +1334,7 @@ tr {
         gap: 5px;
     }
     .toolbar-search {
-        flex: 0 0 auto; /* reset 360px flex-basis from desktop */
+        flex: 0 0 auto;
         width: 100%;
         display: flex;
         gap: 5px;
@@ -1305,12 +1348,12 @@ tr {
         width: 100%;
     }
 
-    /* Fix: service-actions 2-column instead of stacked single column */
+    /* Fix: 服务控制按钮改为 2×2 */
     .service-actions {
         grid-template-columns: repeat(2, 1fr);
     }
 
-    /* Fix: update-row stacks on narrow screens */
+    /* Fix: update-row 在窄屏堆叠 */
     .update-row {
         display: flex;
         flex-direction: column;
@@ -1321,7 +1364,7 @@ tr {
         width: 100%;
     }
 
-    /* Fix: password-row wraps long values */
+    /* Fix: 密码弹窗长值换行 */
     .password-row {
         flex-wrap: wrap;
         gap: 4px;
@@ -1331,20 +1374,52 @@ tr {
         text-align: left;
     }
 
-    /* Fix: form actions buttons fill row evenly */
+    /* Fix: 表单操作按钮均分 */
     .form-actions .btn {
         flex: 1;
         min-width: 100px;
     }
 
-    /* Fix: hero-meta pills don't clip first icon span on mobile */
-    .meta-pill {
-        white-space: nowrap;
+    /* Fix: 高流量用户行的流量文字在窄屏换行 */
+    .top-user-meta {
+        white-space: normal;
+        word-break: break-all;
+    }
+
+    /* Fix: 流量概览甜甜圈图在单列下居中 */
+    .donut-wrap {
+        padding: 8px 0;
+    }
+
+    /* 确保 panel 内容不溢出 */
+    .panel {
+        overflow: hidden;
     }
 }
 
 @media (max-width: 480px) {
-    /* Continue fixing on very small screens */
+    body {
+        overflow-x: hidden;
+    }
+
+    /* 同样覆盖第二段桌面样式 */
+    .insights-grid {
+        grid-template-columns: 1fr;
+        gap: 5px;
+    }
+    .split-layout {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+    .ops-grid {
+        grid-template-columns: 1fr;
+        gap: 5px;
+    }
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 4px;
+    }
+
     .progress-wrap {
         min-width: 0;
     }
@@ -1382,6 +1457,13 @@ tr {
     .password-row-value {
         width: 100%;
         text-align: left;
+    }
+    .top-user-meta {
+        white-space: normal;
+        word-break: break-all;
+    }
+    .panel {
+        overflow: hidden;
     }
 }
 </style>
