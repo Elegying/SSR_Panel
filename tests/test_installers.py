@@ -34,6 +34,13 @@ class InstallerRegressionTests(unittest.TestCase):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("update.sh", content)
 
+    def test_install_scripts_write_private_share_template_config(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("SSR_SHARE_HOST", content)
+            self.assertIn("SSR_SHARE_PASSWORD", content)
+            self.assertIn("分享功能默认关闭", content)
+
     def test_installers_apply_ssr_python_compatibility_patch(self):
         expected = "patch_ssr_python_compat.py"
         for script in ("install.sh", "install-all.sh", "update.sh"):
@@ -57,6 +64,14 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertNotIn("用户趋势视图", content)
         self.assertNotIn("TREND_STORAGE_KEY", content)
         self.assertNotIn("renderTrendChart", content)
+
+    def test_config_example_uses_safe_share_placeholders(self):
+        content = (REPO_ROOT / "config.py.example").read_text(encoding="utf-8")
+        self.assertIn("SSR_SHARE_HOST = ''", content)
+        self.assertIn("SSR_SHARE_PASSWORD = ''", content)
+        self.assertIn("SSR_SHARE_REMARKS = ''", content)
+        self.assertNotIn("nikuaimobi", content)
+        self.assertNotIn("ssr.ssrvpn.vip", content)
 
     def test_patch_ssr_python_compat_rewrites_legacy_collections_aliases(self):
         patcher = REPO_ROOT / "scripts" / "patch_ssr_python_compat.py"

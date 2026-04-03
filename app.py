@@ -29,10 +29,10 @@ ADMIN_USER = getattr(app_config, "ADMIN_USER", "admin")
 ADMIN_PASS = getattr(app_config, "ADMIN_PASS", "admin123")
 SECRET_KEY = getattr(app_config, "SECRET_KEY", "default-secret-key-change-me")
 MUDB_FILE = getattr(app_config, "MUDB_FILE", "/usr/local/shadowsocksr/mudb.json")
-SSR_SHARE_HOST = getattr(app_config, "SSR_SHARE_HOST", "ssr.ssrvpn.vip")
+SSR_SHARE_HOST = getattr(app_config, "SSR_SHARE_HOST", "")
 SSR_SHARE_PORT = getattr(app_config, "SSR_SHARE_PORT", 18899)
-SSR_SHARE_PASSWORD = getattr(app_config, "SSR_SHARE_PASSWORD", "nikuaimobi")
-SSR_SHARE_REMARKS = getattr(app_config, "SSR_SHARE_REMARKS", "私家车-2025")
+SSR_SHARE_PASSWORD = getattr(app_config, "SSR_SHARE_PASSWORD", "")
+SSR_SHARE_REMARKS = getattr(app_config, "SSR_SHARE_REMARKS", "")
 SSR_SHARE_PROTOCOL = getattr(app_config, "SSR_SHARE_PROTOCOL", "auth_aes128_md5")
 SSR_SHARE_METHOD = getattr(app_config, "SSR_SHARE_METHOD", "aes-256-cfb")
 SSR_SHARE_OBFS = getattr(app_config, "SSR_SHARE_OBFS", "tls1.2_ticket_auth")
@@ -204,15 +204,13 @@ def normalize_share_host(host):
 
 def get_share_host(request_host=""):
     configured_host = normalize_share_host(SSR_SHARE_HOST)
-    if configured_host:
-        return configured_host
-    return normalize_share_host(request_host)
+    return configured_host
 
 
 def build_ssr_share_url(user, host):
     share_host = get_share_host(host)
     if not share_host:
-        raise ValueError("未配置 SSR 分享域名，请先设置 SSR_SHARE_HOST")
+        raise ValueError("未配置账号分享模板，请先在 config.py 中设置 SSR_SHARE_* 参数")
 
     share_port = to_int(SSR_SHARE_PORT, None)
     if share_port is None or not 1 <= share_port <= 65535:
@@ -228,12 +226,14 @@ def build_ssr_share_url(user, host):
 
     share_password = str(SSR_SHARE_PASSWORD or "").strip()
     if not share_password:
-        raise ValueError("分享密码配置为空，无法生成分享链接")
+        raise ValueError("未配置账号分享模板，请先在 config.py 中设置 SSR_SHARE_* 参数")
 
     protocol = str(SSR_SHARE_PROTOCOL or "auth_aes128_md5").replace("_compatible", "")
     method = str(SSR_SHARE_METHOD or "aes-256-cfb")
     obfs = str(SSR_SHARE_OBFS or "tls1.2_ticket_auth").replace("_compatible", "")
     remarks = str(SSR_SHARE_REMARKS or "").strip()
+    if not remarks:
+        raise ValueError("未配置账号分享模板，请先在 config.py 中设置 SSR_SHARE_* 参数")
     protocol_param = f"{account}:{account_password}"
     obfs_param = str(SSR_SHARE_OBFS_PARAM or "").strip()
     password_b64 = urlsafe_b64encode(share_password)

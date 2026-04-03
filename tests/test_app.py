@@ -280,6 +280,14 @@ class AppSecurityTests(unittest.TestCase):
             "ssr://c3NyLnNzcnZwbi52aXA6MTg4OTk6YXV0aF9hZXMxMjhfbWQ1OmFlcy0yNTYtY2ZiOnRsczEuMl90aWNrZXRfYXV0aDpibWxyZFdGcGJXOWlhUS8_cmVtYXJrcz01NmVCNWE2MjZMMm1MVEl3TWpVJnByb3RvcGFyYW09TVRBd01EcDVhVzVuYW1sbE1YSSZvYmZzcGFyYW09ZDNkM0xtSmhhV1IxTG1OdmJR",
         )
 
+    def test_build_ssr_share_url_requires_private_template(self):
+        panel_app.SSR_SHARE_HOST = ""
+        panel_app.SSR_SHARE_PASSWORD = ""
+        panel_app.SSR_SHARE_REMARKS = ""
+
+        with self.assertRaisesRegex(ValueError, "SSR_SHARE_"):
+            panel_app.build_ssr_share_url({"user": "1000", "passwd": "yingjie1r"}, "")
+
     def test_share_user_returns_ssr_link(self):
         self.write_users(
             [

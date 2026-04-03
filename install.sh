@@ -123,6 +123,68 @@ while true; do
     fi
 done
 
+SHARE_HOST=""
+SHARE_PORT="18899"
+SHARE_PASSWORD=""
+SHARE_REMARKS=""
+SHARE_PROTOCOL="auth_aes128_md5"
+SHARE_METHOD="aes-256-cfb"
+SHARE_OBFS="tls1.2_ticket_auth"
+SHARE_OBFS_PARAM="www.baidu.com"
+
+echo
+echo -e "${CYAN}[ 可选：配置账号分享模板 ]${NC}"
+echo -e "${YELLOW}留空或选择 N 则默认关闭分享功能，真实值只写入本机 config.py${NC}"
+read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
+ENABLE_SHARE_TEMPLATE=$(printf '%s' "$ENABLE_SHARE_TEMPLATE" | tr '[:upper:]' '[:lower:]')
+
+if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; then
+    while true; do
+        read -p "请输入分享域名/IP: " SHARE_HOST
+        if [ -n "$SHARE_HOST" ]; then
+            break
+        fi
+        echo -e "${RED}分享域名/IP 不能为空！${NC}"
+    done
+
+    while true; do
+        read -p "请输入分享端口 [18899]: " SHARE_PORT_INPUT
+        SHARE_PORT=${SHARE_PORT_INPUT:-18899}
+        if [ "$SHARE_PORT" -ge 1 ] 2>/dev/null && [ "$SHARE_PORT" -le 65535 ] 2>/dev/null; then
+            break
+        fi
+        echo -e "${RED}分享端口必须是 1-65535 之间的数字！${NC}"
+    done
+
+    while true; do
+        read -s -p "请输入固定分享密码: " SHARE_PASSWORD
+        echo
+        if [ -n "$SHARE_PASSWORD" ]; then
+            break
+        fi
+        echo -e "${RED}固定分享密码不能为空！${NC}"
+    done
+
+    while true; do
+        read -p "请输入固定备注: " SHARE_REMARKS
+        if [ -n "$SHARE_REMARKS" ]; then
+            break
+        fi
+        echo -e "${RED}固定备注不能为空！${NC}"
+    done
+
+    read -p "请输入协议 [${SHARE_PROTOCOL}]: " SHARE_PROTOCOL_INPUT
+    SHARE_PROTOCOL=${SHARE_PROTOCOL_INPUT:-$SHARE_PROTOCOL}
+    read -p "请输入加密方式 [${SHARE_METHOD}]: " SHARE_METHOD_INPUT
+    SHARE_METHOD=${SHARE_METHOD_INPUT:-$SHARE_METHOD}
+    read -p "请输入混淆方式 [${SHARE_OBFS}]: " SHARE_OBFS_INPUT
+    SHARE_OBFS=${SHARE_OBFS_INPUT:-$SHARE_OBFS}
+    read -p "请输入 obfs_param [${SHARE_OBFS_PARAM}]: " SHARE_OBFS_PARAM_INPUT
+    SHARE_OBFS_PARAM=${SHARE_OBFS_PARAM_INPUT:-$SHARE_OBFS_PARAM}
+else
+    echo -e "${YELLOW}已跳过分享模板配置，分享功能默认关闭${NC}"
+fi
+
 echo -e "${GREEN}✓ 配置完成${NC}"
 echo
 
@@ -169,9 +231,17 @@ if [ -f "$INSTALL_DIR/config.py" ]; then
     echo -e "${YELLOW}检测到现有配置文件，已保留: $INSTALL_DIR/config.py${NC}"
 else
 SECRET_KEY=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
-INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" python3 << 'PY'
+INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" SHARE_HOST="$SHARE_HOST" SHARE_PORT="$SHARE_PORT" SHARE_PASSWORD="$SHARE_PASSWORD" SHARE_REMARKS="$SHARE_REMARKS" SHARE_PROTOCOL="$SHARE_PROTOCOL" SHARE_METHOD="$SHARE_METHOD" SHARE_OBFS="$SHARE_OBFS" SHARE_OBFS_PARAM="$SHARE_OBFS_PARAM" python3 << 'PY'
 import os
 from pathlib import Path
+
+
+def to_int(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
 
 config_path = Path(os.environ["INSTALL_DIR"]) / "config.py"
 values = {
@@ -179,6 +249,14 @@ values = {
     "ADMIN_PASS": os.environ["ADMIN_PASS"],
     "SECRET_KEY": os.environ["SECRET_KEY"],
     "MUDB_FILE": os.environ["MUDB_FILE"],
+    "SSR_SHARE_HOST": os.environ.get("SHARE_HOST", ""),
+    "SSR_SHARE_PORT": to_int(os.environ.get("SHARE_PORT"), 18899),
+    "SSR_SHARE_PASSWORD": os.environ.get("SHARE_PASSWORD", ""),
+    "SSR_SHARE_REMARKS": os.environ.get("SHARE_REMARKS", ""),
+    "SSR_SHARE_PROTOCOL": os.environ.get("SHARE_PROTOCOL", "auth_aes128_md5"),
+    "SSR_SHARE_METHOD": os.environ.get("SHARE_METHOD", "aes-256-cfb"),
+    "SSR_SHARE_OBFS": os.environ.get("SHARE_OBFS", "tls1.2_ticket_auth"),
+    "SSR_SHARE_OBFS_PARAM": os.environ.get("SHARE_OBFS_PARAM", "www.baidu.com"),
 }
 
 with config_path.open("w", encoding="utf-8") as f:
