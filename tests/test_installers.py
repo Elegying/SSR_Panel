@@ -40,6 +40,10 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("SSR_SHARE_HOST", content)
             self.assertIn("SSR_SHARE_PASSWORD", content)
             self.assertIn("分享功能默认关闭", content)
+            self.assertNotIn("请输入协议 [${SHARE_PROTOCOL}]", content)
+            self.assertNotIn("请输入加密方式 [${SHARE_METHOD}]", content)
+            self.assertNotIn("请输入混淆方式 [${SHARE_OBFS}]", content)
+            self.assertNotIn("请输入 obfs_param [${SHARE_OBFS_PARAM}]", content)
 
     def test_installers_apply_ssr_python_compatibility_patch(self):
         expected = "patch_ssr_python_compat.py"

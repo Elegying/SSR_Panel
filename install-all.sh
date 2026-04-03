@@ -297,19 +297,6 @@ if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; t
         fi
         echo -e "${RED}固定备注不能为空！${NC}"
     done
-
-    echo -ne "请输入协议 [${SHARE_PROTOCOL}]: "
-    read_input SHARE_PROTOCOL_INPUT || true
-    SHARE_PROTOCOL=${SHARE_PROTOCOL_INPUT:-$SHARE_PROTOCOL}
-    echo -ne "请输入加密方式 [${SHARE_METHOD}]: "
-    read_input SHARE_METHOD_INPUT || true
-    SHARE_METHOD=${SHARE_METHOD_INPUT:-$SHARE_METHOD}
-    echo -ne "请输入混淆方式 [${SHARE_OBFS}]: "
-    read_input SHARE_OBFS_INPUT || true
-    SHARE_OBFS=${SHARE_OBFS_INPUT:-$SHARE_OBFS}
-    echo -ne "请输入 obfs_param [${SHARE_OBFS_PARAM}]: "
-    read_input SHARE_OBFS_PARAM_INPUT || true
-    SHARE_OBFS_PARAM=${SHARE_OBFS_PARAM_INPUT:-$SHARE_OBFS_PARAM}
 else
     echo -e "${YELLOW}已跳过分享模板配置，分享功能默认关闭${NC}"
 fi
