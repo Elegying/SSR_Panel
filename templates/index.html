@@ -1264,6 +1264,126 @@ tr {
     .donut-chart { width: 100px; }
     .modal-content { width: min(100%, 84%); padding: 12px 8px; }
 }
+
+/* ===== Mobile Layout Fixes ===== */
+@media (max-width: 768px) {
+    /* Fix: progress-wrap min-width causes overflow in fixed-layout table cells */
+    .progress-wrap {
+        min-width: 0;
+    }
+    /* Fix: action-cell min-width reset */
+    .action-cell {
+        min-width: 0;
+    }
+
+    /* Fix: toolbar grid overflows on narrow screens — switch to column flex */
+    .toolbar {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+    .toolbar-actions {
+        flex: 0 0 auto;
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    .toolbar-search {
+        flex: 0 0 auto; /* reset 360px flex-basis from desktop */
+        width: 100%;
+        display: flex;
+        gap: 5px;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+    .search-box {
+        flex: 1;
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+    }
+
+    /* Fix: service-actions 2-column instead of stacked single column */
+    .service-actions {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* Fix: update-row stacks on narrow screens */
+    .update-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-start;
+    }
+    .update-row .btn {
+        width: 100%;
+    }
+
+    /* Fix: password-row wraps long values */
+    .password-row {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .password-row-value {
+        width: 100%;
+        text-align: left;
+    }
+
+    /* Fix: form actions buttons fill row evenly */
+    .form-actions .btn {
+        flex: 1;
+        min-width: 100px;
+    }
+
+    /* Fix: hero-meta pills don't clip first icon span on mobile */
+    .meta-pill {
+        white-space: nowrap;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Continue fixing on very small screens */
+    .progress-wrap {
+        min-width: 0;
+    }
+    .service-actions {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .toolbar {
+        display: flex;
+        flex-direction: column;
+    }
+    .toolbar-actions {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+    .toolbar-search {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+    .search-box {
+        flex: 1;
+        min-width: 0;
+        width: 100%;
+    }
+    .update-row {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .update-row .btn {
+        width: 100%;
+    }
+    .password-row {
+        flex-wrap: wrap;
+    }
+    .password-row-value {
+        width: 100%;
+        text-align: left;
+    }
+}
 </style>
 </head>
 <body>
