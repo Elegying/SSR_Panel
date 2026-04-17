@@ -154,6 +154,45 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(info["latest_version"], "1.2.0")
         fetch_remote.assert_called_once_with()
 
+    def test_collect_panel_update_info_detects_revision_change_when_version_file_is_unchanged(self):
+        with mock.patch.object(panel_app, "is_panel_git_workspace", return_value=False), mock.patch.object(
+            panel_app, "get_panel_version", return_value="1.1.0"
+        ), mock.patch.object(
+            panel_app,
+            "fetch_remote_panel_version_from_repo",
+            return_value={
+                "success": True,
+                "version": "1.1.0",
+                "revision": "4767677",
+                "display_version": "1.1.0 (4767677)",
+                "message": "",
+            },
+        ):
+            info = panel_app.collect_panel_update_info(fetch_remote=True)
+
+        self.assertTrue(info["success"])
+        self.assertTrue(info["update_available"])
+        self.assertEqual(info["latest_version"], "1.1.0 (4767677)")
+        self.assertEqual(info["message"], "发现新版本 1.1.0 (4767677)")
+
+    def test_get_panel_version_prefers_build_metadata_without_git_workspace(self):
+        build_info_path = self.base_path / ".panel-build.json"
+        build_info_path.write_text(
+            json.dumps(
+                {
+                    "version": "1.1.0",
+                    "revision": "4767677",
+                    "display_version": "1.1.0 (4767677)",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with mock.patch.object(panel_app, "PANEL_DIR", self.base_path), mock.patch.object(
+            panel_app, "PANEL_BUILD_INFO_FILE", build_info_path
+        ), mock.patch.object(panel_app, "PANEL_VERSION_FILE", self.base_path / "VERSION"):
+            self.assertEqual(panel_app.get_panel_version(), "1.1.0 (4767677)")
+
     def test_panel_update_start_requires_csrf(self):
         response = self.client.post("/api/panel/update")
         self.assertEqual(response.status_code, 403)

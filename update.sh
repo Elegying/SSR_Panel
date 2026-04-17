@@ -80,6 +80,7 @@ TMP_CLONE_DIR="$(mktemp -d /tmp/ssr-admin-panel-update.XXXXXX)"
 git clone --depth 1 --branch "${TARGET_REF}" "${REPO_URL}" "${TMP_CLONE_DIR}" -q
 
 NEW_VERSION="$(read_version "${TMP_CLONE_DIR}")"
+NEW_REVISION="$(git -C "${TMP_CLONE_DIR}" rev-parse --short HEAD 2>/dev/null || echo "")"
 BACKUP_DIR="${PANEL_DIR}/backups/update_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "${BACKUP_DIR}"
 
@@ -128,6 +129,29 @@ def sync_dir(src: Path, dst: Path) -> None:
 
 
 sync_dir(source, target)
+PY
+
+PANEL_BUILD_INFO_FILE="${PANEL_DIR}/.panel-build.json"
+PANEL_BUILD_VERSION="${NEW_VERSION}" PANEL_BUILD_REVISION="${NEW_REVISION}" PANEL_BUILD_INFO_FILE="${PANEL_BUILD_INFO_FILE}" "${PYTHON3_BIN}" <<'PY'
+import json
+import os
+from pathlib import Path
+
+version = os.environ.get("PANEL_BUILD_VERSION", "").strip() or "unknown"
+revision = os.environ.get("PANEL_BUILD_REVISION", "").strip()
+display_version = version if not revision or revision == version or revision in version else f"{version} ({revision})"
+Path(os.environ["PANEL_BUILD_INFO_FILE"]).write_text(
+    json.dumps(
+        {
+            "version": version,
+            "revision": revision,
+            "display_version": display_version,
+        },
+        ensure_ascii=False,
+        indent=2,
+    ),
+    encoding="utf-8",
+)
 PY
 
 chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" 2>/dev/null || true

@@ -214,6 +214,30 @@ else
 fi
 
 chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" 2>/dev/null || true
+APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
+APP_REVISION=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
+PANEL_BUILD_INFO_FILE="$INSTALL_DIR/.panel-build.json"
+PANEL_BUILD_VERSION="$APP_VERSION" PANEL_BUILD_REVISION="$APP_REVISION" PANEL_BUILD_INFO_FILE="$PANEL_BUILD_INFO_FILE" "$PYTHON3_BIN" <<'PY'
+import json
+import os
+from pathlib import Path
+
+version = os.environ.get("PANEL_BUILD_VERSION", "").strip() or "unknown"
+revision = os.environ.get("PANEL_BUILD_REVISION", "").strip()
+display_version = version if not revision or revision == version or revision in version else f"{version} ({revision})"
+Path(os.environ["PANEL_BUILD_INFO_FILE"]).write_text(
+    json.dumps(
+        {
+            "version": version,
+            "revision": revision,
+            "display_version": display_version,
+        },
+        ensure_ascii=False,
+        indent=2,
+    ),
+    encoding="utf-8",
+)
+PY
 apply_ssr_python_compatibility_fix
 
 # 创建配置文件

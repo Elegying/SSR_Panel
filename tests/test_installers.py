@@ -34,6 +34,13 @@ class InstallerRegressionTests(unittest.TestCase):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("update.sh", content)
 
+    def test_install_and_update_scripts_write_panel_build_metadata(self):
+        for script in ("install.sh", "install-all.sh", "update.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn(".panel-build.json", content)
+            self.assertIn("display_version", content)
+            self.assertIn("revision", content)
+
     def test_install_scripts_write_private_share_template_config(self):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
@@ -68,6 +75,15 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertNotIn("用户趋势视图", content)
         self.assertNotIn("TREND_STORAGE_KEY", content)
         self.assertNotIn("renderTrendChart", content)
+
+    def test_created_user_modal_uses_share_action_instead_of_copy_password(self):
+        content = (REPO_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="shareUserBtn"', content)
+        self.assertIn('>分享<', content)
+        self.assertIn("shareCreatedUser", content)
+        self.assertNotIn('id="copyPasswordBtn"', content)
+        self.assertNotIn(">复制密码<", content)
+        self.assertNotIn("copyCreatedPassword", content)
 
     def test_config_example_uses_safe_share_placeholders(self):
         content = (REPO_ROOT / "config.py.example").read_text(encoding="utf-8")

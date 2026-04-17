@@ -54,6 +54,7 @@ SSR_PYTHON_BIN = getattr(app_config, "SSR_PYTHON_BIN", "")
 BACKUP_DIR = Path("/opt/ssr-admin-panel/backups")
 PANEL_DIR = Path(__file__).resolve().parent
 PANEL_VERSION_FILE = PANEL_DIR / "VERSION"
+PANEL_BUILD_INFO_FILE = PANEL_DIR / ".panel-build.json"
 PANEL_UPDATE_SCRIPT = PANEL_DIR / "update.sh"
 PANEL_UPDATE_RUNNER = PANEL_DIR / "scripts" / "run_panel_update.py"
 PANEL_UPDATE_LOG = PANEL_DIR / ".panel-update.log"
@@ -259,11 +260,39 @@ def read_json_file(path, default):
         return default
 
 
+def format_panel_version(version, revision=""):
+    base_version = str(version or "").strip() or "unknown"
+    clean_revision = str(revision or "").strip()
+    if not clean_revision:
+        return base_version
+    if clean_revision == base_version or clean_revision in base_version:
+        return base_version
+    if base_version == "unknown":
+        return clean_revision
+    return f"{base_version} ({clean_revision})"
+
+
+def read_panel_build_info():
+    payload = read_json_file(PANEL_BUILD_INFO_FILE, {})
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
 def get_panel_version(ref="HEAD"):
     if (PANEL_DIR / ".git").exists():
         result = run_process(["git", "rev-parse", "--short", ref], cwd=PANEL_DIR)
         if result["success"] and result["output"]:
             return result["output"]
+
+    build_info = read_panel_build_info()
+    if build_info:
+        display_version = str(build_info.get("display_version") or "").strip()
+        if display_version:
+            return display_version
+        formatted = format_panel_version(build_info.get("version", ""), build_info.get("revision", ""))
+        if formatted and formatted != "unknown":
+            return formatted
 
     try:
         return PANEL_VERSION_FILE.read_text(encoding="utf-8").strip() or "unknown"
@@ -340,11 +369,18 @@ def fetch_remote_panel_version_from_repo():
             }
 
         latest_version = read_version_file(Path(tmp_dir) / "VERSION")
-        if latest_version == "unknown":
-            rev_result = run_capture_process(["git", "rev-parse", "--short", "HEAD"], cwd=tmp_dir)
-            latest_version = rev_result["output"] if rev_result["success"] and rev_result["output"] else "unknown"
+        rev_result = run_capture_process(["git", "rev-parse", "--short", "HEAD"], cwd=tmp_dir)
+        revision = rev_result["output"] if rev_result["success"] and rev_result["output"] else ""
+        if latest_version == "unknown" and revision:
+            latest_version = revision
 
-    return {"success": True, "version": latest_version, "message": ""}
+    return {
+        "success": True,
+        "version": latest_version,
+        "revision": revision,
+        "display_version": format_panel_version(latest_version, revision),
+        "message": "",
+    }
 
 
 def resolve_latest_panel_version(fetch_remote=False):
@@ -385,7 +421,7 @@ def collect_panel_update_info(fetch_remote=False):
         info["message"] = latest_result["message"]
         return info
 
-    latest_version = latest_result["version"]
+    latest_version = latest_result.get("display_version") or latest_result["version"]
     info["latest_version"] = latest_version
     info["update_available"] = latest_version != "unknown" and latest_version != current_version
     if info["update_available"]:

@@ -9,6 +9,11 @@ __pycache__/
 .venv/
 venv/
 
+# Runtime state
+.panel-build.json
+.panel-update-status.json
+.panel-update.log
+
 # IDE
 .idea/
 .vscode/
