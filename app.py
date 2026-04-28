@@ -17,6 +17,8 @@ from functools import wraps
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -25,9 +27,34 @@ try:
 except ImportError:
     app_config = None
 
+
+# ========== 审计日志 ==========
+AUDIT_LOG_PATH = Path("/var/log/ssr-admin-panel/audit.log")
+
+
+def audit_log(action: str, details: str = "", level: str = "INFO"):
+    """记录审计日志"""
+    try:
+        AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().isoformat()
+        ip = request.remote_addr if request else "system"
+        user = session.get("username", "anonymous") if session else "system"
+        log_entry = f"[{timestamp}] [{level}] [{ip}] [{user}] {action}"
+        if details:
+            log_entry += f" | {details}"
+        with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(log_entry + "\n")
+    except OSError:
+        pass  # 日志写入失败不应影响主流程
+
+def _default_secret_key():
+    """生成强随机 SECRET_KEY（仅在未配置时使用）"""
+    return secrets.token_hex(32)
+
+
 ADMIN_USER = getattr(app_config, "ADMIN_USER", "admin")
-ADMIN_PASS = getattr(app_config, "ADMIN_PASS", "admin123")
-SECRET_KEY = getattr(app_config, "SECRET_KEY", "default-secret-key-change-me")
+ADMIN_PASS = getattr(app_config, "ADMIN_PASS", secrets.token_urlsafe(16))
+SECRET_KEY = getattr(app_config, "SECRET_KEY", _default_secret_key())
 MUDB_FILE = getattr(app_config, "MUDB_FILE", "/usr/local/shadowsocksr/mudb.json")
 SSR_SHARE_HOST = getattr(app_config, "SSR_SHARE_HOST", "")
 SSR_SHARE_PORT = getattr(app_config, "SSR_SHARE_PORT", 18899)
@@ -48,6 +75,29 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
 )
+
+# 速率限制：全局默认 200/分钟，登录端点单独限制 5/分钟
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per minute"],
+    storage_uri="memory://",
+)
+
+
+# ========== 安全响应头 ==========
+@app.after_request
+def add_security_headers(response):
+    """添加安全相关的 HTTP 响应头"""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 SSR_DIR = Path("/usr/local/shadowsocksr")
 SSR_WORKDIR = SSR_DIR / "shadowsocks"
@@ -954,6 +1004,7 @@ def validate_new_user(data, existing_users):
 
 
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute")
 def login():
     error = None
     if request.method == "POST":
@@ -964,8 +1015,10 @@ def login():
             session["logged_in"] = True
             session["username"] = username
             ensure_csrf_token()
+            audit_log("LOGIN_SUCCESS", f"用户 {username} 登录成功")
             return redirect(url_for("index"))
         error = "用户名或密码错误"
+        audit_log("LOGIN_FAILED", f"登录失败，用户名: {username}", "WARNING")
     return render_template("login.html", error=error)
 
 
