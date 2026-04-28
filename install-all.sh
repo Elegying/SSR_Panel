@@ -277,7 +277,7 @@ safe_read() {
     local is_password="$3"
     
     # 如果变量已有值（来自环境变量），跳过
-    if [ -n "${!var_name}" ]; then
+    if [ -n "${!var_name:-}" ]; then
         return 0
     fi
 
