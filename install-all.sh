@@ -407,8 +407,6 @@ if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; t
         fi
     fi
 fi
-else
-    echo -e "${YELLOW}已跳过分享模板配置，分享功能默认关闭${NC}"
 fi
 
 echo
