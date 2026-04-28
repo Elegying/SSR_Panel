@@ -141,10 +141,7 @@ prepare_minimal_runtime() {
 }
 
 install_flask_runtime() {
-    if "$PYTHON3_BIN" - <<'PY' &>/dev/null
-import flask
-PY
-    then
+    if "$PYTHON3_BIN" -c "import flask; import flask_limiter" &>/dev/null; then
         echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
         return
     fi
