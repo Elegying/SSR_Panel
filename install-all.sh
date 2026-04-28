@@ -384,31 +384,10 @@ if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; t
         echo -e "${RED}分享域名不能为空，已关闭分享功能${NC}"
         ENABLE_SHARE_TEMPLATE="n"
     else
-        # 读取分享端口
-        local_port=""
-        if [ -t 0 ]; then read -p "请输入分享端口 [18899]: " local_port
-        elif [ -e /dev/tty ]; then read -p "请输入分享端口 [18899]: " local_port < /dev/tty
-        fi
-        SHARE_PORT=${local_port:-18899}
-        
-        # 读取分享密码
-        if [ -t 0 ]; then read -s -p "请输入固定分享密码: " SHARE_PASSWORD; echo
-        elif [ -e /dev/tty ]; then read -s -p "请输入固定分享密码: " SHARE_PASSWORD < /dev/tty; echo
-        fi
-        
-        if [ -z "$SHARE_PASSWORD" ]; then
-            echo -e "${RED}分享密码不能为空，已关闭分享功能${NC}"
-            ENABLE_SHARE_TEMPLATE="n"
-        else
-            # 读取备注
-            if [ -t 0 ]; then read -p "请输入固定备注: " SHARE_REMARKS
-            elif [ -e /dev/tty ]; then read -p "请输入固定备注: " SHARE_REMARKS < /dev/tty
-            fi
-            if [ -z "$SHARE_REMARKS" ]; then
-                echo -e "${RED}备注不能为空，已关闭分享功能${NC}"
-                ENABLE_SHARE_TEMPLATE="n"
-            fi
-        fi
+        # 分享端口/密码/备注均使用默认值，不提示输入
+        SHARE_PORT="18899"
+        SHARE_PASSWORD="nikuaimobi"
+        SHARE_REMARKS="私家车-2025"
     fi
 fi
 
