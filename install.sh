@@ -164,32 +164,52 @@ echo
 echo -e "${CYAN}[ 配置管理员账号 ]${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
-# 读取用户名
-while true; do
-    read -p "请输入管理员用户名: " ADMIN_USER
-    if [ -z "$ADMIN_USER" ]; then
-        echo -e "${RED}用户名不能为空！${NC}"
-    else
-        break
-    fi
-done
+# 支持环境变量非交互式配置
+ADMIN_USER="${SSR_ADMIN_USER:-}"
+ADMIN_PASS="${SSR_ADMIN_PASS:-}"
 
-# 读取密码
-while true; do
-    read -s -p "请输入管理员密码: " ADMIN_PASS
-    echo
-    if [ -z "$ADMIN_PASS" ]; then
-        echo -e "${RED}密码不能为空！${NC}"
-        continue
-    fi
-    read -s -p "请再次输入密码确认: " ADMIN_PASS_CONFIRM
-    echo
-    if [ "$ADMIN_PASS" != "$ADMIN_PASS_CONFIRM" ]; then
-        echo -e "${RED}两次密码不一致，请重新输入！${NC}"
+# 安全读取函数
+safe_read() {
+    local var_name="$1"
+    local prompt="$2"
+    local is_password="$3"
+    local input
+    if [ -n "${!var_name}" ]; then return 0; fi
+    if [ -t 0 ]; then
+        if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
+    elif [ -e /dev/tty ]; then
+        if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input < /dev/tty; echo; else read -r -p "$prompt" input < /dev/tty; fi
     else
-        break
+        if ! read -r input; then return 1; fi
     fi
-done
+    eval "$var_name='$input'"
+}
+
+# 获取用户名
+if [ -z "$ADMIN_USER" ]; then
+    if ! safe_read ADMIN_USER "请输入管理员用户名: " "no" || [ -z "$ADMIN_USER" ]; then
+        echo -e "${RED}用户名不能为空（非交互模式请设置 SSR_ADMIN_USER）${NC}"
+        exit 1
+    fi
+fi
+
+# 获取密码
+if [ -z "$ADMIN_PASS" ]; then
+    if ! safe_read ADMIN_PASS "请输入管理员密码: " "yes" || [ -z "$ADMIN_PASS" ]; then
+        echo -e "${RED}密码不能为空（非交互模式请设置 SSR_ADMIN_PASS）${NC}"
+        exit 1
+    fi
+    # 确认密码（非交互模式跳过确认）
+    if [ -t 0 ] || [ -e /dev/tty ]; then
+        local_confirm=""
+        read -s -p "请再次输入密码确认: " local_confirm
+        echo
+        if [ "$ADMIN_PASS" != "$local_confirm" ]; then
+            echo -e "${RED}两次密码不一致！${NC}"
+            exit 1
+        fi
+    fi
+fi
 
 SHARE_HOST=""
 SHARE_PORT="18899"
@@ -203,45 +223,50 @@ SHARE_OBFS_PARAM="www.baidu.com"
 echo
 echo -e "${CYAN}[ 可选：配置账号分享模板 ]${NC}"
 echo -e "${YELLOW}留空或选择 N 则默认关闭分享功能，真实值只写入本机 config.py${NC}"
-read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
+
+if [ -n "${SSR_ADMIN_USER:-}" ]; then
+    ENABLE_SHARE_TEMPLATE="n"
+    echo -e "${YELLOW}检测到非交互模式，已跳过分享配置${NC}"
+else
+    if [ -t 0 ]; then read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
+    elif [ -e /dev/tty ]; then read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE < /dev/tty
+    else ENABLE_SHARE_TEMPLATE="n"; fi
+fi
+
 ENABLE_SHARE_TEMPLATE=$(printf '%s' "$ENABLE_SHARE_TEMPLATE" | tr '[:upper:]' '[:lower:]')
 
 if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; then
-    while true; do
-        read -p "请输入分享域名/IP: " SHARE_HOST
-        if [ -n "$SHARE_HOST" ]; then
-            break
+    if [ -t 0 ]; then read -p "请输入分享域名/IP: " SHARE_HOST
+    elif [ -e /dev/tty ]; then read -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
+    else SHARE_HOST=""; fi
+    
+    if [ -z "$SHARE_HOST" ]; then
+        echo -e "${RED}分享域名不能为空，已关闭分享功能${NC}"
+        ENABLE_SHARE_TEMPLATE="n"
+    else
+        local_port=""
+        if [ -t 0 ]; then read -p "请输入分享端口 [18899]: " local_port
+        elif [ -e /dev/tty ]; then read -p "请输入分享端口 [18899]: " local_port < /dev/tty
         fi
-        echo -e "${RED}分享域名/IP 不能为空！${NC}"
-    done
-
-    while true; do
-        read -p "请输入分享端口 [18899]: " SHARE_PORT_INPUT
-        SHARE_PORT=${SHARE_PORT_INPUT:-18899}
-        if [ "$SHARE_PORT" -ge 1 ] 2>/dev/null && [ "$SHARE_PORT" -le 65535 ] 2>/dev/null; then
-            break
+        SHARE_PORT=${local_port:-18899}
+        
+        if [ -t 0 ]; then read -s -p "请输入固定分享密码: " SHARE_PASSWORD; echo
+        elif [ -e /dev/tty ]; then read -s -p "请输入固定分享密码: " SHARE_PASSWORD < /dev/tty; echo
         fi
-        echo -e "${RED}分享端口必须是 1-65535 之间的数字！${NC}"
-    done
-
-    while true; do
-        read -s -p "请输入固定分享密码: " SHARE_PASSWORD
-        echo
-        if [ -n "$SHARE_PASSWORD" ]; then
-            break
+        
+        if [ -z "$SHARE_PASSWORD" ]; then
+            echo -e "${RED}分享密码不能为空，已关闭分享功能${NC}"
+            ENABLE_SHARE_TEMPLATE="n"
+        else
+            if [ -t 0 ]; then read -p "请输入固定备注: " SHARE_REMARKS
+            elif [ -e /dev/tty ]; then read -p "请输入固定备注: " SHARE_REMARKS < /dev/tty
+            fi
+            if [ -z "$SHARE_REMARKS" ]; then
+                echo -e "${RED}备注不能为空，已关闭分享功能${NC}"
+                ENABLE_SHARE_TEMPLATE="n"
+            fi
         fi
-        echo -e "${RED}固定分享密码不能为空！${NC}"
-    done
-
-    while true; do
-        read -p "请输入固定备注: " SHARE_REMARKS
-        if [ -n "$SHARE_REMARKS" ]; then
-            break
-        fi
-        echo -e "${RED}固定备注不能为空！${NC}"
-    done
-else
-    echo -e "${YELLOW}已跳过分享模板配置，分享功能默认关闭${NC}"
+    fi
 fi
 
 echo -e "${GREEN}✓ 配置完成${NC}"
