@@ -407,7 +407,6 @@ if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; t
         fi
     fi
 fi
-fi
 
 echo
 echo -e "${GREEN}✓ 配置完成${NC}"
