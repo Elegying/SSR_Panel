@@ -699,7 +699,7 @@ td { font-size: 0.92rem; }
     
     /* Users Table - 用户表格极致优化 */
     .users-table { border-radius: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; border: none; }
-    table { min-width: 460px; }
+    table { min-width: 540px; }
     th { font-size: 0.62rem; padding: 6px 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
     td { padding: 7px 3px; font-size: 0.76rem; vertical-align: middle; }
     tr { border-bottom-width: 1px; }
@@ -1250,7 +1250,7 @@ tr {
     .panel-title { font-size: 0.8rem; }
     .btn { padding: 6px 8px; font-size: 0.7rem; min-height: 30px; }
     .search-box { padding: 6px 7px; font-size: 0.75rem; min-height: 30px; }
-    table { min-width: 440px; }
+    table { min-width: 520px; }
     th, td { padding: 6px 3px; font-size: 0.72rem; }
     th { font-size: 0.6rem; }
     .user-name { font-size: 0.75rem; }
@@ -1510,6 +1510,11 @@ tr {
             <div class="stat-subtext">上传与下载流量都为 0 的账户</div>
         </article>
         <article class="stat-card">
+            <div class="stat-label">在线设备</div>
+            <div class="stat-value" id="stat-online-devices">{{ total_online_devices }}</div>
+            <div class="stat-subtext">按当前连接来源 IP 近似统计</div>
+        </article>
+        <article class="stat-card">
             <div class="stat-label">总上传流量</div>
             <div class="stat-value" id="stat-upload">{{ format_bytes(total_upload) }}</div>
             <div class="stat-subtext">全部用户累计上传</div>
@@ -1689,6 +1694,7 @@ tr {
                         <th class="sortable" data-sort="user">用户名</th>
                         <th class="sortable" data-sort="port">端口</th>
                         <th class="sortable" data-sort="enable">状态</th>
+                        <th class="sortable" data-sort="devices">设备</th>
                         <th class="sortable" data-sort="upload">上传</th>
                         <th class="sortable" data-sort="download">下载</th>
                         <th class="sortable" data-sort="usage">流量使用</th>
@@ -1851,10 +1857,12 @@ function updateStats(){
     const inactiveUsers = usersData.filter(user => (user.u || 0) + (user.d || 0) === 0).length;
     const totalUpload = usersData.reduce((sum, user) => sum + (user.u || 0), 0);
     const totalDownload = usersData.reduce((sum, user) => sum + (user.d || 0), 0);
+    const totalOnlineDevices = usersData.reduce((sum, user) => sum + (user.online_device_count || 0), 0);
 
     document.getElementById('stat-users').textContent = usersData.length;
     document.getElementById('heroTotalUsers').textContent = usersData.length;
     document.getElementById('stat-inactive').textContent = inactiveUsers;
+    document.getElementById('stat-online-devices').textContent = totalOnlineDevices;
     document.getElementById('stat-upload').textContent = formatBytes(totalUpload);
     document.getElementById('stat-download').textContent = formatBytes(totalDownload);
 }
@@ -2154,6 +2162,7 @@ function sortUsers(field, shouldToggle = true){
         user: user => user.user || '',
         port: user => user.port || 0,
         enable: user => user.enable || 0,
+        devices: user => user.online_device_count || 0,
         upload: user => user.u || 0,
         download: user => user.d || 0,
         usage: user => (user.u || 0) + (user.d || 0)
@@ -2192,6 +2201,7 @@ function updateSortUI(){
         user: '用户名',
         port: '端口',
         enable: '状态',
+        devices: '在线设备',
         upload: '上传',
         download: '下载',
         usage: '总流量'
@@ -2220,7 +2230,7 @@ function renderUsers(filter = ''){
     if(!filtered.length){
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 7;
+        cell.colSpan = 8;
         cell.className = 'empty-state';
         cell.textContent = activeFilter ? '没有匹配到用户，请换个关键词试试。' : '还没有用户，先添加一个新的 SSR 账号吧。';
         row.appendChild(cell);
@@ -2264,6 +2274,21 @@ function renderUsers(filter = ''){
         badge.textContent = user.enable ? '启用' : '禁用';
         statusCell.appendChild(badge);
         row.appendChild(statusCell);
+
+        const deviceCell = document.createElement('td');
+        deviceCell.dataset.label = '设备';
+        const deviceValue = document.createElement('div');
+        deviceValue.className = 'data-value';
+        const deviceLimit = user.device_limit || 0;
+        deviceValue.textContent = deviceLimit > 0
+            ? `${user.online_device_count || 0} / ${deviceLimit}`
+            : `${user.online_device_count || 0}`;
+        deviceCell.appendChild(deviceValue);
+        const deviceMeta = document.createElement('div');
+        deviceMeta.className = 'cell-meta';
+        deviceMeta.textContent = `近15分钟 ${user.recent_device_count || 0}`;
+        deviceCell.appendChild(deviceMeta);
+        row.appendChild(deviceCell);
 
         const uploadCell = document.createElement('td');
         uploadCell.dataset.label = '上传';

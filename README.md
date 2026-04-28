@@ -9,6 +9,7 @@
 ## ✨ 功能特性
 
 - 📊 **实时监控** - 查看所有用户的流量使用情况
+- 📱 **设备统计** - 按账号端口统计当前/近期连接来源数量
 - 👤 **用户管理** - 添加、删除、启用/禁用用户
 - 🔄 **流量重置** - 一键重置用户流量
 - 📈 **数据可视化** - 流量进度条、统计卡片
@@ -69,6 +70,7 @@ ADMIN_USER = 'your-username'    # 管理员用户名
 ADMIN_PASS = 'your-password'    # 管理员密码
 SECRET_KEY = '...'              # Session密钥（自动生成）
 MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'  # SSR用户文件
+DEVICE_STATS_FILE = '/var/lib/ssr-admin-panel/device-stats.json'  # 设备统计文件
 ```
 
 修改配置后重启服务：

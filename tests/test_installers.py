@@ -58,6 +58,19 @@ class InstallerRegressionTests(unittest.TestCase):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn(expected, content)
 
+    def test_installers_configure_device_stats_service(self):
+        for script in ("install.sh", "install-all.sh", "update.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("collect_device_stats.py", content)
+            self.assertIn("ssr-device-stats", content)
+            self.assertIn("DEVICE_STATS_FILE", content)
+
+    def test_installers_prepare_minimal_debian_runtime(self):
+        content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
+        self.assertIn("apt-get update", content)
+        self.assertIn('ensure_minimal_command "ss" "iproute2"', content)
+        self.assertIn('ensure_minimal_command "systemctl" "systemd"', content)
+
     def test_ssrmu_applies_python_compatibility_patch_before_startup(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
         self.assertIn("Fix_python_collections_compatibility()", content)
@@ -115,6 +128,33 @@ class InstallerRegressionTests(unittest.TestCase):
             updated = target.read_text(encoding="utf-8")
             self.assertIn("collections.abc.MutableMapping", updated)
             self.assertNotIn("collections.MutableMapping", updated)
+
+    def test_patch_ssr_python_compat_rewrites_literal_identity_warnings(self):
+        patcher = REPO_ROOT / "scripts" / "patch_ssr_python_compat.py"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ssr_dir = Path(tmp_dir)
+            target = ssr_dir / "shadowsocks" / "common.py"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
+                'if addr is "":\n    pass\nif len(block) is 1:\n    pass\nwhile ip is not 0:\n    pass\n',
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["python3", str(patcher), str(ssr_dir)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            updated = target.read_text(encoding="utf-8")
+            self.assertIn('addr == ""', updated)
+            self.assertIn("len(block) == 1", updated)
+            self.assertIn("ip != 0", updated)
+            self.assertNotIn('addr is ""', updated)
+            self.assertNotIn("len(block) is 1", updated)
+            self.assertNotIn("ip is not 0", updated)
 
 
 if __name__ == "__main__":

@@ -26,21 +26,63 @@ fi
 INSTALL_DIR="/opt/ssr-admin-panel"
 MUDB_FILE="/usr/local/shadowsocksr/mudb.json"
 SSR_DIR="/usr/local/shadowsocksr"
+DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
+DEVICE_STATS_INTERVAL="${SSR_DEVICE_STATS_INTERVAL:-15}"
+DEVICE_STATS_WINDOW="${SSR_DEVICE_STATS_WINDOW:-900}"
 REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/ssr-admin-panel.git}"
 REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
 PYTHON3_BIN="/usr/bin/python3"
+APT_UPDATED=0
+export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
+
+if [ -f /etc/debian_version ]; then
+    SYS="debian"
+elif [ -f /etc/redhat-release ]; then
+    SYS="centos"
+else
+    SYS="debian"
+fi
+
+install_packages() {
+    if [ "$SYS" = "centos" ]; then
+        yum install -y "$@" -q 2>/dev/null
+        return
+    fi
+
+    apt-get install -y "$@" -qq 2>/dev/null || {
+        if [ "$APT_UPDATED" -eq 0 ]; then
+            echo -e "${YELLOW}软件源索引不可用，正在刷新 apt 索引...${NC}"
+            apt-get update -qq
+            APT_UPDATED=1
+        fi
+        apt-get install -y "$@" -qq
+    }
+}
+
+ensure_command() {
+    local binary=$1
+    shift
+    if command -v "$binary" &> /dev/null; then
+        return
+    fi
+    echo -e "${YELLOW}${binary} 未安装，正在安装...${NC}"
+    install_packages "$@" || {
+        echo -e "${RED}${binary} 安装失败，请手动安装后重试${NC}"
+        exit 1
+    }
+}
 
 ensure_basic_runtime() {
     PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
 
-    if ! command -v git &> /dev/null; then
-        echo -e "${YELLOW}git 未安装，正在安装...${NC}"
-        apt-get install -y git -qq 2>/dev/null || yum install -y git -q 2>/dev/null
-    fi
+    ensure_command "systemctl" "systemd"
+    ensure_command "curl" "curl"
+    ensure_command "ss" "iproute2"
+    ensure_command "git" "git"
 
     if ! command -v python3 &> /dev/null; then
         echo -e "${YELLOW}python3 未安装，正在安装...${NC}"
-        apt-get install -y python3 -qq 2>/dev/null || yum install -y python3 -q 2>/dev/null
+        install_packages python3
         PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
     fi
 
@@ -51,7 +93,7 @@ ensure_basic_runtime() {
 
     if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
         echo -e "${YELLOW}尝试安装 python3-pip...${NC}"
-        apt-get install -y python3-pip -qq 2>/dev/null || yum install -y python3-pip -q 2>/dev/null || true
+        install_packages python3-pip || true
     fi
 
     if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
@@ -69,8 +111,7 @@ PY
     fi
 
     echo -e "${GREEN}安装 Flask 运行时...${NC}"
-    apt-get install -y python3-flask -qq 2>/dev/null || \
-    yum install -y python3-flask -q 2>/dev/null || \
+    install_packages python3-flask || \
     "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
@@ -89,6 +130,33 @@ apply_ssr_python_compatibility_fix() {
 
     echo -e "${GREEN}检测到 SSR 目录，正在修复 Python 3.10+ 兼容性...${NC}"
     "$PYTHON3_BIN" "$INSTALL_DIR/scripts/patch_ssr_python_compat.py" "$SSR_DIR"
+}
+
+install_device_stats_service() {
+    echo -e "${GREEN}配置设备统计服务...${NC}"
+    ensure_command "ss" "iproute2"
+    mkdir -p "$(dirname "$DEVICE_STATS_FILE")"
+    chmod +x "$INSTALL_DIR/scripts/collect_device_stats.py" 2>/dev/null || true
+
+    cat > /etc/systemd/system/ssr-device-stats.service <<SERVICE
+[Unit]
+Description=SSR Device Stats Collector
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=${PYTHON3_BIN} ${INSTALL_DIR}/scripts/collect_device_stats.py --mudb ${MUDB_FILE} --output ${DEVICE_STATS_FILE} --interval ${DEVICE_STATS_INTERVAL} --window ${DEVICE_STATS_WINDOW} --watch
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+    systemctl daemon-reload
+    systemctl enable ssr-device-stats
+    systemctl restart ssr-device-stats
 }
 
 # ========== 交互式配置 ==========
@@ -213,7 +281,7 @@ else
     git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$INSTALL_DIR" -q
 fi
 
-chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" 2>/dev/null || true
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
 PANEL_BUILD_INFO_FILE="$INSTALL_DIR/.panel-build.json"
@@ -246,7 +314,7 @@ if [ -f "$INSTALL_DIR/config.py" ]; then
     echo -e "${YELLOW}检测到现有配置文件，已保留: $INSTALL_DIR/config.py${NC}"
 else
 SECRET_KEY=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
-INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" SHARE_HOST="$SHARE_HOST" SHARE_PORT="$SHARE_PORT" SHARE_PASSWORD="$SHARE_PASSWORD" SHARE_REMARKS="$SHARE_REMARKS" SHARE_PROTOCOL="$SHARE_PROTOCOL" SHARE_METHOD="$SHARE_METHOD" SHARE_OBFS="$SHARE_OBFS" SHARE_OBFS_PARAM="$SHARE_OBFS_PARAM" python3 << 'PY'
+INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" DEVICE_STATS_FILE="$DEVICE_STATS_FILE" SHARE_HOST="$SHARE_HOST" SHARE_PORT="$SHARE_PORT" SHARE_PASSWORD="$SHARE_PASSWORD" SHARE_REMARKS="$SHARE_REMARKS" SHARE_PROTOCOL="$SHARE_PROTOCOL" SHARE_METHOD="$SHARE_METHOD" SHARE_OBFS="$SHARE_OBFS" SHARE_OBFS_PARAM="$SHARE_OBFS_PARAM" "$PYTHON3_BIN" << 'PY'
 import os
 from pathlib import Path
 
@@ -272,6 +340,8 @@ values = {
     "SSR_SHARE_METHOD": os.environ.get("SHARE_METHOD", "aes-256-cfb"),
     "SSR_SHARE_OBFS": os.environ.get("SHARE_OBFS", "tls1.2_ticket_auth"),
     "SSR_SHARE_OBFS_PARAM": os.environ.get("SHARE_OBFS_PARAM", "www.baidu.com"),
+    "DEVICE_STATS_FILE": os.environ.get("DEVICE_STATS_FILE", "/var/lib/ssr-admin-panel/device-stats.json"),
+    "DEVICE_STATS_STALE_SECONDS": 120,
 }
 
 with config_path.open("w", encoding="utf-8") as f:
@@ -286,6 +356,8 @@ fi
 
 # 创建systemd服务
 echo -e "${GREEN}[6/6] 配置系统服务...${NC}"
+install_device_stats_service
+
 cat > /etc/systemd/system/ssr-admin.service <<SERVICE
 [Unit]
 Description=SSR Admin Panel

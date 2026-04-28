@@ -24,3 +24,7 @@ SSR_SHARE_PROTOCOL = 'auth_aes128_md5'
 SSR_SHARE_METHOD = 'aes-256-cfb'
 SSR_SHARE_OBFS = 'tls1.2_ticket_auth'
 SSR_SHARE_OBFS_PARAM = 'www.baidu.com'
+
+# 设备统计文件路径（由 ssr-device-stats.service 自动生成）
+DEVICE_STATS_FILE = '/var/lib/ssr-admin-panel/device-stats.json'
+DEVICE_STATS_STALE_SECONDS = 120

@@ -18,6 +18,12 @@ LEGACY_COLLECTIONS_ALIASES = {
     "collections.Callable": "collections.abc.Callable",
 }
 
+LEGACY_LITERAL_COMPARISONS = {
+    'addr is ""': 'addr == ""',
+    "len(block) is 1": "len(block) == 1",
+    "ip is not 0": "ip != 0",
+}
+
 
 def patch_python_file(file_path: Path) -> bool:
     try:
@@ -27,6 +33,9 @@ def patch_python_file(file_path: Path) -> bool:
 
     updated = original
     for old, new in LEGACY_COLLECTIONS_ALIASES.items():
+        updated = updated.replace(old, new)
+
+    for old, new in LEGACY_LITERAL_COMPARISONS.items():
         updated = updated.replace(old, new)
 
     if updated == original:

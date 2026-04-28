@@ -37,6 +37,10 @@ SSR_SHARE_PROTOCOL = getattr(app_config, "SSR_SHARE_PROTOCOL", "auth_aes128_md5"
 SSR_SHARE_METHOD = getattr(app_config, "SSR_SHARE_METHOD", "aes-256-cfb")
 SSR_SHARE_OBFS = getattr(app_config, "SSR_SHARE_OBFS", "tls1.2_ticket_auth")
 SSR_SHARE_OBFS_PARAM = getattr(app_config, "SSR_SHARE_OBFS_PARAM", "www.baidu.com")
+DEVICE_STATS_FILE = getattr(
+    app_config, "DEVICE_STATS_FILE", "/var/lib/ssr-admin-panel/device-stats.json"
+)
+DEVICE_STATS_STALE_SECONDS = getattr(app_config, "DEVICE_STATS_STALE_SECONDS", 120)
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -163,15 +167,54 @@ def format_transfer_limit(limit):
     return format_bytes(limit)
 
 
-def serialize_user(user):
+def parse_device_limit(user):
+    raw_value = str(user.get("protocol_param") or "").strip()
+    if not raw_value:
+        return 0
+
+    first_part = raw_value.split(":", 1)[0].strip()
+    limit = to_int(first_part, 0)
+    return max(0, limit)
+
+
+def load_device_stats():
+    payload = read_json_file(DEVICE_STATS_FILE, {})
+    if not isinstance(payload, dict):
+        return {}
+
+    generated_at_ts = payload.get("generated_at_ts")
+    if generated_at_ts is not None:
+        try:
+            age = time.time() - float(generated_at_ts)
+        except (TypeError, ValueError):
+            age = 0
+        if age > max(1, to_int(DEVICE_STATS_STALE_SECONDS, 120)):
+            payload["stale"] = True
+
+    ports = payload.get("ports")
+    if not isinstance(ports, dict):
+        payload["ports"] = {}
+    return payload
+
+
+def get_device_stats_for_port(device_stats, port):
+    ports = device_stats.get("ports", {}) if isinstance(device_stats, dict) else {}
+    if not isinstance(ports, dict):
+        return {}
+    return ports.get(str(port), {}) if isinstance(ports.get(str(port), {}), dict) else {}
+
+
+def serialize_user(user, device_stats=None):
     upload = max(0, to_int(user.get("u", 0), 0))
     download = max(0, to_int(user.get("d", 0), 0))
     total = upload + download
     transfer_limit = to_int(user.get("transfer_enable", 0), 0)
     usage_percent = 0 if transfer_limit <= 0 else min(100, round(total / transfer_limit * 100, 2))
+    port = to_int(user.get("port", 0), 0)
+    port_device_stats = get_device_stats_for_port(device_stats or {}, port)
 
     serialized = dict(user)
-    serialized["port"] = to_int(user.get("port", 0), 0)
+    serialized["port"] = port
     serialized["enable"] = 1 if to_int(user.get("enable", 0), 0) == 1 else 0
     serialized["u"] = upload
     serialized["d"] = download
@@ -180,6 +223,10 @@ def serialize_user(user):
     serialized["total_human"] = format_bytes(total)
     serialized["transfer_limit_human"] = format_transfer_limit(transfer_limit)
     serialized["usage_percent"] = usage_percent
+    serialized["device_limit"] = parse_device_limit(user)
+    serialized["online_device_count"] = max(0, to_int(port_device_stats.get("online_count", 0), 0))
+    serialized["recent_device_count"] = max(0, to_int(port_device_stats.get("recent_count", 0), 0))
+    serialized["device_last_seen"] = str(port_device_stats.get("last_seen") or "")
     serialized.pop("passwd", None)
     return serialized
 
@@ -932,11 +979,15 @@ def logout():
 @requires_auth
 def index():
     users = load_users()
+    device_stats = load_device_stats()
     total_users = len(users)
     total_upload = sum(max(0, to_int(user.get("u", 0), 0)) for user in users)
     total_download = sum(max(0, to_int(user.get("d", 0), 0)) for user in users)
     inactive_users = sum(
         1 for user in users if (to_int(user.get("u", 0), 0) + to_int(user.get("d", 0), 0)) == 0
+    )
+    total_online_devices = sum(
+        serialize_user(user, device_stats).get("online_device_count", 0) for user in users
     )
 
     return render_template(
@@ -945,6 +996,7 @@ def index():
         total_upload=total_upload,
         total_download=total_download,
         inactive_users=inactive_users,
+        total_online_devices=total_online_devices,
         format_bytes=format_bytes,
         ssr_status=get_ssr_status(),
         system_info=get_system_info(),
@@ -1060,8 +1112,19 @@ def list_backups():
 @app.route("/api/users")
 @requires_auth
 def api_users():
-    users = [serialize_user(user) for user in load_users()]
-    return jsonify({"success": True, "data": users})
+    device_stats = load_device_stats()
+    users = [serialize_user(user, device_stats) for user in load_users()]
+    return jsonify(
+        {
+            "success": True,
+            "data": users,
+            "device_stats": {
+                "generated_at": device_stats.get("generated_at", ""),
+                "stale": bool(device_stats.get("stale", False)),
+                "window_seconds": to_int(device_stats.get("window_seconds", 0), 0),
+            },
+        }
+    )
 
 
 @app.route("/api/add", methods=["POST"])

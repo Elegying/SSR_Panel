@@ -13,6 +13,10 @@ SSR_DIR="${SSR_ADMIN_SSR_DIR:-/usr/local/shadowsocksr}"
 REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/ssr-admin-panel.git}"
 TARGET_REF="${1:-${SSR_ADMIN_UPDATE_REF:-main}}"
 SERVICE_NAME="${SSR_ADMIN_SERVICE_NAME:-ssr-admin}"
+DEVICE_STATS_SERVICE_NAME="${SSR_DEVICE_STATS_SERVICE_NAME:-ssr-device-stats}"
+DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
+DEVICE_STATS_INTERVAL="${SSR_DEVICE_STATS_INTERVAL:-15}"
+DEVICE_STATS_WINDOW="${SSR_DEVICE_STATS_WINDOW:-900}"
 PYTHON3_BIN="${PYTHON3_BIN:-$(command -v python3 2>/dev/null || echo /usr/bin/python3)}"
 TMP_CLONE_DIR=""
 
@@ -37,6 +41,34 @@ read_version() {
     fi
 
     echo "unknown"
+}
+
+install_or_restart_device_stats_service() {
+    local stats_script="${PANEL_DIR}/scripts/collect_device_stats.py"
+    if [ ! -f "${stats_script}" ]; then
+        return 0
+    fi
+
+    chmod +x "${stats_script}" 2>/dev/null || true
+    mkdir -p "$(dirname "${DEVICE_STATS_FILE}")"
+    cat > /etc/systemd/system/${DEVICE_STATS_SERVICE_NAME}.service <<SERVICE
+[Unit]
+Description=SSR Device Stats Collector
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=${PYTHON3_BIN} ${stats_script} --mudb ${SSR_DIR}/mudb.json --output ${DEVICE_STATS_FILE} --interval ${DEVICE_STATS_INTERVAL} --window ${DEVICE_STATS_WINDOW} --watch
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+    systemctl enable "${DEVICE_STATS_SERVICE_NAME}" >/dev/null 2>&1 || true
+    systemctl restart "${DEVICE_STATS_SERVICE_NAME}" || true
 }
 
 if [ "${1:-}" = "--version" ]; then
@@ -154,12 +186,14 @@ Path(os.environ["PANEL_BUILD_INFO_FILE"]).write_text(
 )
 PY
 
-chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" 2>/dev/null || true
+chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" 2>/dev/null || true
 
 if [ -d "${SSR_DIR}" ]; then
     "${PYTHON3_BIN}" "${PANEL_DIR}/scripts/patch_ssr_python_compat.py" "${SSR_DIR}"
 fi
 
+systemctl daemon-reload
+install_or_restart_device_stats_service
 systemctl daemon-reload
 systemctl restart "${SERVICE_NAME}"
 

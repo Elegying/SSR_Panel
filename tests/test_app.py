@@ -1,5 +1,6 @@
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -36,6 +37,8 @@ class AppSecurityTests(unittest.TestCase):
             "SSR_SHARE_METHOD": panel_app.SSR_SHARE_METHOD,
             "SSR_SHARE_OBFS": panel_app.SSR_SHARE_OBFS,
             "SSR_SHARE_OBFS_PARAM": panel_app.SSR_SHARE_OBFS_PARAM,
+            "DEVICE_STATS_FILE": panel_app.DEVICE_STATS_FILE,
+            "DEVICE_STATS_STALE_SECONDS": panel_app.DEVICE_STATS_STALE_SECONDS,
         }
 
         panel_app.MUDB_FILE = str(self.mudb_path)
@@ -55,6 +58,8 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_SHARE_METHOD = "aes-256-cfb"
         panel_app.SSR_SHARE_OBFS = "tls1.2_ticket_auth"
         panel_app.SSR_SHARE_OBFS_PARAM = "www.baidu.com"
+        panel_app.DEVICE_STATS_FILE = str(self.base_path / "device-stats.json")
+        panel_app.DEVICE_STATS_STALE_SECONDS = 120
         panel_app.app.config["TESTING"] = True
 
         self.client = panel_app.app.test_client()
@@ -80,6 +85,8 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_SHARE_METHOD = self.original_state["SSR_SHARE_METHOD"]
         panel_app.SSR_SHARE_OBFS = self.original_state["SSR_SHARE_OBFS"]
         panel_app.SSR_SHARE_OBFS_PARAM = self.original_state["SSR_SHARE_OBFS_PARAM"]
+        panel_app.DEVICE_STATS_FILE = self.original_state["DEVICE_STATS_FILE"]
+        panel_app.DEVICE_STATS_STALE_SECONDS = self.original_state["DEVICE_STATS_STALE_SECONDS"]
         self.temp_dir.cleanup()
 
     def write_users(self, users):
@@ -119,6 +126,48 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(payload["data"][0]["download_human"], "2.00 B")
         self.assertEqual(payload["data"][0]["transfer_limit_human"], "不限")
         self.assertNotIn("passwd", payload["data"][0])
+
+    def test_api_users_includes_device_counts_from_stats_file(self):
+        self.write_users(
+            [
+                {
+                    "user": "u1",
+                    "passwd": "secret",
+                    "u": 1,
+                    "d": 2,
+                    "transfer_enable": 0,
+                    "port": 1234,
+                    "enable": 1,
+                    "protocol_param": "3:u1",
+                }
+            ]
+        )
+        Path(panel_app.DEVICE_STATS_FILE).write_text(
+            json.dumps(
+                {
+                    "generated_at_ts": time.time(),
+                    "window_seconds": 900,
+                    "ports": {
+                        "1234": {
+                            "online_count": 2,
+                            "recent_count": 3,
+                            "last_seen": "2026-04-28T12:00:00+00:00",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        response = self.client.get("/api/users")
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        user = payload["data"][0]
+        self.assertEqual(user["device_limit"], 3)
+        self.assertEqual(user["online_device_count"], 2)
+        self.assertEqual(user["recent_device_count"], 3)
+        self.assertFalse(payload["device_stats"]["stale"])
 
     def test_panel_update_check_endpoint_returns_update_info(self):
         with mock.patch.object(
