@@ -165,6 +165,13 @@ PY
         echo -e "${RED}Flask 安装失败，请手动安装后重试${NC}"
         exit 1
     fi
+
+    # 安装 flask-limiter (用于速率限制)
+    echo -e "${GREEN}安装 Flask-Limiter 速率限制模块...${NC}"
+    if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check flask-limiter -q || \
+        install_packages python3-flask-limiter 2>/dev/null || true
+    fi
 }
 
 apply_ssr_python_compatibility_fix() {
