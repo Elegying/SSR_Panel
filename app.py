@@ -535,6 +535,10 @@ def read_panel_update_status():
     payload.setdefault("current_version", get_panel_version())
     payload.setdefault("latest_version", None)
     payload.setdefault("last_exit_code", None)
+    payload.setdefault("phase", "idle" if not payload.get("in_progress") else "running")
+    payload.setdefault("backup_dir", "")
+    payload.setdefault("rollback_attempted", False)
+    payload.setdefault("rollback_success", False)
     payload["unit_state"] = unit_state
     payload["log_path"] = str(PANEL_UPDATE_LOG)
     return payload

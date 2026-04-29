@@ -19,6 +19,10 @@ DEVICE_STATS_INTERVAL="${SSR_DEVICE_STATS_INTERVAL:-15}"
 DEVICE_STATS_WINDOW="${SSR_DEVICE_STATS_WINDOW:-900}"
 PYTHON3_BIN="${PYTHON3_BIN:-$(command -v python3 2>/dev/null || echo /usr/bin/python3)}"
 TMP_CLONE_DIR=""
+STATUS_FILE="${SSR_ADMIN_UPDATE_STATUS_FILE:-}"
+BACKUP_DIR=""
+ROLLBACK_ATTEMPTED=0
+ROLLBACK_SUCCESS=0
 
 cleanup() {
     if [ -n "${TMP_CLONE_DIR}" ] && [ -d "${TMP_CLONE_DIR}" ]; then
@@ -41,6 +45,133 @@ read_version() {
     fi
 
     echo "unknown"
+}
+
+write_status() {
+    local phase="$1"
+    local message="$2"
+    local exit_code="${3:-}"
+
+    if [ -z "${STATUS_FILE}" ]; then
+        return 0
+    fi
+
+    STATUS_FILE="${STATUS_FILE}" PHASE="${phase}" MESSAGE="${message}" EXIT_CODE="${exit_code}" \
+    CURRENT_VERSION="$(read_version "${PANEL_DIR}")" BACKUP_DIR="${BACKUP_DIR}" \
+    ROLLBACK_ATTEMPTED="${ROLLBACK_ATTEMPTED}" ROLLBACK_SUCCESS="${ROLLBACK_SUCCESS}" \
+    "${PYTHON3_BIN}" <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+path = Path(os.environ["STATUS_FILE"])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        payload = {}
+except (FileNotFoundError, json.JSONDecodeError, OSError):
+    payload = {}
+
+exit_code = os.environ.get("EXIT_CODE", "")
+payload.update(
+    {
+        "in_progress": exit_code == "",
+        "phase": os.environ.get("PHASE", ""),
+        "message": os.environ.get("MESSAGE", ""),
+        "current_version": os.environ.get("CURRENT_VERSION", "unknown"),
+        "backup_dir": os.environ.get("BACKUP_DIR", ""),
+        "rollback_attempted": os.environ.get("ROLLBACK_ATTEMPTED") == "1",
+        "rollback_success": os.environ.get("ROLLBACK_SUCCESS") == "1",
+    }
+)
+if exit_code != "":
+    payload["finished_at"] = datetime.now(timezone.utc).isoformat()
+    payload["last_exit_code"] = int(exit_code)
+
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+PY
+}
+
+copy_tree() {
+    local source_dir="$1"
+    local target_dir="$2"
+    local mode="${3:-sync}"
+
+    COPY_SOURCE="${source_dir}" COPY_TARGET="${target_dir}" COPY_MODE="${mode}" "${PYTHON3_BIN}" <<'PY'
+import os
+import shutil
+from pathlib import Path
+
+source = Path(os.environ["COPY_SOURCE"])
+target = Path(os.environ["COPY_TARGET"])
+mode = os.environ.get("COPY_MODE", "sync")
+exclude = {"backups", "__pycache__"}
+if mode == "sync" and not (source / "config.py").exists():
+    exclude.add("config.py")
+
+
+def remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def copy_dir(src: Path, dst: Path) -> None:
+    dst.mkdir(parents=True, exist_ok=True)
+    source_items = {item.name: item for item in src.iterdir() if item.name not in exclude}
+
+    if mode == "sync":
+        for existing in list(dst.iterdir()):
+            if existing.name in exclude:
+                continue
+            if existing.name not in source_items:
+                remove_path(existing)
+
+    for name, src_item in source_items.items():
+        dst_item = dst / name
+        if src_item.is_dir() and not src_item.is_symlink():
+            if dst_item.exists() and not dst_item.is_dir():
+                remove_path(dst_item)
+            copy_dir(src_item, dst_item)
+        else:
+            if dst_item.exists() and dst_item.is_dir():
+                remove_path(dst_item)
+            dst_item.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_item, dst_item)
+
+
+copy_dir(source, target)
+PY
+}
+
+create_full_backup() {
+    BACKUP_DIR="${PANEL_DIR}/backups/update_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "${BACKUP_DIR}/app"
+    copy_tree "${PANEL_DIR}" "${BACKUP_DIR}/app" "copy"
+}
+
+restore_backup() {
+    if [ -z "${BACKUP_DIR}" ] || [ ! -d "${BACKUP_DIR}/app" ]; then
+        return 1
+    fi
+
+    ROLLBACK_ATTEMPTED=1
+    echo -e "${YELLOW}正在恢复上一版应用文件...${NC}"
+    write_status "rollback" "新版本启动失败，正在恢复上一版"
+    copy_tree "${BACKUP_DIR}/app" "${PANEL_DIR}" "sync"
+    chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" 2>/dev/null || true
+    systemctl daemon-reload || true
+    if systemctl restart "${SERVICE_NAME}" && systemctl is-active --quiet "${SERVICE_NAME}"; then
+        ROLLBACK_SUCCESS=1
+        echo -e "${GREEN}已恢复上一版并重启服务${NC}"
+        return 0
+    fi
+
+    echo -e "${RED}回滚后服务仍未启动，请检查日志${NC}"
+    return 1
 }
 
 install_or_restart_device_stats_service() {
@@ -109,59 +240,17 @@ echo -e "${CYAN}当前版本:${NC} ${YELLOW}${CURRENT_VERSION}${NC}"
 echo -e "${CYAN}更新来源:${NC} ${YELLOW}${REPO_URL} (${TARGET_REF})${NC}"
 
 TMP_CLONE_DIR="$(mktemp -d /tmp/ssr-admin-panel-update.XXXXXX)"
+write_status "clone" "正在下载新版本"
 git clone --depth 1 --branch "${TARGET_REF}" "${REPO_URL}" "${TMP_CLONE_DIR}" -q
 
 NEW_VERSION="$(read_version "${TMP_CLONE_DIR}")"
 NEW_REVISION="$(git -C "${TMP_CLONE_DIR}" rev-parse --short HEAD 2>/dev/null || echo "")"
-BACKUP_DIR="${PANEL_DIR}/backups/update_$(date +%Y%m%d_%H%M%S)"
-mkdir -p "${BACKUP_DIR}"
+write_status "backup" "正在备份当前版本"
+create_full_backup
+echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
 
-if [ -f "${PANEL_DIR}/config.py" ]; then
-    cp "${PANEL_DIR}/config.py" "${BACKUP_DIR}/config.py"
-fi
-
-SYNC_SOURCE="${TMP_CLONE_DIR}" SYNC_TARGET="${PANEL_DIR}" "${PYTHON3_BIN}" <<'PY'
-import os
-import shutil
-from pathlib import Path
-
-source = Path(os.environ["SYNC_SOURCE"])
-target = Path(os.environ["SYNC_TARGET"])
-exclude = {".git", "backups", "config.py", "__pycache__"}
-
-
-def remove_path(path: Path) -> None:
-    if path.is_dir() and not path.is_symlink():
-        shutil.rmtree(path)
-    else:
-        path.unlink()
-
-
-def sync_dir(src: Path, dst: Path) -> None:
-    dst.mkdir(parents=True, exist_ok=True)
-    source_items = {item.name: item for item in src.iterdir() if item.name not in exclude}
-
-    for existing in list(dst.iterdir()):
-        if existing.name in exclude:
-            continue
-        if existing.name not in source_items:
-            remove_path(existing)
-
-    for name, src_item in source_items.items():
-        dst_item = dst / name
-        if src_item.is_dir():
-            if dst_item.exists() and not dst_item.is_dir():
-                remove_path(dst_item)
-            sync_dir(src_item, dst_item)
-        else:
-            if dst_item.exists() and dst_item.is_dir():
-                remove_path(dst_item)
-            dst_item.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_item, dst_item)
-
-
-sync_dir(source, target)
-PY
+write_status "sync" "正在同步新版本"
+copy_tree "${TMP_CLONE_DIR}" "${PANEL_DIR}" "sync"
 
 PANEL_BUILD_INFO_FILE="${PANEL_DIR}/.panel-build.json"
 PANEL_BUILD_VERSION="${NEW_VERSION}" PANEL_BUILD_REVISION="${NEW_REVISION}" PANEL_BUILD_INFO_FILE="${PANEL_BUILD_INFO_FILE}" "${PYTHON3_BIN}" <<'PY'
@@ -192,18 +281,27 @@ if [ -d "${SSR_DIR}" ]; then
     "${PYTHON3_BIN}" "${PANEL_DIR}/scripts/patch_ssr_python_compat.py" "${SSR_DIR}"
 fi
 
+write_status "restart" "正在重启服务"
 systemctl daemon-reload
 install_or_restart_device_stats_service
 systemctl daemon-reload
-systemctl restart "${SERVICE_NAME}"
+if ! systemctl restart "${SERVICE_NAME}"; then
+    echo -e "${RED}更新后服务重启命令失败${NC}"
+    restore_backup || true
+    write_status "failed" "更新后服务重启失败，已尝试回滚" "1"
+    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager || true
+    exit 1
+fi
 
 if systemctl is-active --quiet "${SERVICE_NAME}"; then
     echo -e "${GREEN}更新完成${NC}"
     echo -e "${CYAN}新版本:${NC} ${YELLOW}${NEW_VERSION}${NC}"
-    echo -e "${CYAN}配置备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
+    echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
+    write_status "done" "更新完成，服务已重启" "0"
 else
-    echo -e "${RED}更新后服务启动失败，请检查日志${NC}"
-    echo -e "${CYAN}配置备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
+    echo -e "${RED}更新后服务启动失败，开始自动回滚${NC}"
+    restore_backup || true
+    write_status "failed" "更新后服务启动失败，已尝试回滚" "1"
     journalctl -u "${SERVICE_NAME}" -n 50 --no-pager || true
     exit 1
 fi

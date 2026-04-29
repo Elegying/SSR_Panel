@@ -149,25 +149,27 @@ install_flask_runtime() {
     echo -e "${GREEN}安装 Flask 运行时...${NC}"
     if [ "$SYS" = "debian" ] || [ "$SYS" = "ubuntu" ]; then
         install_packages python3-flask || \
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q || true
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q
     else
         "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q || \
-        install_packages python3-flask || true
-    fi
-
-    if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
-import flask
-PY
-    then
-        echo -e "${RED}Flask 安装失败，请手动安装后重试${NC}"
-        exit 1
+        install_packages python3-flask
     fi
 
     # 安装 flask-limiter (用于速率限制)
     echo -e "${GREEN}安装 Flask-Limiter 速率限制模块...${NC}"
     if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
         "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check flask-limiter -q || \
-        install_packages python3-flask-limiter 2>/dev/null || true
+        install_packages python3-flask-limiter
+    fi
+
+    if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
+import flask
+import flask_limiter
+PY
+    then
+        echo -e "${RED}Flask 运行时安装失败，请检查 Python 依赖${NC}"
+        echo -e "${CYAN}诊断命令:${NC} ${PYTHON3_BIN} -m pip show Flask flask-limiter"
+        exit 1
     fi
 }
 
@@ -204,7 +206,13 @@ SERVICE
 
     systemctl daemon-reload
     systemctl enable ssr-device-stats
-    systemctl restart ssr-device-stats
+    systemctl restart ssr-device-stats || true
+
+    if systemctl is-active --quiet ssr-device-stats; then
+        echo -e "${GREEN}✓ ssr-device-stats 服务运行中${NC}"
+    else
+        echo -e "${YELLOW}ssr-device-stats 服务未运行，请检查: journalctl -u ssr-device-stats -n 50 --no-pager${NC}"
+    fi
 }
 
 prepare_minimal_runtime
@@ -220,8 +228,13 @@ echo -e "${CYAN}[ 1/5 ] 下载项目文件...${NC}"
 
 if [ -d "$PANEL_DIR" ]; then
     if [ -d "$PANEL_DIR/.git" ]; then
-        cd $PANEL_DIR
-        git pull --ff-only -q origin "$REPO_REF" 2>/dev/null || true
+        cd "$PANEL_DIR"
+        git fetch -q origin "$REPO_REF"
+        git merge --ff-only -q "origin/$REPO_REF" || {
+            echo -e "${RED}项目文件更新失败，当前目录存在无法快进的改动${NC}"
+            echo -e "${CYAN}诊断命令:${NC} git -C $PANEL_DIR status --short"
+            exit 1
+        }
     else
         TMP_CLONE_DIR=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
         git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$TMP_CLONE_DIR" -q
@@ -491,6 +504,16 @@ SERVICE
 systemctl daemon-reload
 systemctl enable ssr-admin
 systemctl restart ssr-admin
+
+sleep 2
+if systemctl is-active --quiet ssr-admin; then
+    echo -e "${GREEN}✓ ssr-admin 服务运行中${NC}"
+else
+    echo -e "${RED}ssr-admin 服务启动失败${NC}"
+    echo -e "${CYAN}诊断命令:${NC} journalctl -u ssr-admin -n 50 --no-pager"
+    journalctl -u ssr-admin -n 50 --no-pager || true
+    exit 1
+fi
 
 APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null || echo "unknown")
 

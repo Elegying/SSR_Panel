@@ -113,8 +113,9 @@ bash /opt/ssr-admin-panel/update.sh
 
 - 从 GitHub 拉取最新代码
 - 保留现有 `config.py`
-- 备份配置到 `/opt/ssr-admin-panel/backups/`
+- 备份完整旧版应用到 `/opt/ssr-admin-panel/backups/`
 - 重启 `ssr-admin` 服务
+- 如果新版本启动失败，自动恢复上一版应用并重启服务
 
 查看当前部署版本：
 
@@ -129,6 +130,30 @@ SSR_ADMIN_REPO_URL="https://github.com/your-name/ssr-admin-panel.git" \
 SSR_ADMIN_UPDATE_REF="main" \
 bash /opt/ssr-admin-panel/update.sh
 ```
+
+## ✅ 部署验证与排查
+
+推荐部署后执行：
+
+```bash
+systemctl is-active ssr-admin
+systemctl is-active ssr-device-stats
+journalctl -u ssr-admin -n 50 --no-pager
+```
+
+本地开发或发版前建议运行：
+
+```bash
+python3 -m pip install -r requirements.txt
+bash -n install.sh install-all.sh update.sh
+python3 -m unittest discover -s tests -q
+```
+
+常见问题：
+
+- `Flask 运行时安装失败`：执行 `python3 -m pip show Flask flask-limiter` 检查依赖。
+- `项目文件更新失败`：执行 `git -C /opt/ssr-admin-panel status --short` 查看是否有本地改动阻止快进。
+- `更新后服务启动失败`：查看 `/opt/ssr-admin-panel/backups/` 中的自动备份和 `journalctl -u ssr-admin -n 50 --no-pager`。
 
 ---
 

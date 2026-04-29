@@ -51,22 +51,13 @@ def get_git_version(panel_dir: Path, ref: str = "HEAD") -> str:
     return "unknown"
 
 
-def update_from_git(panel_dir: Path, remote: str, branch: str, log_handle) -> tuple[bool, str]:
-    stash_name = f"panel-auto-update-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    commands = [
-        ["git", "stash", "push", "-u", "-m", stash_name],
-        ["git", "fetch", remote, branch],
-        ["git", "reset", "--hard", f"{remote}/{branch}"],
-    ]
-
-    for command in commands:
-        result = run_command(command, panel_dir, log_handle)
-        if result.returncode != 0:
-            return False, f"命令失败: {' '.join(command)}"
-    return True, "Git 更新完成"
-
-
-def update_from_script(panel_dir: Path, branch: str, repo_url: str, log_handle) -> tuple[bool, str]:
+def update_from_script(
+    panel_dir: Path,
+    branch: str,
+    repo_url: str,
+    status_file: Path,
+    log_handle,
+) -> tuple[bool, str]:
     update_script = panel_dir / "update.sh"
     if not update_script.exists():
         return False, f"未找到更新脚本: {update_script}"
@@ -74,6 +65,8 @@ def update_from_script(panel_dir: Path, branch: str, repo_url: str, log_handle) 
     env = os.environ.copy()
     if repo_url:
         env["SSR_ADMIN_REPO_URL"] = repo_url
+    env["SSR_ADMIN_UPDATE_REF"] = branch
+    env["SSR_ADMIN_UPDATE_STATUS_FILE"] = str(status_file)
     result = run_command(["bash", str(update_script), branch], panel_dir, log_handle, env=env)
     if result.returncode != 0:
         return False, "update.sh 执行失败"
@@ -106,6 +99,10 @@ def main() -> int:
         "branch": args.branch,
         "remote": args.remote,
         "repo_url": args.repo_url,
+        "phase": "queued",
+        "backup_dir": "",
+        "rollback_attempted": False,
+        "rollback_success": False,
     }
     write_status(status_file, status)
 
@@ -114,31 +111,36 @@ def main() -> int:
         log_handle.write(f"\n[{utc_now()}] Starting panel update\n")
         log_handle.flush()
 
-        if (panel_dir / ".git").is_dir():
-            ok, message = update_from_git(panel_dir, args.remote, args.branch, log_handle)
-        else:
-            ok, message = update_from_script(panel_dir, args.branch, args.repo_url, log_handle)
+        ok, message = update_from_script(
+            panel_dir,
+            args.branch,
+            args.repo_url,
+            status_file,
+            log_handle,
+        )
 
         exit_code = 0 if ok else 1
-        if ok:
-            restart = run_command(["systemctl", "restart", args.service], panel_dir, log_handle)
-            if restart.returncode != 0:
-                ok = False
-                exit_code = restart.returncode or 1
-                message = f"更新完成，但重启服务失败: {args.service}"
-            else:
-                message = "更新完成，服务已重启"
+        try:
+            latest_status = json.loads(status_file.read_text(encoding="utf-8"))
+            if isinstance(latest_status, dict):
+                status.update(latest_status)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            pass
 
         status.update(
             {
                 "in_progress": False,
                 "finished_at": utc_now(),
-                "message": message,
+                "message": status.get("message") if ok else message,
                 "current_version": get_git_version(panel_dir),
                 "latest_version": get_git_version(panel_dir, f"{args.remote}/{args.branch}")
                 if (panel_dir / ".git").is_dir()
                 else None,
                 "last_exit_code": exit_code,
+                "phase": "done" if ok else status.get("phase", "failed"),
+                "backup_dir": status.get("backup_dir", ""),
+                "rollback_attempted": bool(status.get("rollback_attempted", False)),
+                "rollback_success": bool(status.get("rollback_success", False)),
             }
         )
         write_status(status_file, status)

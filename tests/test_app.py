@@ -39,6 +39,7 @@ class AppSecurityTests(unittest.TestCase):
             "SSR_SHARE_OBFS_PARAM": panel_app.SSR_SHARE_OBFS_PARAM,
             "DEVICE_STATS_FILE": panel_app.DEVICE_STATS_FILE,
             "DEVICE_STATS_STALE_SECONDS": panel_app.DEVICE_STATS_STALE_SECONDS,
+            "PANEL_UPDATE_STATUS_FILE": panel_app.PANEL_UPDATE_STATUS_FILE,
         }
 
         panel_app.MUDB_FILE = str(self.mudb_path)
@@ -60,6 +61,7 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_SHARE_OBFS_PARAM = "www.baidu.com"
         panel_app.DEVICE_STATS_FILE = str(self.base_path / "device-stats.json")
         panel_app.DEVICE_STATS_STALE_SECONDS = 120
+        panel_app.PANEL_UPDATE_STATUS_FILE = self.base_path / "panel-update-status.json"
         panel_app.app.config["TESTING"] = True
 
         self.client = panel_app.app.test_client()
@@ -87,6 +89,7 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_SHARE_OBFS_PARAM = self.original_state["SSR_SHARE_OBFS_PARAM"]
         panel_app.DEVICE_STATS_FILE = self.original_state["DEVICE_STATS_FILE"]
         panel_app.DEVICE_STATS_STALE_SECONDS = self.original_state["DEVICE_STATS_STALE_SECONDS"]
+        panel_app.PANEL_UPDATE_STATUS_FILE = self.original_state["PANEL_UPDATE_STATUS_FILE"]
         self.temp_dir.cleanup()
 
     def write_users(self, users):
@@ -263,6 +266,15 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["success"])
         self.assertEqual(payload["latest_version"], "new456")
+
+    def test_panel_update_status_includes_rollback_metadata_defaults(self):
+        with mock.patch.object(panel_app, "get_panel_update_unit_state", return_value="inactive"):
+            status = panel_app.read_panel_update_status()
+
+        self.assertEqual(status["phase"], "idle")
+        self.assertEqual(status["backup_dir"], "")
+        self.assertFalse(status["rollback_attempted"])
+        self.assertFalse(status["rollback_success"])
 
     def test_start_panel_update_passes_repo_url_to_runner(self):
         runner_path = self.base_path / "run_panel_update.py"

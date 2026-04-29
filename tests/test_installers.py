@@ -46,7 +46,7 @@ class InstallerRegressionTests(unittest.TestCase):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("SSR_SHARE_HOST", content)
             self.assertIn("SSR_SHARE_PASSWORD", content)
-            self.assertIn("分享功能默认关闭", content)
+            self.assertIn("默认关闭分享功能", content)
             self.assertNotIn("请输入协议 [${SHARE_PROTOCOL}]", content)
             self.assertNotIn("请输入加密方式 [${SHARE_METHOD}]", content)
             self.assertNotIn("请输入混淆方式 [${SHARE_OBFS}]", content)
@@ -64,6 +64,27 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("collect_device_stats.py", content)
             self.assertIn("ssr-device-stats", content)
             self.assertIn("DEVICE_STATS_FILE", content)
+
+    def test_installers_do_not_silence_panel_git_update_failures(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertNotIn('git pull --ff-only -q origin "$REPO_REF" 2>/dev/null || true', content)
+            self.assertIn("git merge --ff-only", content)
+            self.assertIn("诊断命令", content)
+
+    def test_update_script_has_full_backup_status_and_rollback_fields(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+        self.assertIn("create_full_backup", content)
+        self.assertIn("restore_backup", content)
+        self.assertIn("rollback_attempted", content)
+        self.assertIn("rollback_success", content)
+        self.assertIn("backup_dir", content)
+
+    def test_panel_update_runner_uses_update_script_without_hard_reset(self):
+        content = (REPO_ROOT / "scripts" / "run_panel_update.py").read_text(encoding="utf-8")
+        self.assertIn("SSR_ADMIN_UPDATE_STATUS_FILE", content)
+        self.assertIn("update_from_script", content)
+        self.assertNotIn("reset\", \"--hard", content)
 
     def test_installers_prepare_minimal_debian_runtime(self):
         content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
