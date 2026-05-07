@@ -1876,20 +1876,30 @@ tr {
     .action-cell {
         display: block !important;
         padding-left: 0 !important;
+        width: 100%;
+        min-width: 0;
     }
     .action-cell::before {
         display: none;
     }
     .action-btns {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap;
         gap: 5px;
+        width: 100%;
+        min-width: 0;
     }
     .action-btns button {
+        flex: 1 1 0;
+        min-width: 0;
+        width: auto;
         min-height: 30px;
-        padding: 4px 5px;
-        font-size: 0.7rem;
+        padding: 4px 2px;
+        font-size: 0.68rem;
+        line-height: 1;
         border-radius: 8px;
+        white-space: nowrap;
     }
 }
 
@@ -1906,11 +1916,13 @@ tr {
         padding: 4px 6px;
     }
     .action-btns {
-        gap: 4px;
+        gap: 3px;
     }
     .action-btns button {
         min-height: 28px;
-        font-size: 0.66rem;
+        padding: 4px 1px;
+        font-size: 0.62rem;
+        letter-spacing: -0.02em;
     }
 }
 </style>
