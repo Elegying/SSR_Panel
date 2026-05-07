@@ -1756,13 +1756,161 @@ tr {
     .service-actions {
         grid-template-columns: 1fr;
     }
+}
+
+/* 用户模块紧凑版：保留顶部排版，仅压缩手机端用户卡片高度 */
+@media (max-width: 768px) {
+    .users-table tbody {
+        gap: 6px;
+    }
     .users-table tr.user-row {
-        padding: 10px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 6px 8px;
+        padding: 8px 10px;
         border-radius: 12px;
     }
     .users-table td {
+        display: block;
+        padding: 0;
+        border-bottom: 0;
+        font-size: 0.78rem;
+    }
+    .users-table td::before {
+        display: none;
+    }
+    .users-table td:nth-child(1) {
+        grid-column: 1;
+        grid-row: 1;
+        min-width: 0;
+    }
+    .users-table td:nth-child(2) {
+        grid-column: 2;
+        grid-row: 1;
+        align-self: start;
+    }
+    .users-table td:nth-child(3) {
+        grid-column: 3;
+        grid-row: 1;
+        align-self: start;
+    }
+    .users-table td:nth-child(4),
+    .users-table td:nth-child(5) {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
         gap: 8px;
-        padding: 7px 0;
+        min-width: 0;
+        padding: 5px 7px;
+        border-radius: 9px;
+        background: rgba(255, 255, 255, 0.035);
+    }
+    .users-table td:nth-child(4)::before,
+    .users-table td:nth-child(5)::before {
+        display: inline;
+        content: attr(data-label);
+        color: var(--text-muted);
+        font-size: 0.68rem;
+    }
+    .users-table td:nth-child(4) {
+        grid-column: 1 / 2;
+        grid-row: 2;
+    }
+    .users-table td:nth-child(5) {
+        grid-column: 2 / 4;
+        grid-row: 2;
+    }
+    .users-table td:nth-child(6) {
+        grid-column: 1 / 4;
+        grid-row: 3;
+    }
+    .users-table td:nth-child(7) {
+        grid-column: 1 / 4;
+        grid-row: 4;
+    }
+    .users-table .user-cell {
+        padding-right: 0 !important;
+    }
+    .users-table .user-cell > div,
+    .users-table .user-cell > strong {
+        text-align: left;
+    }
+    .user-name {
+        font-size: 0.92rem;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .cell-meta {
+        display: none;
+    }
+    .port-chip,
+    .status-badge {
+        min-height: 22px;
+        padding: 2px 7px;
+        font-size: 0.68rem;
+        border-radius: 999px;
+        white-space: nowrap;
+    }
+    .data-value {
+        font-size: 0.76rem;
+        white-space: nowrap;
+    }
+    .usage-cell {
+        gap: 4px;
+    }
+    .usage-cell::before {
+        display: none;
+    }
+    .progress-bar {
+        height: 4px;
+    }
+    .usage-text {
+        font-size: 0.66rem;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .action-cell {
+        display: block !important;
+        padding-left: 0 !important;
+    }
+    .action-cell::before {
+        display: none;
+    }
+    .action-btns {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 5px;
+    }
+    .action-btns button {
+        min-height: 30px;
+        padding: 4px 5px;
+        font-size: 0.7rem;
+        border-radius: 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .users-table tbody {
+        gap: 5px;
+    }
+    .users-table tr.user-row {
+        padding: 7px 8px;
+        gap: 5px 6px;
+    }
+    .users-table td:nth-child(4),
+    .users-table td:nth-child(5) {
+        padding: 4px 6px;
+    }
+    .action-btns {
+        gap: 4px;
+    }
+    .action-btns button {
+        min-height: 28px;
+        font-size: 0.66rem;
     }
 }
 </style>
