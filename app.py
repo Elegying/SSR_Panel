@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import gzip
 import hmac
 import json
 import os
@@ -16,7 +17,7 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -85,19 +86,65 @@ limiter = Limiter(
 )
 
 
-# ========== 安全响应头 ==========
+# ========== 安全响应头与轻量压缩 ==========
+COMPRESSIBLE_MIMETYPES = {
+    "text/html",
+    "text/css",
+    "text/plain",
+    "text/javascript",
+    "application/javascript",
+    "application/json",
+    "application/xml",
+    "image/svg+xml",
+}
+
+
 @app.after_request
 def add_security_headers(response):
-    """添加安全相关的 HTTP 响应头"""
+    """添加安全相关的 HTTP 响应头，并对较大的文本响应启用 gzip。"""
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self'; "
+        "base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none';"
+    )
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
+
+    accept_encoding = request.headers.get("Accept-Encoding", "").lower()
+    if (
+        "gzip" in accept_encoding
+        and response.status_code == 200
+        and not response.direct_passthrough
+        and "Content-Encoding" not in response.headers
+        and response.mimetype in COMPRESSIBLE_MIMETYPES
+    ):
+        raw = response.get_data()
+        if len(raw) >= 1024:
+            compressed = gzip.compress(raw, compresslevel=6)
+            if len(compressed) < len(raw):
+                response.set_data(compressed)
+                response.headers["Content-Encoding"] = "gzip"
+                response.headers["Content-Length"] = str(len(compressed))
+                response.headers["Vary"] = "Accept-Encoding"
     return response
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """内置轻量 favicon，避免浏览器产生 404 请求。"""
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="16" fill="#0d1526"/>
+<path d="M32 8l20 8v14c0 12.5-8 22-20 26C20 52 12 42.5 12 30V16l20-8z" fill="#2f6df6"/>
+<path d="M22 32l7 7 14-17" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>"""
+    return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
 
 SSR_DIR = Path("/usr/local/shadowsocksr")
 SSR_WORKDIR = SSR_DIR / "shadowsocks"
