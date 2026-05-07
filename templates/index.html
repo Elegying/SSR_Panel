@@ -1694,7 +1694,6 @@ tr {
                         <th class="sortable" data-sort="user">用户名</th>
                         <th class="sortable" data-sort="port">端口</th>
                         <th class="sortable" data-sort="enable">状态</th>
-                        <th class="sortable" data-sort="devices">设备</th>
                         <th class="sortable" data-sort="upload">上传</th>
                         <th class="sortable" data-sort="download">下载</th>
                         <th class="sortable" data-sort="usage">流量使用</th>
@@ -2162,7 +2161,6 @@ function sortUsers(field, shouldToggle = true){
         user: user => user.user || '',
         port: user => user.port || 0,
         enable: user => user.enable || 0,
-        devices: user => user.online_device_count || 0,
         upload: user => user.u || 0,
         download: user => user.d || 0,
         usage: user => (user.u || 0) + (user.d || 0)
@@ -2201,7 +2199,6 @@ function updateSortUI(){
         user: '用户名',
         port: '端口',
         enable: '状态',
-        devices: '在线设备',
         upload: '上传',
         download: '下载',
         usage: '总流量'
@@ -2230,7 +2227,7 @@ function renderUsers(filter = ''){
     if(!filtered.length){
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 8;
+        cell.colSpan = 7;
         cell.className = 'empty-state';
         cell.textContent = activeFilter ? '没有匹配到用户，请换个关键词试试。' : '还没有用户，先添加一个新的 SSR 账号吧。';
         row.appendChild(cell);
@@ -2274,21 +2271,6 @@ function renderUsers(filter = ''){
         badge.textContent = user.enable ? '启用' : '禁用';
         statusCell.appendChild(badge);
         row.appendChild(statusCell);
-
-        const deviceCell = document.createElement('td');
-        deviceCell.dataset.label = '设备';
-        const deviceValue = document.createElement('div');
-        deviceValue.className = 'data-value';
-        const deviceLimit = user.device_limit || 0;
-        deviceValue.textContent = deviceLimit > 0
-            ? `${user.online_device_count || 0} / ${deviceLimit}`
-            : `${user.online_device_count || 0}`;
-        deviceCell.appendChild(deviceValue);
-        const deviceMeta = document.createElement('div');
-        deviceMeta.className = 'cell-meta';
-        deviceMeta.textContent = `近15分钟 ${user.recent_device_count || 0}`;
-        deviceCell.appendChild(deviceMeta);
-        row.appendChild(deviceCell);
 
         const uploadCell = document.createElement('td');
         uploadCell.dataset.label = '上传';
