@@ -105,6 +105,21 @@ class AppSecurityTests(unittest.TestCase):
             headers={"X-CSRF-Token": "test-token"},
         )
 
+    def test_api_users_returns_users_in_reverse_file_order(self):
+        self.write_users(
+            [
+                {"user": "oldest", "passwd": "secret", "port": 1001, "enable": 1},
+                {"user": "middle", "passwd": "secret", "port": 1002, "enable": 1},
+                {"user": "newest", "passwd": "secret", "port": 1003, "enable": 1},
+            ]
+        )
+
+        response = self.client.get("/api/users")
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([user["user"] for user in payload["data"]], ["newest", "middle", "oldest"])
+
     def test_api_users_handles_zero_transfer_limit(self):
         self.write_users(
             [

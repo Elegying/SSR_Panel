@@ -1217,7 +1217,7 @@ def list_backups():
 @requires_auth
 def api_users():
     device_stats = load_device_stats()
-    users = [serialize_user(user, device_stats) for user in load_users()]
+    users = [serialize_user(user, device_stats) for user in reversed(load_users())]
     return jsonify(
         {
             "success": True,
