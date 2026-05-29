@@ -222,16 +222,16 @@ safe_read() {
     local var_name="$1"
     local prompt="$2"
     local is_password="$3"
-    local input
+    local input=""
     local _check_val=""
-    eval "_check_val=\"\${${var_name}:-}\""
+    eval "_check_val="\${${var_name}:-}""
     if [ -n "$_check_val" ]; then return 0; fi
     if [ -t 0 ]; then
         if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
     elif [ -e /dev/tty ]; then
         if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input < /dev/tty; echo; else read -r -p "$prompt" input < /dev/tty; fi
     else
-        if ! read -r input; then return 1; fi
+        return 1
     fi
     eval "$var_name='$input'"
 }

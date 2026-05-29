@@ -298,36 +298,20 @@ safe_read() {
     local var_name="$1"
     local prompt="$2"
     local is_password="$3"
-    
-    # 如果变量已有值（来自环境变量），跳过
+
     if [ -n "${!var_name:-}" ]; then
         return 0
     fi
 
-    local input
+    local input=""
     if [ -t 0 ]; then
-        # 交互式终端
-        if [ "$is_password" = "yes" ]; then
-            read -s -p "$prompt" input
-            echo
-        else
-            read -r -p "$prompt" input
-        fi
+        if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
     elif [ -e /dev/tty ]; then
-        # 有 tty 设备但 stdin 非交互（如管道）
-        if [ "$is_password" = "yes" ]; then
-            read -s -p "$prompt" input < /dev/tty
-            echo
-        else
-            read -r -p "$prompt" input < /dev/tty
-        fi
+        if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input < /dev/tty; echo; else read -r -p "$prompt" input < /dev/tty; fi
     else
-        # 完全非交互，尝试读取 stdin
-        if ! read -r input; then
-            return 1 # EOF
-        fi
+        return 1
     fi
-    
+
     eval "$var_name='$input'"
     return 0
 }

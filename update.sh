@@ -204,14 +204,26 @@ ensure_python_deps() {
         fi
     fi
 
+    # 根据 Python 版本选择兼容的依赖版本
+    local py_ver
+    py_ver=$("${PYTHON3_BIN}" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "3.8")
+    local pip_pkgs="-r ${req_file}"
+
+    if [[ "$(echo "$py_ver >= 3.8" | bc -l 2>/dev/null || echo 1)" != "1" ]]; then
+        echo -e "${YELLOW}Python ${py_ver} 检测到，使用兼容版本...${NC}"
+        pip_pkgs="'Flask>=2.0,<2.3' 'flask-limiter>=3.0,<3.6'"
+    fi
+
     echo -e "${CYAN}正在安装 Python 依赖...${NC}"
-    if ! ${pip_bin} install --no-input --disable-pip-version-check --prefer-binary -q -r "${req_file}" 2>/dev/null; then
+    if ! eval ${pip_bin} install --no-input --disable-pip-version-check --prefer-binary -q ${pip_pkgs} 2>/dev/null; then
         echo -e "${YELLOW}pip install 失败，尝试逐包安装...${NC}"
-        while IFS= read -r pkg; do
-            pkg="$(echo "${pkg}" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
-            [ -z "${pkg}" ] && continue
-            ${pip_bin} install --no-input --disable-pip-version-check -q "${pkg}" 2>/dev/null || true
-        done < "${req_file}"
+        if [ -f "${req_file}" ]; then
+            while IFS= read -r pkg; do
+                pkg="$(echo "${pkg}" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
+                [ -z "${pkg}" ] && continue
+                ${pip_bin} install --no-input --disable-pip-version-check --prefer-binary -q "${pkg}" 2>/dev/null || true
+            done < "${req_file}"
+        fi
     fi
 
     # 验证关键依赖
