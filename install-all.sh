@@ -146,20 +146,29 @@ install_flask_runtime() {
         return
     fi
 
-    echo -e "${GREEN}安装 Flask 运行时...${NC}"
-    if [ "$SYS" = "debian" ] || [ "$SYS" = "ubuntu" ]; then
-        install_packages python3-flask || \
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q
-    else
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q || \
-        install_packages python3-flask
+    local req_file="${PANEL_DIR}/requirements.txt"
+    echo -e "${GREEN}安装 Python 依赖...${NC}"
+
+    if "$PYTHON3_BIN" -m pip --version &>/dev/null && [ -f "${req_file}" ]; then
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check -q -r "${req_file}" 2>/dev/null || true
     fi
 
-    # 安装 flask-limiter (用于速率限制)
-    echo -e "${GREEN}安装 Flask-Limiter 速率限制模块...${NC}"
+    # pip 失败或不可用时，回退到系统包
+    if ! "$PYTHON3_BIN" -c "import flask" &>/dev/null; then
+        echo -e "${YELLOW}pip 安装 Flask 失败，尝试系统包...${NC}"
+        if [ "$SYS" = "debian" ] || [ "$SYS" = "ubuntu" ]; then
+            install_packages python3-flask || \
+            "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q
+        else
+            "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q || \
+            install_packages python3-flask
+        fi
+    fi
+
     if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check flask-limiter -q || \
-        install_packages python3-flask-limiter
+        echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试系统包...${NC}"
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check flask-limiter -q 2>/dev/null || \
+        install_packages python3-flask-limiter 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null

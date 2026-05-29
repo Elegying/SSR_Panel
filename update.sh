@@ -174,6 +174,68 @@ restore_backup() {
     return 1
 }
 
+ensure_python_deps() {
+    local req_file="${PANEL_DIR}/requirements.txt"
+    if [ ! -f "${req_file}" ]; then
+        return 0
+    fi
+
+    local pip_bin=""
+    if "${PYTHON3_BIN}" -m pip --version &>/dev/null; then
+        pip_bin="${PYTHON3_BIN} -m pip"
+    elif command -v pip3 &>/dev/null; then
+        pip_bin="pip3"
+    elif command -v pip &>/dev/null; then
+        pip_bin="pip"
+    else
+        echo -e "${YELLOW}未检测到 pip，尝试安装...${NC}"
+        if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
+            apt-get install -y -qq python3-pip 2>/dev/null || \
+            { apt-get update -qq && apt-get install -y -qq python3-pip; }
+        elif [ -f /etc/redhat-release ]; then
+            yum install -y -q python3-pip 2>/dev/null || true
+        fi
+        "${PYTHON3_BIN}" -m ensurepip --upgrade 2>/dev/null || true
+        if "${PYTHON3_BIN}" -m pip --version &>/dev/null; then
+            pip_bin="${PYTHON3_BIN} -m pip"
+        else
+            echo -e "${RED}pip 安装失败，跳过 Python 依赖安装${NC}"
+            return 1
+        fi
+    fi
+
+    echo -e "${CYAN}正在安装 Python 依赖...${NC}"
+    if ! ${pip_bin} install --no-input --disable-pip-version-check -q -r "${req_file}" 2>/dev/null; then
+        echo -e "${YELLOW}pip install 失败，尝试逐包安装...${NC}"
+        while IFS= read -r pkg; do
+            pkg="$(echo "${pkg}" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "${pkg}" ] && continue
+            ${pip_bin} install --no-input --disable-pip-version-check -q "${pkg}" 2>/dev/null || true
+        done < "${req_file}"
+    fi
+
+    # 验证关键依赖
+    if ! "${PYTHON3_BIN}" -c "import flask" &>/dev/null; then
+        echo -e "${RED}Flask 导入失败，尝试系统包回退...${NC}"
+        if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
+            apt-get install -y -qq python3-flask 2>/dev/null || true
+        fi
+    fi
+    if ! "${PYTHON3_BIN}" -c "import flask_limiter" &>/dev/null; then
+        echo -e "${RED}Flask-Limiter 导入失败，尝试系统包回退...${NC}"
+        if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
+            apt-get install -y -qq python3-flask-limiter 2>/dev/null || true
+        fi
+    fi
+
+    if ! "${PYTHON3_BIN}" -c "import flask; import flask_limiter" &>/dev/null; then
+        echo -e "${RED}Python 依赖安装失败，服务可能无法启动${NC}"
+        return 1
+    fi
+
+    echo -e "${GREEN}✓ Python 依赖已就绪${NC}"
+}
+
 install_or_restart_device_stats_service() {
     local stats_script="${PANEL_DIR}/scripts/collect_device_stats.py"
     if [ ! -f "${stats_script}" ]; then
@@ -280,6 +342,9 @@ chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/instal
 if [ -d "${SSR_DIR}" ]; then
     "${PYTHON3_BIN}" "${PANEL_DIR}/scripts/patch_ssr_python_compat.py" "${SSR_DIR}"
 fi
+
+write_status "deps" "正在安装 Python 依赖"
+ensure_python_deps
 
 write_status "restart" "正在重启服务"
 systemctl daemon-reload
