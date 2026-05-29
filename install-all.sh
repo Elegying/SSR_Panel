@@ -41,10 +41,10 @@ APT_UPDATED=0
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
 # 检测系统类型
-if [ -f /etc/debian_version ]; then
+if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
     SYS="debian"
     PKG_MANAGER="apt-get"
-elif [ -f /etc/redhat-release ]; then
+elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
     SYS="centos"
     PKG_MANAGER="yum"
 else
@@ -60,18 +60,23 @@ echo -e "${CYAN}[ 0/5 ] 快速准备（跳过依赖检测）...${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 install_packages() {
     if [ "$SYS" = "centos" ]; then
-        yum install -y "$@" -q 2>/dev/null
+        if command -v dnf &>/dev/null; then
+            dnf install -y -q "$@" 2>/dev/null
+        else
+            yum install -y -q "$@" 2>/dev/null
+        fi
         return
     fi
 
-    apt-get install -y "$@" -qq 2>/dev/null || {
-        if [ "$APT_UPDATED" -eq 0 ]; then
-            echo -e "${YELLOW}软件源索引不可用，正在刷新 apt 索引...${NC}"
-            apt-get update -qq
-            APT_UPDATED=1
-        fi
-        apt-get install -y "$@" -qq
-    }
+    apt-get install -y -qq "$@" 2>/dev/null && return
+
+    # 首次失败 → 更新索引后重试（仅一次）
+    if [ "$APT_UPDATED" -eq 0 ]; then
+        echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
+        apt-get update -qq
+        APT_UPDATED=1
+        apt-get install -y -qq "$@"
+    fi
 }
 
 ensure_minimal_command() {
@@ -91,52 +96,48 @@ ensure_minimal_command() {
 }
 
 prepare_minimal_runtime() {
-    echo -e "${GREEN}快速检查最小运行环境...${NC}"
-    ensure_minimal_command "systemctl" "systemd"
-    ensure_minimal_command "curl" "curl"
-    ensure_minimal_command "ss" "iproute2"
-    ensure_minimal_command "git" "git"
-    ensure_minimal_command "python3" "python3"
+    echo -e "${GREEN}检查并安装最小运行环境...${NC}"
 
-    if ! command -v python &> /dev/null; then
-        echo -e "${YELLOW}未找到 python 命令，正在创建兼容入口...${NC}"
-        if [ "$SYS" = "debian" ] || [ "$SYS" = "ubuntu" ]; then
-            install_packages python-is-python3 || true
-        fi
-        if ! command -v python &> /dev/null; then
-            ln -sf "$(command -v python3)" /usr/local/bin/python
-        fi
+    # 批量安装所有系统依赖（一次 apt-get 调用，比逐个快 3-5 倍）
+    local MISSING=""
+    for cmd_pkg in "systemctl:systemd" "curl:curl" "ss:iproute2" "git:git" "python3:python3"; do
+        local cmd="${cmd_pkg%%:*}" pkg="${cmd_pkg##*:}"
+        command -v "$cmd" &>/dev/null || MISSING="$MISSING $pkg"
+    done
+
+    if [ -n "$MISSING" ]; then
+        echo -e "${YELLOW}安装系统依赖:${MISSING}${NC}"
+        install_packages $MISSING || {
+            echo -e "${RED}系统依赖安装失败${NC}"
+            exit 1
+        }
     fi
+    echo -e "${GREEN}✓ 系统依赖已就绪${NC}"
 
-    if ! command -v pip &> /dev/null && command -v pip3 &> /dev/null; then
-        ln -sf "$(command -v pip3)" /usr/local/bin/pip
+    # python → python3 兼容入口
+    if ! command -v python &> /dev/null; then
+        echo -e "${YELLOW}创建 python → python3 兼容入口...${NC}"
+        install_packages python-is-python3 2>/dev/null || true
+        command -v python &> /dev/null || ln -sf "$(command -v python3)" /usr/local/bin/python
     fi
 
     PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
 
+    # pip 安装（ensurepip 最快，其次系统包）
     if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
-        echo -e "${YELLOW}未检测到可用的 pip 模块，尝试启用 ensurepip...${NC}"
+        echo -e "${YELLOW}启用 pip...${NC}"
         "$PYTHON3_BIN" -m ensurepip --upgrade >/dev/null 2>&1 || true
     fi
-
     if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
-        echo -e "${YELLOW}尝试安装 python3-pip...${NC}"
-        if [ "$SYS" = "centos" ]; then
-            install_packages python3-pip || true
-        else
-            install_packages python3-pip || true
-        fi
+        install_packages python3-pip 2>/dev/null || true
     fi
 
-    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
-        echo -e "${YELLOW}当前环境缺少 pip，将优先依赖系统包安装 Flask${NC}"
+    # 创建 pip/pip3 命令入口
+    if "$PYTHON3_BIN" -m pip --version &>/dev/null; then
+        command -v pip3 &>/dev/null || ln -sf "$("$PYTHON3_BIN" -m site --user-base 2>/dev/null)/bin/pip3" /usr/local/bin/pip3 2>/dev/null || true
+        command -v pip &>/dev/null || ln -sf "$(command -v pip3 2>/dev/null || true)" /usr/local/bin/pip 2>/dev/null || true
     else
-        if ! command -v pip3 &> /dev/null; then
-            ln -sf "$("$PYTHON3_BIN" -m site --user-base 2>/dev/null)/bin/pip3" /usr/local/bin/pip3 2>/dev/null || true
-        fi
-        if ! command -v pip &> /dev/null; then
-            ln -sf "$(command -v pip3 2>/dev/null || true)" /usr/local/bin/pip 2>/dev/null || true
-        fi
+        echo -e "${YELLOW}pip 不可用，将使用系统包安装 Python 依赖${NC}"
     fi
 }
 
@@ -150,7 +151,7 @@ install_flask_runtime() {
     echo -e "${GREEN}安装 Python 依赖...${NC}"
 
     if "$PYTHON3_BIN" -m pip --version &>/dev/null && [ -f "${req_file}" ]; then
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check -q -r "${req_file}" 2>/dev/null || true
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check --prefer-binary -q -r "${req_file}" 2>/dev/null || true
     fi
 
     # pip 失败或不可用时，回退到系统包

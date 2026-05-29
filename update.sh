@@ -205,7 +205,7 @@ ensure_python_deps() {
     fi
 
     echo -e "${CYAN}正在安装 Python 依赖...${NC}"
-    if ! ${pip_bin} install --no-input --disable-pip-version-check -q -r "${req_file}" 2>/dev/null; then
+    if ! ${pip_bin} install --no-input --disable-pip-version-check --prefer-binary -q -r "${req_file}" 2>/dev/null; then
         echo -e "${YELLOW}pip install 失败，尝试逐包安装...${NC}"
         while IFS= read -r pkg; do
             pkg="$(echo "${pkg}" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')"

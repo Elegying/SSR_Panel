@@ -35,9 +35,9 @@ PYTHON3_BIN="/usr/bin/python3"
 APT_UPDATED=0
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
-if [ -f /etc/debian_version ]; then
+if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
     SYS="debian"
-elif [ -f /etc/redhat-release ]; then
+elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
     SYS="centos"
 else
     SYS="debian"
@@ -45,18 +45,23 @@ fi
 
 install_packages() {
     if [ "$SYS" = "centos" ]; then
-        yum install -y "$@" -q 2>/dev/null
+        if command -v dnf &>/dev/null; then
+            dnf install -y -q "$@" 2>/dev/null
+        else
+            yum install -y -q "$@" 2>/dev/null
+        fi
         return
     fi
 
-    apt-get install -y "$@" -qq 2>/dev/null || {
-        if [ "$APT_UPDATED" -eq 0 ]; then
-            echo -e "${YELLOW}软件源索引不可用，正在刷新 apt 索引...${NC}"
-            apt-get update -qq
-            APT_UPDATED=1
-        fi
-        apt-get install -y "$@" -qq
-    }
+    apt-get install -y -qq "$@" 2>/dev/null && return
+
+    # 首次失败 → 更新索引后重试（仅一次）
+    if [ "$APT_UPDATED" -eq 0 ]; then
+        echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
+        apt-get update -qq
+        APT_UPDATED=1
+        apt-get install -y -qq "$@"
+    fi
 }
 
 ensure_command() {
@@ -75,14 +80,18 @@ ensure_command() {
 ensure_basic_runtime() {
     PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
 
-    ensure_command "systemctl" "systemd"
-    ensure_command "curl" "curl"
-    ensure_command "ss" "iproute2"
-    ensure_command "git" "git"
-
-    if ! command -v python3 &> /dev/null; then
-        echo -e "${YELLOW}python3 未安装，正在安装...${NC}"
-        install_packages python3
+    # 批量安装缺失的系统依赖
+    local MISSING=""
+    for cmd_pkg in "systemctl:systemd" "curl:curl" "ss:iproute2" "git:git" "python3:python3"; do
+        local cmd="${cmd_pkg%%:*}" pkg="${cmd_pkg##*:}"
+        command -v "$cmd" &>/dev/null || MISSING="$MISSING $pkg"
+    done
+    if [ -n "$MISSING" ]; then
+        echo -e "${YELLOW}安装系统依赖:${MISSING}${NC}"
+        install_packages $MISSING || {
+            echo -e "${RED}系统依赖安装失败${NC}"
+            exit 1
+        }
         PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
     fi
 
@@ -130,7 +139,7 @@ install_flask_runtime() {
     echo -e "${GREEN}安装 Python 依赖...${NC}"
 
     if "$PYTHON3_BIN" -m pip --version &>/dev/null && [ -f "${req_file}" ]; then
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check -q -r "${req_file}" 2>/dev/null || true
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check --prefer-binary -q -r "${req_file}" 2>/dev/null || true
     fi
 
     # pip 失败或不可用时，回退到系统包
@@ -304,20 +313,8 @@ if [ ! -f "$MUDB_FILE" ]; then
     echo
 fi
 
-# 安装依赖
-echo -e "${GREEN}[1/6] 安装系统依赖...${NC}"
-ensure_basic_runtime
-
-# 安装Python依赖
-echo -e "${GREEN}[2/6] 安装Python依赖...${NC}"
-install_flask_runtime
-
-# 创建目录
-echo -e "${GREEN}[3/6] 创建项目目录...${NC}"
-mkdir -p $INSTALL_DIR/templates
-
 # 下载项目文件
-echo -e "${GREEN}[4/6] 下载项目文件...${NC}"
+echo -e "${GREEN}[1/6] 下载项目文件...${NC}" 
 if [ -d "$INSTALL_DIR/.git" ]; then
     cd "$INSTALL_DIR"
     git fetch -q origin "$REPO_REF"
@@ -362,8 +359,19 @@ Path(os.environ["PANEL_BUILD_INFO_FILE"]).write_text(
 PY
 apply_ssr_python_compatibility_fix
 
+echo -e "${GREEN}✓ 项目文件下载完成${NC}"
+echo
+
+# 安装依赖
+echo -e "${GREEN}[2/6] 安装系统依赖...${NC}"
+ensure_basic_runtime
+
+echo -e "${GREEN}[3/6] 安装Python依赖...${NC}"
+install_flask_runtime
+
+echo
 # 创建配置文件
-echo -e "${GREEN}[5/6] 生成配置文件...${NC}"
+echo -e "${GREEN}[4/6] 生成配置文件...${NC}" 
 if [ -f "$INSTALL_DIR/config.py" ]; then
     echo -e "${YELLOW}检测到现有配置文件，已保留: $INSTALL_DIR/config.py${NC}"
 else
@@ -409,7 +417,7 @@ echo -e "${GREEN}✓ 配置文件已生成: $INSTALL_DIR/config.py${NC}"
 fi
 
 # 创建systemd服务
-echo -e "${GREEN}[6/6] 配置系统服务...${NC}"
+echo -e "${GREEN}[5/6] 配置系统服务...${NC}" 
 install_device_stats_service
 
 cat > /etc/systemd/system/ssr-admin.service <<SERVICE
