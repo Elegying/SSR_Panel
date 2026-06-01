@@ -327,13 +327,25 @@
             m.addEventListener('click', e => { if (e.target === m) m.classList.remove('show'); });
         });
         function copyText(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                const t = document.createElement('div');
-                t.textContent = '已复制';
-                t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#6c5ce7;color:#fff;padding:8px 16px;border-radius:8px;z-index:999;font-size:13px;';
-                document.body.appendChild(t);
-                setTimeout(() => t.remove(), 1500);
-            });
+            var ok = false;
+            try {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                ok = document.execCommand('copy');
+                ta.remove();
+            } catch(e) {}
+            if (!ok && navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(function(){ok=true}).catch(function(){});
+            }
+            var t = document.createElement('div');
+            t.textContent = ok ? '✅ 已复制' : '❌ 复制失败';
+            t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:' + (ok ? '#00b894' : '#ff6b6b') + ';color:#fff;padding:8px 16px;border-radius:8px;z-index:999;font-size:13px;';
+            document.body.appendChild(t);
+            setTimeout(function(){ t.remove(); }, 1500);
         }
     </script>
 </body>

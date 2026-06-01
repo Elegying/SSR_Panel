@@ -1047,6 +1047,20 @@ def public_subscribe(token):
         uri = n.get('raw_uri', '')
         if not uri:
             continue
+        # anytls:// → trojan://（Shadowrocket 不支持 anytls 协议名）
+        if uri.startswith('anytls://'):
+            try:
+                m = re.match(r'anytls://([^@]+)@([^:/?#]+):(\d+)(?:/)?(?:\?([^#]*))?(?:#(.*))?', uri)
+                if m:
+                    pw, host, port, q, frag = m.groups()
+                    from urllib.parse import parse_qs, urlencode, quote
+                    params = parse_qs(q or '')
+                    sni = params.get('sni', [host])[0]
+                    new_params = urlencode({'sni': sni, 'allowInsecure': '0'})
+                    name = quote(unquote(frag), safe='') if frag else ''
+                    uri = f'trojan://{pw}@{host}:{port}?{new_params}#{name}'
+            except Exception:
+                pass
         # 处理 vmess://（base64 JSON，名字在 ps 字段）
         if uri.startswith('vmess://'):
             try:
@@ -1086,9 +1100,10 @@ def public_subscribe(token):
             p = node['protocol']
             proxy = {'name': node['name'], 'server': node['host'], 'port': node['port']}
             if p in ('anytls', 'anytls1'):
-                proxy['type'] = 'anytls'
+                proxy['type'] = 'trojan'
                 proxy['password'] = node['password']
                 proxy['sni'] = node['host']
+                proxy['skip-cert-verify'] = False
             elif p == 'trojan':
                 proxy['type'] = 'trojan'
                 proxy['password'] = node['password']
