@@ -1011,10 +1011,26 @@ def _apply_rename(text, rules):
     return text
 
 
+# ─── 订阅缓存（避免每次请求都拉上游）──────────────────────────
+_sub_cache = {}  # {account_id: {"ts": timestamp, "nodes": [...], "traffic_info": {...}}}
+_SUB_CACHE_TTL = 300  # 5 分钟
+
+
+def _fetch_sub_cached(account_id, subscribe_url):
+    """带缓存的订阅拉取"""
+    now = time.time()
+    cached = _sub_cache.get(account_id)
+    if cached and now - cached['ts'] < _SUB_CACHE_TTL:
+        return cached['nodes'], cached['traffic_info']
+    nodes, traffic_info = parse_subscribe_url(subscribe_url)
+    _sub_cache[account_id] = {'ts': now, 'nodes': nodes, 'traffic_info': traffic_info}
+    return nodes, traffic_info
+
+
 @app.route('/sub/<token>')
 @csrf.exempt
 def public_subscribe(token):
-    """公开订阅端点：拉取原始订阅 → 应用重命名规则 → 返回转换后的订阅"""
+    """公开订阅端点：拉取上游订阅（带缓存）→ 应用重命名规则 → 返回转换后的订阅"""
     if not token:
         return 'Invalid token', 404
 
@@ -1025,8 +1041,14 @@ def public_subscribe(token):
 
     rules = db.execute('SELECT old_text, new_text FROM rename_rules WHERE enabled=1 ORDER BY id').fetchall()
 
-    # 从 DB 读取节点（已同步的），不重新拉取上游订阅
-    db_nodes = db.execute('SELECT * FROM nodes WHERE account_id=? ORDER BY id', (account['id'],)).fetchall()
+    # 从上游拉取（5分钟缓存）
+    try:
+        nodes, traffic_info = _fetch_sub_cached(account['id'], account['subscribe_url'])
+    except Exception as e:
+        # 拉取失败时 fallback 到 DB
+        db_nodes = db.execute('SELECT * FROM nodes WHERE account_id=? ORDER BY id', (account['id'],)).fetchall()
+        nodes = [{'raw_uri': n['raw_uri'], 'name': n['name']} for n in db_nodes]
+        traffic_info = {}
 
     # 构建订阅配置名称（profile-title）
     sub_name = 'SSRVPN.VIP'  # 默认名
@@ -1038,27 +1060,37 @@ def public_subscribe(token):
         'profile-title': f'"store-name={sub_name}"',
         'Content-Disposition': f'attachment; filename="{sub_name}"',
     }
-    # 从 DB 中的账号信息构建流量头
-    parts = []
-    used = account['traffic_used_bytes'] or 0
-    if used:
-        parts.append(f"upload=0; download={used}; total={int((account['traffic_limit_gb'] or 250) * 1024**3)}")
-    if parts:
-        resp_headers['Subscription-Userinfo'] = '; '.join(parts)
+    if traffic_info:
+        parts = []
+        if traffic_info.get('upload_bytes'):
+            parts.append(f"upload={traffic_info['upload_bytes']}")
+        if traffic_info.get('download_bytes'):
+            parts.append(f"download={traffic_info['download_bytes']}")
+        if traffic_info.get('total_gb'):
+            parts.append(f"total={int(traffic_info['total_gb'] * 1024**3)}")
+        if traffic_info.get('expire_date'):
+            from datetime import datetime
+            try:
+                ts = int(datetime.strptime(traffic_info['expire_date'], '%Y-%m-%d').timestamp())
+                parts.append(f"expire={ts}")
+            except Exception:
+                pass
+        if parts:
+            resp_headers['Subscription-Userinfo'] = '; '.join(parts)
 
     if not rules:
         # 没有重命名规则，直接返回原始订阅
         links = []
-        for n in db_nodes:
-            links.append(n['raw_uri'] or '')
+        for n in nodes:
+            links.append(n.get('raw_uri', ''))
         content = '\n'.join(links)
         resp_headers['Content-Type'] = 'text/plain; charset=utf-8'
         return content, 200, resp_headers
 
     # 构建转换后的节点链接
     lines = []
-    for n in db_nodes:
-        uri = n['raw_uri'] or ''
+    for n in nodes:
+        uri = n.get('raw_uri', '')
         if not uri:
             continue
         # anytls:// → trojan://（Shadowrocket 不支持 anytls 协议名）
