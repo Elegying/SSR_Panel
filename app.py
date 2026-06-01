@@ -1024,22 +1024,48 @@ def public_subscribe(token):
         return 'Not found', 404
 
     rules = db.execute('SELECT old_text, new_text FROM rename_rules WHERE enabled=1 ORDER BY id').fetchall()
+
+    try:
+        nodes, traffic_info = parse_subscribe_url(account['subscribe_url'])
+    except Exception:
+        return 'Subscription fetch failed', 502
+
+    # 构建订阅配置名称（profile-title）
+    sub_name = 'SSRVPN.VIP'  # 默认名
+    if rules:
+        sub_name = _apply_rename(sub_name, rules)
+
+    # 公共响应头：profile-title 设置订阅名 + 流量信息
+    resp_headers = {
+        'profile-title': f'"store-name={sub_name}"',
+        'Content-Disposition': f'attachment; filename="{sub_name}"',
+    }
+    if traffic_info:
+        parts = []
+        if traffic_info.get('upload_bytes'):
+            parts.append(f"upload={traffic_info['upload_bytes']}")
+        if traffic_info.get('download_bytes'):
+            parts.append(f"download={traffic_info['download_bytes']}")
+        if traffic_info.get('total_gb'):
+            parts.append(f"total={int(traffic_info['total_gb'] * 1024**3)}")
+        if traffic_info.get('expire_date'):
+            from datetime import datetime
+            try:
+                ts = int(datetime.strptime(traffic_info['expire_date'], '%Y-%m-%d').timestamp())
+                parts.append(f"expire={ts}")
+            except Exception:
+                pass
+        if parts:
+            resp_headers['Subscription-Userinfo'] = '; '.join(parts)
+
     if not rules:
         # 没有重命名规则，直接返回原始订阅
-        try:
-            nodes, _ = parse_subscribe_url(account['subscribe_url'])
-        except Exception:
-            return 'Subscription fetch failed', 502
         links = []
         for n in nodes:
             links.append(n.get('raw_uri', ''))
         content = '\n'.join(links)
-        return content, 200, {'Content-Type': 'text/plain; charset=utf-8', 'Subscription-Userinfo': ''}
-
-    try:
-        nodes, _ = parse_subscribe_url(account['subscribe_url'])
-    except Exception:
-        return 'Subscription fetch failed', 502
+        resp_headers['Content-Type'] = 'text/plain; charset=utf-8'
+        return content, 200, resp_headers
 
     # 构建转换后的节点链接
     lines = []
@@ -1132,11 +1158,13 @@ def public_subscribe(token):
 
         import yaml
         clash_config = {'proxies': proxies}
-        return yaml.dump(clash_config, allow_unicode=True, default_flow_style=False), 200, {'Content-Type': 'text/yaml; charset=utf-8'}
+        resp_headers['Content-Type'] = 'text/yaml; charset=utf-8'
+        return yaml.dump(clash_config, allow_unicode=True, default_flow_style=False), 200, resp_headers
 
     # 默认返回 base64 编码（Shadowrocket / 通用格式）
     b64 = base64.b64encode(content.encode()).decode()
-    return b64, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+    resp_headers['Content-Type'] = 'text/plain; charset=utf-8'
+    return b64, 200, resp_headers
 
 
 @app.route('/api/accounts/<int:account_id>/generate-token', methods=['POST'])
