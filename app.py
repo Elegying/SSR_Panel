@@ -112,6 +112,14 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS rename_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            old_text TEXT NOT NULL,
+            new_text TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE INDEX IF NOT EXISTS idx_nodes_host_port ON nodes(host, port);
         CREATE INDEX IF NOT EXISTS idx_nodes_account_id ON nodes(account_id);
         CREATE INDEX IF NOT EXISTS idx_traffic_logs_account_id ON traffic_logs(account_id);
@@ -126,6 +134,14 @@ def init_db():
         db.commit()
     except sqlite3.IntegrityError:
         pass
+
+    # 迁移：添加 sub_token 列
+    try:
+        db.execute('ALTER TABLE accounts ADD COLUMN sub_token TEXT DEFAULT ""')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # 列已存在
+
     db.close()
 
 # ─── 订阅解析 ──────────────────────────────────────────────
@@ -979,6 +995,192 @@ def change_password():
     db.commit()
     flash('密码修改成功', 'success')
     return redirect(url_for('dashboard'))
+
+# ─── 订阅转换（二次转链）──────────────────────────────────────
+
+def _get_rename_rules():
+    """获取所有启用的重命名规则"""
+    db = get_db()
+    return db.execute('SELECT old_text, new_text FROM rename_rules WHERE enabled=1 ORDER BY id').fetchall()
+
+
+def _apply_rename(text, rules):
+    """对文本应用重命名规则"""
+    for r in rules:
+        text = text.replace(r['old_text'], r['new_text'])
+    return text
+
+
+@app.route('/sub/<token>')
+@csrf.exempt
+def public_subscribe(token):
+    """公开订阅端点：拉取原始订阅 → 应用重命名规则 → 返回转换后的订阅"""
+    if not token:
+        return 'Invalid token', 404
+
+    db = get_db()
+    account = db.execute('SELECT * FROM accounts WHERE sub_token=?', (token,)).fetchone()
+    if not account:
+        return 'Not found', 404
+
+    rules = db.execute('SELECT old_text, new_text FROM rename_rules WHERE enabled=1 ORDER BY id').fetchall()
+    if not rules:
+        # 没有重命名规则，直接返回原始订阅
+        try:
+            nodes, _ = parse_subscribe_url(account['subscribe_url'])
+        except Exception:
+            return 'Subscription fetch failed', 502
+        links = []
+        for n in nodes:
+            links.append(n.get('raw_uri', ''))
+        content = '\n'.join(links)
+        return content, 200, {'Content-Type': 'text/plain; charset=utf-8', 'Subscription-Userinfo': ''}
+
+    try:
+        nodes, _ = parse_subscribe_url(account['subscribe_url'])
+    except Exception:
+        return 'Subscription fetch failed', 502
+
+    # 构建转换后的节点链接
+    lines = []
+    for n in nodes:
+        uri = n.get('raw_uri', '')
+        if not uri:
+            continue
+        # 处理 vmess://（base64 JSON，名字在 ps 字段）
+        if uri.startswith('vmess://'):
+            try:
+                payload = uri.split('://', 1)[1]
+                data = json.loads(base64.b64decode(payload).decode())
+                data['ps'] = _apply_rename(data.get('ps', ''), rules)
+                uri = 'vmess://' + base64.b64encode(json.dumps(data, ensure_ascii=False).encode()).decode()
+            except Exception:
+                pass
+        else:
+            # 通用格式：替换 fragment (#name) 中的名字
+            if '#' in uri:
+                base_part, frag = uri.rsplit('#', 1)
+                frag = unquote(frag)
+                frag = _apply_rename(frag, rules)
+                from urllib.parse import quote
+                uri = base_part + '#' + quote(frag, safe='')
+            # 也替换 URI 中其他位置出现的匹配文本（如 host 中的域名）
+            uri = _apply_rename(uri, rules)
+        lines.append(uri)
+
+    # 根据 User-Agent 返回不同格式
+    ua = request.headers.get('User-Agent', '')
+    content = '\n'.join(lines)
+
+    if 'Clash' in ua or 'clash' in ua:
+        # 返回 Clash YAML
+        proxies = []
+        for line in lines:
+            node = None
+            for scheme in ('anytls://', 'trojan://', 'vmess://', 'vless://', 'hysteria2://', 'hy2://', 'ss://'):
+                if line.startswith(scheme):
+                    node = parse_protocol_uri(line, scheme.rstrip(':/'))
+                    break
+            if not node:
+                continue
+            p = node['protocol']
+            proxy = {'name': node['name'], 'server': node['host'], 'port': node['port']}
+            if p in ('anytls', 'anytls1'):
+                proxy['type'] = 'anytls'
+                proxy['password'] = node['password']
+                proxy['sni'] = node['host']
+            elif p == 'trojan':
+                proxy['type'] = 'trojan'
+                proxy['password'] = node['password']
+                proxy['sni'] = node['host']
+            elif p == 'vmess':
+                proxy['type'] = 'vmess'
+                proxy['uuid'] = node['password']
+                proxy['alterId'] = 0
+                proxy['cipher'] = 'auto'
+            elif p in ('hysteria2', 'hy2'):
+                proxy['type'] = 'hysteria2'
+                proxy['password'] = node['password']
+                proxy['sni'] = node['host']
+            elif p == 'vless':
+                proxy['type'] = 'vless'
+                proxy['uuid'] = node['password']
+                proxy['sni'] = node['host']
+            elif p == 'shadowsocks':
+                proxy['type'] = 'ss'
+                proxy['cipher'] = 'aes-256-gcm'
+                proxy['password'] = node['password']
+            else:
+                proxy['type'] = p
+                proxy['password'] = node['password']
+            proxies.append(proxy)
+
+        import yaml
+        clash_config = {'proxies': proxies}
+        return yaml.dump(clash_config, allow_unicode=True, default_flow_style=False), 200, {'Content-Type': 'text/yaml; charset=utf-8'}
+
+    # 默认返回 base64 编码（Shadowrocket / 通用格式）
+    b64 = base64.b64encode(content.encode()).decode()
+    return b64, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
+
+@app.route('/api/accounts/<int:account_id>/generate-token', methods=['POST'])
+@login_required
+@csrf.exempt
+def api_generate_token(account_id):
+    """为账号生成/重新生成分享 token"""
+    db = get_db()
+    account = db.execute('SELECT * FROM accounts WHERE id=?', (account_id,)).fetchone()
+    if not account:
+        return jsonify({"error": "not found"}), 404
+
+    token = secrets.token_hex(16)
+    db.execute('UPDATE accounts SET sub_token=? WHERE id=?', (token, account_id))
+    db.commit()
+    return jsonify({"token": token, "url": f"{request.host_url}sub/{token}"})
+
+
+@app.route('/settings/rename-rules')
+@login_required
+def rename_rules_page():
+    db = get_db()
+    rules = db.execute('SELECT * FROM rename_rules ORDER BY id').fetchall()
+    return render_template('rename_rules.html', rules=rules)
+
+
+@app.route('/settings/rename-rules/add', methods=['POST'])
+@login_required
+def rename_rule_add():
+    old_text = request.form.get('old_text', '').strip()
+    new_text = request.form.get('new_text', '').strip()
+    if not old_text:
+        flash('原名称不能为空', 'error')
+        return redirect(url_for('rename_rules_page'))
+    db = get_db()
+    db.execute('INSERT INTO rename_rules (old_text, new_text) VALUES (?, ?)', (old_text, new_text))
+    db.commit()
+    flash(f'规则已添加：{old_text} → {new_text}', 'success')
+    return redirect(url_for('rename_rules_page'))
+
+
+@app.route('/settings/rename-rules/<int:rule_id>/toggle', methods=['POST'])
+@login_required
+def rename_rule_toggle(rule_id):
+    db = get_db()
+    db.execute('UPDATE rename_rules SET enabled = 1 - enabled WHERE id=?', (rule_id,))
+    db.commit()
+    return redirect(url_for('rename_rules_page'))
+
+
+@app.route('/settings/rename-rules/<int:rule_id>/delete', methods=['POST'])
+@login_required
+def rename_rule_delete(rule_id):
+    db = get_db()
+    db.execute('DELETE FROM rename_rules WHERE id=?', (rule_id,))
+    db.commit()
+    flash('规则已删除', 'success')
+    return redirect(url_for('rename_rules_page'))
+
 
 # ─── 初始化 & 启动 ─────────────────────────────────────
 

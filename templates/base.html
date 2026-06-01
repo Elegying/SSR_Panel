@@ -264,6 +264,7 @@
         <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">📊 仪表盘</a>
         <a href="{{ url_for('accounts_list') }}" class="{{ 'active' if request.endpoint in ['accounts_list', 'account_detail'] }}">👤 账号管理</a>
         <a href="{{ url_for('nodes_monitor') }}" class="{{ 'active' if request.endpoint == 'nodes_monitor' }}">📡 节点检测</a>
+        <a href="{{ url_for('rename_rules_page') }}" class="{{ 'active' if request.endpoint == 'rename_rules_page' }}">🔄 重命名规则</a>
         <div class="bottom">
             <a href="#" onclick="openModal('pwModal')">🔑 修改密码</a>
             <a href="{{ url_for('logout') }}">🚪 退出登录</a>
