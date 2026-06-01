@@ -178,7 +178,7 @@
             <div class="form-group">
                 <label>分享链接（可直接导入 Shadowrocket / Clash）</label>
                 <div style="display:flex;gap:8px;align-items:center">
-                    <input id="shareUrl" value="{{ request.host_url }}sub/{{ account.sub_token }}" readonly style="font-family:monospace;font-size:12px">
+                    <input id="shareUrl" value="https://ssrvpn.vip/sub/{{ account.sub_token }}" readonly style="font-family:monospace;font-size:12px">
                     <button class="btn btn-primary" onclick="copyText(document.getElementById('shareUrl').value)" style="white-space:nowrap">📋 复制</button>
                 </div>
             </div>

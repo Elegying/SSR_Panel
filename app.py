@@ -1168,7 +1168,7 @@ def api_generate_token(account_id):
     token = secrets.token_hex(16)
     db.execute('UPDATE accounts SET sub_token=? WHERE id=?', (token, account_id))
     db.commit()
-    return jsonify({"token": token, "url": f"{request.host_url}sub/{token}"})
+    return jsonify({"token": token, "url": f"https://ssrvpn.vip/sub/{token}"})
 
 
 @app.route('/settings/rename-rules')
