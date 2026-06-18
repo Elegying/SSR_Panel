@@ -12,6 +12,11 @@ SCRIPT = REPO_ROOT / "optimize-ssr.sh"
 
 
 class OptimizerScriptTests(unittest.TestCase):
+    def test_shell_scripts_use_lf_line_endings(self):
+        for script in REPO_ROOT.glob("*.sh"):
+            data = script.read_bytes()
+            self.assertNotIn(b"\r\n", data, msg=f"{script.name} uses CRLF line endings")
+
     def make_env(self, base: Path, fail_start: bool = False):
         ssr_dir = base / "shadowsocksr"
         ssr_dir.mkdir()

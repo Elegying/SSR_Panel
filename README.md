@@ -1,6 +1,13 @@
 # SSR 服务器优化工具
 
+[![CI](https://github.com/Elegying/ssr-server-optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/ssr-server-optimizer/actions/workflows/ci.yml)
+
 适用于 Ubuntu / Debian 上老版 Python ShadowsocksR 的一键优化脚本。
+
+## 📚 运维文档
+
+- [生产预检、执行、回滚与排障手册](docs/OPERATIONS.md)
+- 每次 push / pull request 会通过 GitHub Actions 自动运行单元测试和 shell 语法检查。
 
 这个项目会自动完成我们前面手动做过的那一套优化，包括：
 
