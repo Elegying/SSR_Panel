@@ -1,57 +1,145 @@
-#!/bin/bash
-# AnyTLS 管理面板 - 一键部署脚本
-# 用法: bash deploy.sh [端口号]
-set -e
+#!/usr/bin/env bash
+# AnyTLS Panel one-command deployment.
+# Usage: bash deploy.sh [port]
+set -Eeuo pipefail
 
-PANEL_DIR="/opt/anytls-panel"
-PORT="${1:-8866}"
-SERVICE_NAME="anytls-panel"
+PANEL_DIR="${ANYTLS_PANEL_DIR:-/opt/anytls-panel}"
+PORT="${1:-${ANYTLS_PANEL_PORT:-8866}}"
+SERVICE_NAME="${ANYTLS_SERVICE_NAME:-anytls-panel}"
+REPO_URL="${ANYTLS_REPO_URL:-https://github.com/Elegying/anytls-panel.git}"
+REPO_REF="${ANYTLS_REPO_REF:-main}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
 
-echo ""
-echo "╔═══════════════════════════════════════════╗"
-echo "║   AnyTLS 节点统一管理面板 - 一键部署      ║"
-echo "╚═══════════════════════════════════════════╝"
-echo ""
+log() {
+    printf '[anytls-panel] %s\n' "$*"
+}
 
-# 检查 Python
-if ! command -v python3 &> /dev/null; then
-    echo "❌ 未找到 python3，正在安装..."
-    apt-get update -qq && apt-get install -y -qq python3 python3-venv python3-pip
+fail() {
+    printf '[anytls-panel] ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+    fail "please run as root"
 fi
 
-# 创建目录
-echo "📁 创建项目目录: ${PANEL_DIR}"
-mkdir -p "${PANEL_DIR}"
-
-# 如果是本目录部署
-if [ -f "$(dirname "$0")/app.py" ]; then
-    echo "📋 复制项目文件..."
-    cp "$(dirname "$0")/app.py" "${PANEL_DIR}/"
-    cp "$(dirname "$0")/requirements.txt" "${PANEL_DIR}/"
-    mkdir -p "${PANEL_DIR}/templates"
-    cp "$(dirname "$0")/templates/"*.html "${PANEL_DIR}/templates/"
-    mkdir -p "${PANEL_DIR}/static"
+if ! [[ "$PORT" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
+    fail "invalid port: $PORT"
 fi
 
-cd "${PANEL_DIR}"
+install_packages() {
+    if command -v apt-get >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
+        apt-get update -qq
+        apt-get install -y -qq "$@"
+        return
+    fi
+    fail "apt-get not found; this installer currently supports Ubuntu/Debian"
+}
 
-# 创建虚拟环境
-if [ ! -d "venv" ]; then
-    echo "🐍 创建 Python 虚拟环境..."
-    python3 -m venv venv
-fi
+ensure_runtime() {
+    local missing=()
+    command -v python3 >/dev/null 2>&1 || missing+=(python3)
+    command -v git >/dev/null 2>&1 || missing+=(git)
+    command -v curl >/dev/null 2>&1 || missing+=(curl)
 
-# 安装依赖
-echo "📦 安装依赖..."
-source venv/bin/activate
-pip install -q -r requirements.txt
+    if (( ${#missing[@]} > 0 )); then
+        log "installing missing tools: ${missing[*]}"
+        install_packages "${missing[@]}"
+    fi
 
-# 创建 systemd 服务
-echo "⚙️  配置系统服务..."
-cat > "/etc/systemd/system/${SERVICE_NAME}.service" << EOF
+    if ! python3 -m venv --help >/dev/null 2>&1 || ! python3 -m pip --version >/dev/null 2>&1; then
+        log "installing Python venv/pip support"
+        install_packages python3-venv python3-pip
+    fi
+}
+
+sync_project_files() {
+    mkdir -p "$PANEL_DIR"
+
+    if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/app.py" ]]; then
+        log "copying local project files to $PANEL_DIR"
+        cp "$SCRIPT_DIR/app.py" "$SCRIPT_DIR/requirements.txt" "$PANEL_DIR/"
+        if [[ -f "$SCRIPT_DIR/uninstall.sh" ]]; then
+            cp "$SCRIPT_DIR/uninstall.sh" "$PANEL_DIR/"
+            chmod +x "$PANEL_DIR/uninstall.sh" 2>/dev/null || true
+        fi
+        mkdir -p "$PANEL_DIR/templates" "$PANEL_DIR/static"
+        cp "$SCRIPT_DIR"/templates/*.html "$PANEL_DIR/templates/"
+        if compgen -G "$SCRIPT_DIR/static/*" >/dev/null; then
+            cp -R "$SCRIPT_DIR"/static/. "$PANEL_DIR/static/"
+        fi
+        return
+    fi
+
+    log "fetching project from $REPO_URL ($REPO_REF)"
+    if [[ -d "$PANEL_DIR/.git" ]]; then
+        git -C "$PANEL_DIR" fetch -q origin "$REPO_REF"
+        git -C "$PANEL_DIR" merge --ff-only -q "origin/$REPO_REF"
+        return
+    fi
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d /tmp/anytls-panel.XXXXXX)"
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$tmp_dir" -q
+    cp -R "$tmp_dir"/. "$PANEL_DIR"/
+    rm -rf "$tmp_dir"
+}
+
+generate_password() {
+    python3 - <<'PY'
+import secrets
+import string
+
+alphabet = string.ascii_letters + string.digits
+print(''.join(secrets.choice(alphabet) for _ in range(18)))
+PY
+}
+
+prepare_admin_credentials() {
+    ADMIN_USER="${ANYTLS_ADMIN_USER:-admin}"
+    ADMIN_PASS="${ANYTLS_ADMIN_PASS:-}"
+    FRESH_DB=0
+    if [[ ! -f "$PANEL_DIR/anytls.db" ]]; then
+        FRESH_DB=1
+    fi
+    if [[ -z "$ADMIN_PASS" ]]; then
+        ADMIN_PASS="$(generate_password)"
+    fi
+}
+
+install_python_deps() {
+    cd "$PANEL_DIR"
+    if [[ ! -d venv ]]; then
+        log "creating Python virtual environment"
+        python3 -m venv venv
+    fi
+
+    log "installing Python dependencies"
+    "$PANEL_DIR/venv/bin/python" -m pip install --upgrade pip -q
+    "$PANEL_DIR/venv/bin/python" -m pip install -q -r requirements.txt
+}
+
+initialize_database() {
+    if [[ "$FRESH_DB" -eq 1 ]]; then
+        log "initializing admin account"
+        ANYTLS_DATABASE="$PANEL_DIR/anytls.db" \
+        ANYTLS_ADMIN_USER="$ADMIN_USER" \
+        ANYTLS_ADMIN_PASS="$ADMIN_PASS" \
+        "$PANEL_DIR/venv/bin/python" - <<'PY'
+import app
+app.init_db()
+PY
+    fi
+}
+
+write_service() {
+    log "writing systemd service"
+    cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=AnyTLS Panel - 节点统一管理面板
-After=network.target
+Description=AnyTLS Panel
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -65,37 +153,43 @@ Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=multi-user.target
 EOF
+}
 
-# 启动服务
-systemctl daemon-reload
-systemctl enable "${SERVICE_NAME}" --now
-sleep 2
+start_service() {
+    systemctl daemon-reload
+    systemctl enable "$SERVICE_NAME"
+    systemctl restart "$SERVICE_NAME"
+    sleep 2
+    systemctl is-active --quiet "$SERVICE_NAME" || {
+        journalctl -u "$SERVICE_NAME" -n 50 --no-pager || true
+        fail "service failed to start"
+    }
+}
 
-# 检查状态
-if systemctl is-active --quiet "${SERVICE_NAME}"; then
-    # 获取本机 IP
-    LOCAL_IP=$(hostname -I | awk '{print $1}')
-    PUBLIC_IP=$(curl -s -m 5 ifconfig.me 2>/dev/null || echo "未知")
+print_summary() {
+    local local_ip public_ip
+    local_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    public_ip="$(curl -s -m 5 ifconfig.me 2>/dev/null || true)"
 
-    echo ""
-    echo "✅ 部署成功！"
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  访问地址: http://${LOCAL_IP}:${PORT}"
-    if [ "${PUBLIC_IP}" != "未知" ]; then
-        echo "  公网地址: http://${PUBLIC_IP}:${PORT}"
+    echo
+    log "deployment succeeded"
+    [[ -n "$local_ip" ]] && echo "  Local URL:  http://${local_ip}:${PORT}"
+    [[ -n "$public_ip" ]] && echo "  Public URL: http://${public_ip}:${PORT}"
+    if [[ "$FRESH_DB" -eq 1 ]]; then
+        echo "  Username:   ${ADMIN_USER}"
+        echo "  Password:   ${ADMIN_PASS}"
+    else
+        echo "  Existing database preserved; use the current admin credentials."
     fi
-    echo "  默认账号: Elegy"
-    echo "  默认密码: J.199326"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "常用命令:"
-    echo "  systemctl status ${SERVICE_NAME}   # 查看状态"
-    echo "  systemctl restart ${SERVICE_NAME}  # 重启服务"
-    echo "  journalctl -u ${SERVICE_NAME} -f   # 查看日志"
-    echo ""
-else
-    echo "❌ 启动失败，请查看日志:"
-    echo "  journalctl -u ${SERVICE_NAME} -n 20"
-    exit 1
-fi
+    echo "  Service:    ${SERVICE_NAME}"
+    echo
+}
+
+ensure_runtime
+sync_project_files
+prepare_admin_credentials
+install_python_deps
+initialize_database
+write_service
+start_service
+print_summary

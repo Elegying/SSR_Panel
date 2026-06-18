@@ -1,6 +1,13 @@
 # AnyTLS 节点统一管理面板
 
+[![CI](https://github.com/Elegying/anytls-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/anytls-panel/actions/workflows/ci.yml)
+
 轻量级 Web 面板，通过订阅导入统一管理多个代理节点账号。支持 anytls / trojan / vmess / vless / hysteria2 / tuic / shadowsocks 等多种协议。
+
+## 📚 运维文档
+
+- [生产部署、更新、卸载与排障手册](docs/OPERATIONS.md)
+- 每次 push / pull request 会通过 GitHub Actions 自动运行单元测试、编译检查和 shell 语法检查。
 
 ## ✨ 功能特性
 

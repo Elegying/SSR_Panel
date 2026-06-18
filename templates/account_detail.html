@@ -68,12 +68,12 @@
             <td data-label="节点"><strong>{{ n.name }}</strong></td>
             <td data-label="地址">
                 <code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-size:12px;word-break:break-all">{{ n.host }}:{{ n.port }}</code>
-                <span onclick="copyText('{{ n.host }}:{{ n.port }}')" style="cursor:pointer;color:var(--accent);margin-left:4px;flex-shrink:0">📋</span>
+                <span onclick="copyText({{ (n.host ~ ':' ~ n.port)|tojson }})" style="cursor:pointer;color:var(--accent);margin-left:4px;flex-shrink:0">📋</span>
             </td>
             <td data-label="密码">
                 <span style="font-family:monospace;font-size:12px" id="pw-{{ n.id }}">{{ n.password[:6] }}•••</span>
-                <span onclick="copyText('{{ n.password }}')" style="cursor:pointer;color:var(--accent);margin-left:4px;flex-shrink:0">📋</span>
-                <span onclick="togglePw({{ n.id }}, '{{ n.password }}')" style="cursor:pointer;color:var(--text2);margin-left:4px;font-size:12px;flex-shrink:0">👁️</span>
+                <span onclick="copyText({{ n.password|tojson }})" style="cursor:pointer;color:var(--accent);margin-left:4px;flex-shrink:0">📋</span>
+                <span onclick="togglePw({{ n.id }}, {{ n.password|tojson }})" style="cursor:pointer;color:var(--text2);margin-left:4px;font-size:12px;flex-shrink:0">👁️</span>
             </td>
             <td data-label="状态" id="status-{{ n.id }}">
                 {% if n.is_online == 1 %}
@@ -178,7 +178,7 @@
             <div class="form-group">
                 <label>分享链接（可直接导入 Shadowrocket / Clash）</label>
                 <div style="display:flex;gap:8px;align-items:center">
-                    <input id="shareUrl" value="http://ssrvpn.vip:8866/sub/{{ account.sub_token }}" readonly style="font-family:monospace;font-size:12px">
+                    <input id="shareUrl" value="{{ url_for('public_subscribe', token=account.sub_token, _external=True) }}" readonly style="font-family:monospace;font-size:12px">
                     <button class="btn btn-primary" onclick="copyText(document.getElementById('shareUrl').value)" style="white-space:nowrap">📋 复制</button>
                 </div>
             </div>

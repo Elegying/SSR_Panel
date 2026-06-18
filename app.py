@@ -23,7 +23,10 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 app = Flask(__name__)
-app.config['DATABASE'] = os.path.join(os.path.dirname(__file__), 'anytls.db')
+app.config['DATABASE'] = os.environ.get(
+    'ANYTLS_DATABASE',
+    os.path.join(os.path.dirname(__file__), 'anytls.db'),
+)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24小时
@@ -43,10 +46,11 @@ limiter = Limiter(
 # 固定 secret_key，存文件持久化，多 worker 共享
 _sk_file = os.path.join(os.path.dirname(__file__), '.secret_key')
 if os.path.exists(_sk_file):
-    app.secret_key = open(_sk_file).read().strip()
+    with open(_sk_file, encoding='utf-8') as f:
+        app.secret_key = f.read().strip()
 else:
     app.secret_key = secrets.token_hex(32)
-    with open(_sk_file, 'w') as f:
+    with open(_sk_file, 'w', encoding='utf-8') as f:
         f.write(app.secret_key)
 
 # ─── 数据库 ──────────────────────────────────────────────
@@ -125,15 +129,16 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_traffic_logs_account_id ON traffic_logs(account_id);
     ''')
 
-    pw_hash = hashlib.sha256('admin123'.encode()).hexdigest()
-    try:
+    admin_count = db.execute('SELECT COUNT(*) FROM admin_users').fetchone()[0]
+    if admin_count == 0:
+        admin_user = os.environ.get('ANYTLS_ADMIN_USER', 'admin').strip() or 'admin'
+        admin_pass = os.environ.get('ANYTLS_ADMIN_PASS', 'admin123')
+        pw_hash = hashlib.sha256(admin_pass.encode()).hexdigest()
         db.execute(
             'INSERT INTO admin_users (username, password_hash) VALUES (?, ?)',
-            ('admin', pw_hash)
+            (admin_user, pw_hash)
         )
         db.commit()
-    except sqlite3.IntegrityError:
-        pass
 
     # 迁移：添加 sub_token 列
     try:
@@ -203,7 +208,7 @@ def parse_subscribe_url(url):
     # 尝试作为 Clash YAML 解析（最高优先级）
     clash_nodes = _parse_clash_yaml(content)
     if clash_nodes:
-        return clash_nodes
+        return clash_nodes, traffic_info
 
     # 尝试 base64 解码后再解析
     try:
@@ -216,7 +221,7 @@ def parse_subscribe_url(url):
     # 再次尝试 Clash YAML（base64 解码后可能是 YAML）
     clash_nodes = _parse_clash_yaml(content)
     if clash_nodes:
-        return clash_nodes
+        return clash_nodes, traffic_info
 
     # 按行解析各种协议链接
     for line in content.splitlines():
@@ -297,60 +302,63 @@ def _parse_clash_yaml(content):
         if not isinstance(proxies, list):
             return []
         for p in proxies:
-            if not isinstance(p, dict):
-                continue
-            ptype = str(p.get('type', '')).lower().replace('-', '').replace('_', '')
-            host = p.get('server', '')
-            port = int(p.get('port', 443))
-            password = p.get('password', '') or p.get('uuid', '')
-            name = p.get('name', f"{host}:{port}")
-            if not host:
-                continue
+            try:
+                if not isinstance(p, dict):
+                    continue
+                ptype = str(p.get('type', '')).lower().replace('-', '').replace('_', '')
+                host = p.get('server', '')
+                port = int(p.get('port', 443))
+                password = p.get('password', '') or p.get('uuid', '')
+                name = p.get('name', f"{host}:{port}")
+                if not host or not 1 <= port <= 65535:
+                    continue
 
-            # 构建统一的 raw_uri
-            if ptype in ('anytls', 'anytls1'):
-                uri = f"anytls://{password}@{host}:{port}?security=tls&allowInsecure=0#{name}"
-            elif ptype == 'trojan':
-                sni = p.get('sni', host)
-                skip_cert = '1' if p.get('skip-cert-verify') else '0'
-                uri = f"trojan://{password}@{host}:{port}?sni={sni}&allowInsecure={skip_cert}#{name}"
-            elif ptype == 'vmess':
-                import base64 as b64
-                vmess_obj = {"v": "2", "ps": name, "add": host, "port": str(port),
-                             "id": password, "aid": str(p.get('alterId', 0)),
-                             "net": p.get('network', 'tcp'), "type": "none",
-                             "host": p.get('ws-opts', {}).get('headers', {}).get('Host', ''),
-                             "path": p.get('ws-opts', {}).get('path', ''),
-                             "tls": "tls" if p.get('tls') else "none"}
-                uri = "vmess://" + b64.b64encode(json.dumps(vmess_obj).encode()).decode()
-            elif ptype == 'vless':
-                flow = p.get('flow', '')
-                sni = p.get('sni', host)
-                uri = f"vless://{password}@{host}:{port}?security=tls&sni={sni}&flow={flow}#{name}"
-            elif ptype in ('hysteria2', 'hy2', 'hysteria'):
-                auth = password
-                sni = p.get('sni', host)
-                uri = f"hysteria2://{auth}@{host}:{port}?sni={sni}#{name}"
-            elif ptype == 'tuic':
-                uri = f"tuic://{password}@{host}:{port}?sni={p.get('sni', host)}#{name}"
-            elif ptype == 'shadowsocks':
-                method = p.get('cipher', 'aes-256-gcm')
-                import base64 as b64
-                userinfo = b64.b64encode(f"{method}:{password}".encode()).decode()
-                uri = f"ss://{userinfo}@{host}:{port}#{name}"
-            else:
-                # 其他类型也导入，保留原始信息
-                uri = f"{ptype}://{password}@{host}:{port}#{name}"
+                # 构建统一的 raw_uri
+                if ptype in ('anytls', 'anytls1'):
+                    uri = f"anytls://{password}@{host}:{port}?security=tls&allowInsecure=0#{name}"
+                elif ptype == 'trojan':
+                    sni = p.get('sni', host)
+                    skip_cert = '1' if p.get('skip-cert-verify') else '0'
+                    uri = f"trojan://{password}@{host}:{port}?sni={sni}&allowInsecure={skip_cert}#{name}"
+                elif ptype == 'vmess':
+                    import base64 as b64
+                    vmess_obj = {"v": "2", "ps": name, "add": host, "port": str(port),
+                                 "id": password, "aid": str(p.get('alterId', 0)),
+                                 "net": p.get('network', 'tcp'), "type": "none",
+                                 "host": p.get('ws-opts', {}).get('headers', {}).get('Host', ''),
+                                 "path": p.get('ws-opts', {}).get('path', ''),
+                                 "tls": "tls" if p.get('tls') else "none"}
+                    uri = "vmess://" + b64.b64encode(json.dumps(vmess_obj).encode()).decode()
+                elif ptype == 'vless':
+                    flow = p.get('flow', '')
+                    sni = p.get('sni', host)
+                    uri = f"vless://{password}@{host}:{port}?security=tls&sni={sni}&flow={flow}#{name}"
+                elif ptype in ('hysteria2', 'hy2', 'hysteria'):
+                    auth = password
+                    sni = p.get('sni', host)
+                    uri = f"hysteria2://{auth}@{host}:{port}?sni={sni}#{name}"
+                elif ptype == 'tuic':
+                    uri = f"tuic://{password}@{host}:{port}?sni={p.get('sni', host)}#{name}"
+                elif ptype == 'shadowsocks':
+                    method = p.get('cipher', 'aes-256-gcm')
+                    import base64 as b64
+                    userinfo = b64.b64encode(f"{method}:{password}".encode()).decode()
+                    uri = f"ss://{userinfo}@{host}:{port}#{name}"
+                else:
+                    # 其他类型也导入，保留原始信息
+                    uri = f"{ptype}://{password}@{host}:{port}#{name}"
 
-            nodes.append({
-                'name': str(name),
-                'host': str(host),
-                'port': port,
-                'password': str(password),
-                'raw_uri': uri,
-                'protocol': ptype,
-                'extra': {k: v for k, v in p.items() if k not in ('name', 'type', 'server', 'port', 'password')},
-            })
+                nodes.append({
+                    'name': str(name),
+                    'host': str(host),
+                    'port': port,
+                    'password': str(password),
+                    'raw_uri': uri,
+                    'protocol': ptype,
+                    'extra': {k: v for k, v in p.items() if k not in ('name', 'type', 'server', 'port', 'password')},
+                })
+            except (TypeError, ValueError):
+                continue
     except Exception:
         pass
     return nodes
@@ -1200,7 +1208,7 @@ def api_generate_token(account_id):
     token = secrets.token_hex(16)
     db.execute('UPDATE accounts SET sub_token=? WHERE id=?', (token, account_id))
     db.commit()
-    return jsonify({"token": token, "url": f"http://ssrvpn.vip:8866/sub/{token}"})
+    return jsonify({"token": token, "url": url_for('public_subscribe', token=token, _external=True)})
 
 
 @app.route('/settings/rename-rules')
