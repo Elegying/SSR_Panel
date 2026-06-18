@@ -332,7 +332,7 @@ else
     git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$INSTALL_DIR" -q
 fi
 
-chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
 PANEL_BUILD_INFO_FILE="$INSTALL_DIR/.panel-build.json"
@@ -453,6 +453,10 @@ else
     journalctl -u ssr-admin -n 50 --no-pager || true
     exit 1
 fi
+
+# ── SSR 服务器性能优化 ──
+echo -e "${GREEN}[6/6] SSR 服务器性能优化...${NC}"
+bash "$INSTALL_DIR/scripts/optimize_server.sh"
 
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
 

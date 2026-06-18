@@ -256,7 +256,7 @@ else
 fi
 
 cd $PANEL_DIR
-chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/scripts/collect_device_stats.py" 2>/dev/null || true
+chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION=$(git -C "$PANEL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
 PANEL_BUILD_INFO_FILE="$PANEL_DIR/.panel-build.json"
@@ -509,10 +509,14 @@ else
     exit 1
 fi
 
+# ── SSR 服务器性能优化 ──
+echo -e "${CYAN}[ 5/6 ] SSR 服务器性能优化...${NC}"
+bash "$PANEL_DIR/scripts/optimize_server.sh"
+
 APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null || echo "unknown")
 
 # ========== 完成 ==========
-echo -e "${CYAN}[ 5/5 ] 完成${NC}"
+echo -e "${CYAN}[ 6/6 ] 完成${NC}"
 sleep 2
 echo
 echo -e "${GREEN}============================================${NC}"
