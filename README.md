@@ -5,6 +5,12 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.7+-green.svg)
 ![Flask](https://img.shields.io/badge/Flask-3.0+-orange.svg)
+[![CI](https://github.com/Elegying/ssr-admin-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/ssr-admin-panel/actions/workflows/ci.yml)
+
+## 📚 运维文档
+
+- [生产部署、更新、卸载与排障手册](docs/OPERATIONS.md)
+- 每次 push / pull request 会通过 GitHub Actions 自动运行单元测试和 shell 语法检查。
 
 ## ✨ 功能特性
 

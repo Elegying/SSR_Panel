@@ -178,6 +178,11 @@ apply_ssr_python_compatibility_fix() {
 }
 
 install_device_stats_service() {
+    if [ ! -d "$SSR_DIR" ] || [ ! -f "$MUDB_FILE" ]; then
+        echo -e "${YELLOW}未检测到 SSR 数据文件，跳过设备统计服务${NC}"
+        return 0
+    fi
+
     echo -e "${GREEN}配置设备统计服务...${NC}"
     ensure_command "ss" "iproute2"
     mkdir -p "$(dirname "$DEVICE_STATS_FILE")"
@@ -334,7 +339,7 @@ else
     git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$INSTALL_DIR" -q
 fi
 
-chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
 PANEL_BUILD_INFO_FILE="$INSTALL_DIR/.panel-build.json"
@@ -483,4 +488,6 @@ echo -e "${CYAN}提示: 如需修改账号密码，编辑 config.py 后执行:${
 echo -e "${CYAN}  systemctl restart ssr-admin${NC}"
 echo -e "${CYAN}更新命令:${NC}"
 echo -e "${CYAN}  bash /opt/ssr-admin-panel/update.sh${NC}"
+echo -e "${CYAN}卸载命令:${NC}"
+echo -e "${CYAN}  bash /opt/ssr-admin-panel/uninstall.sh --yes${NC}"
 echo

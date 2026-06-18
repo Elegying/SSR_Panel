@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,8 +9,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class InstallerRegressionTests(unittest.TestCase):
+    def test_shell_scripts_use_lf_line_endings(self):
+        scripts = list(REPO_ROOT.glob("*.sh")) + list((REPO_ROOT / "scripts").glob("*.sh"))
+        for script in scripts:
+            data = script.read_bytes()
+            self.assertNotIn(b"\r\n", data, msg=f"{script.relative_to(REPO_ROOT)} uses CRLF line endings")
+
     def test_install_scripts_have_valid_bash_syntax(self):
-        for script in ("install.sh", "install-all.sh", "update.sh"):
+        for script in ("install.sh", "install-all.sh", "update.sh", "uninstall.sh"):
             result = subprocess.run(
                 ["bash", "-n", str(REPO_ROOT / script)],
                 capture_output=True,
@@ -33,6 +40,11 @@ class InstallerRegressionTests(unittest.TestCase):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("update.sh", content)
+
+    def test_install_and_update_scripts_expose_uninstall_command(self):
+        for script in ("install.sh", "install-all.sh", "update.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("uninstall.sh", content)
 
     def test_install_and_update_scripts_write_panel_build_metadata(self):
         for script in ("install.sh", "install-all.sh", "update.sh"):
@@ -65,6 +77,17 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("ssr-device-stats", content)
             self.assertIn("DEVICE_STATS_FILE", content)
 
+    def test_uninstall_script_requires_explicit_confirmation(self):
+        content = (REPO_ROOT / "uninstall.sh").read_text(encoding="utf-8")
+        self.assertIn("--yes", content)
+        self.assertIn("refusing to uninstall without --yes", content)
+        self.assertIn("--remove-ssr", content)
+
+    def test_panel_only_install_skips_device_stats_without_ssr_data(self):
+        content = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn('[ ! -d "$SSR_DIR" ] || [ ! -f "$MUDB_FILE" ]', content)
+        self.assertIn("跳过设备统计服务", content)
+
     def test_installers_do_not_silence_panel_git_update_failures(self):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
@@ -89,8 +112,8 @@ class InstallerRegressionTests(unittest.TestCase):
     def test_installers_prepare_minimal_debian_runtime(self):
         content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
         self.assertIn("apt-get update", content)
-        self.assertIn('ensure_minimal_command "ss" "iproute2"', content)
-        self.assertIn('ensure_minimal_command "systemctl" "systemd"', content)
+        self.assertIn('"ss:${_ss_pkg}"', content)
+        self.assertIn('"systemctl:systemd"', content)
 
     def test_ssrmu_applies_python_compatibility_patch_before_startup(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
@@ -139,7 +162,7 @@ class InstallerRegressionTests(unittest.TestCase):
             )
 
             result = subprocess.run(
-                ["python3", str(patcher), str(ssr_dir)],
+                [sys.executable, str(patcher), str(ssr_dir)],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -162,7 +185,7 @@ class InstallerRegressionTests(unittest.TestCase):
             )
 
             result = subprocess.run(
-                ["python3", str(patcher), str(ssr_dir)],
+                [sys.executable, str(patcher), str(ssr_dir)],
                 capture_output=True,
                 text=True,
                 check=False,

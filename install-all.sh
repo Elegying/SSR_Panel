@@ -258,7 +258,7 @@ else
 fi
 
 cd $PANEL_DIR
-chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/uninstall.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION=$(git -C "$PANEL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
 PANEL_BUILD_INFO_FILE="$PANEL_DIR/.panel-build.json"
@@ -540,6 +540,7 @@ echo
 echo -e "${CYAN}常用命令:${NC}"
 echo -e "  重启面板:     ${YELLOW}systemctl restart ssr-admin${NC}"
 echo -e "  更新面板:     ${YELLOW}bash /opt/ssr-admin-panel/update.sh${NC}"
+echo -e "  卸载面板:     ${YELLOW}bash /opt/ssr-admin-panel/uninstall.sh --yes${NC}"
 echo -e "  管理SSR:      ${YELLOW}bash /opt/ssr-admin-panel/ssrmu.sh${NC}"
 echo
 echo -e "${GREEN}感谢使用！${NC}"
