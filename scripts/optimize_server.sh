@@ -27,6 +27,11 @@ log_info() { echo -e "  $1"; }
 setup_ssr_service() {
     echo -e "${GREEN}[优化 1/6] 配置 SSR systemd 服务...${NC}"
 
+    if [ ! -f "${SSR_DIR}/server.py" ]; then
+        log_warn "SSR 未安装，跳过 SSR 服务配置"
+        return
+    fi
+
     local PYTHON_BIN
     PYTHON_BIN=$(command -v python 2>/dev/null || command -v python3 2>/dev/null || echo "/usr/bin/python3")
 
@@ -156,6 +161,7 @@ with open('$SSR_CONFIG', 'w') as f: json.dump(d, f, indent=4, ensure_ascii=False
 setup_logrotate() {
     echo -e "${GREEN}[优化 5/6] 配置 SSR 日志轮转...${NC}"
 
+    mkdir -p "$(dirname "$LOGROTATE_CONF")"
     cat > "$LOGROTATE_CONF" <<'EOF'
 /usr/local/shadowsocksr/ssserver.log {
     daily
@@ -180,16 +186,17 @@ setup_fail2ban() {
         log_ok "fail2ban 已安装"
     else
         export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
-        if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
-            apt-get install -y -qq fail2ban 2>/dev/null || {
-                log_warn "fail2ban 安装失败，跳过"
-                return
-            }
+        if command -v dnf &>/dev/null; then
+                dnf install -y -q epel-release 2>/dev/null || true
+                dnf install -y -q fail2ban 2>/dev/null || {
+                    log_warn "fail2ban 安装失败，跳过"
+                    return
+                }
         elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
             if command -v dnf &>/dev/null; then
                 dnf install -y -q fail2ban 2>/dev/null || { log_warn "fail2ban 安装失败，跳过"; return; }
             else
-                yum install -y -q epel-release 2>/dev/null || true
+                yum install -y -q epel-release 2>/dev/null || log_warn "EPEL 源安装失败，若后续 fail2ban 安装失败请手动安装 epel-release"
                 yum install -y -q fail2ban 2>/dev/null || { log_warn "fail2ban 安装失败，跳过"; return; }
             fi
         fi
@@ -238,7 +245,7 @@ main() {
     echo -e "${GREEN}========================================${NC}"
     echo -e "  SSR 服务:   $(systemctl is-active ssr.service 2>/dev/null || echo '未运行')"
     echo -e "  fail2ban:   $(systemctl is-active fail2ban 2>/dev/null || echo '未安装')"
-    echo -e "  监听端口:   $(ss -tlnp 2>/dev/null | grep -c python || echo 0) 个"
+    echo -e "  监听端口:   $(ss -tlnp 2>/dev/null | grep -c "server.py" || echo 0) 个"
     echo
 }
 

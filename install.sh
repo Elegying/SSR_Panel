@@ -82,7 +82,9 @@ ensure_basic_runtime() {
 
     # 批量安装缺失的系统依赖
     local MISSING=""
-    for cmd_pkg in "systemctl:systemd" "curl:curl" "ss:iproute2" "git:git" "python3:python3"; do
+    local _ss_pkg="iproute2"
+    [ "$SYS" = "centos" ] && _ss_pkg="iproute"
+    for cmd_pkg in "systemctl:systemd" "curl:curl" "ss:${_ss_pkg}" "git:git" "python3:python3"; do
         local cmd="${cmd_pkg%%:*}" pkg="${cmd_pkg##*:}"
         command -v "$cmd" &>/dev/null || MISSING="$MISSING $pkg"
     done
@@ -227,7 +229,7 @@ safe_read() {
     eval "_check_val="\${${var_name}:-}""
     if [ -n "$_check_val" ]; then return 0; fi
     if [ -t 0 ]; then
-        if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
+        if [ "$is_password" = "yes" ]; then read -r -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
     elif [ -e /dev/tty ]; then
         if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input < /dev/tty; echo; else read -r -p "$prompt" input < /dev/tty; fi
     else
@@ -456,7 +458,11 @@ fi
 
 # ── SSR 服务器性能优化 ──
 echo -e "${GREEN}[6/6] SSR 服务器性能优化...${NC}"
-bash "$INSTALL_DIR/scripts/optimize_server.sh"
+if [ -d "$SSR_DIR" ]; then
+    bash "$INSTALL_DIR/scripts/optimize_server.sh"
+else
+    echo -e "${YELLOW}未检测到 SSR，跳过服务器优化（仅安装面板时无需优化）${NC}"
+fi
 
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
 

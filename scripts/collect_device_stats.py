@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
-from __future__ import annotations
-
 import argparse
+from typing import Dict, List, Optional, Set, Tuple
 import ipaddress
 import json
 import re
@@ -19,7 +18,7 @@ DEFAULT_INTERVAL = 15
 DEFAULT_WINDOW = 900
 
 
-def utc_now_iso(now: float | None = None) -> str:
+def utc_now_iso(now: Optional[float] = None) -> str:
     return datetime.fromtimestamp(now or time.time(), timezone.utc).isoformat()
 
 
@@ -30,7 +29,7 @@ def to_int(value, default=0):
         return default
 
 
-def load_user_ports(mudb_file: Path) -> set[int]:
+def load_user_ports(mudb_file: Path) -> Set[int]:
     try:
         payload = json.loads(mudb_file.read_text(encoding="utf-8-sig"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
@@ -65,7 +64,7 @@ def normalize_peer_host(host: str) -> str:
     return str(ip)
 
 
-def parse_endpoint(endpoint: str) -> tuple[str, int] | None:
+def parse_endpoint(endpoint: str) -> Optional[Tuple[str, int]]:
     endpoint = endpoint.strip()
     if not endpoint:
         return None
@@ -88,21 +87,22 @@ def parse_endpoint(endpoint: str) -> tuple[str, int] | None:
     return None
 
 
-def collect_tcp_peers_from_ss(ports: set[int]) -> dict[int, set[str]]:
+def collect_tcp_peers_from_ss(ports: Set[int]) -> Dict[int, Set[str]]:
     if not ports or not shutil.which("ss"):
         return {}
 
     result = subprocess.run(
         ["ss", "-H", "-tan", "state", "established"],
-        capture_output=True,
-        text=True,
+        stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+        universal_newlines=True,
         timeout=10,
         check=False,
     )
     if result.returncode != 0:
         return {}
 
-    peers_by_port: dict[int, set[str]] = {port: set() for port in ports}
+    peers_by_port: Dict[int, Set[str]] = {port: set() for port in ports}
     for line in result.stdout.splitlines():
         parts = line.split()
         if len(parts) < 4:

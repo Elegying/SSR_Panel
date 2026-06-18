@@ -56,7 +56,7 @@ echo -e "${CYAN}系统检测: ${YELLOW}${SYS}${NC}"
 echo
 
 # ========== 第零步：快速准备 ==========
-echo -e "${CYAN}[ 0/5 ] 快速准备（跳过依赖检测）...${NC}"
+echo -e "${CYAN}[ 0/6 ] 快速准备（跳过依赖检测）...${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 install_packages() {
     if [ "$SYS" = "centos" ]; then
@@ -100,7 +100,9 @@ prepare_minimal_runtime() {
 
     # 批量安装所有系统依赖（一次 apt-get 调用，比逐个快 3-5 倍）
     local MISSING=""
-    for cmd_pkg in "systemctl:systemd" "curl:curl" "ss:iproute2" "git:git" "python3:python3"; do
+    local _ss_pkg="iproute2"
+    [ "$SYS" = "centos" ] && _ss_pkg="iproute"
+    for cmd_pkg in "systemctl:systemd" "curl:curl" "ss:${_ss_pkg}" "git:git" "python3:python3"; do
         local cmd="${cmd_pkg%%:*}" pkg="${cmd_pkg##*:}"
         command -v "$cmd" &>/dev/null || MISSING="$MISSING $pkg"
     done
@@ -234,7 +236,7 @@ echo -e "${CYAN}保留最小依赖:${NC} systemd / curl / git / iproute2 / pytho
 echo
 
 # ========== 第一步：下载项目文件 ==========
-echo -e "${CYAN}[ 1/5 ] 下载项目文件...${NC}"
+echo -e "${CYAN}[ 1/6 ] 下载项目文件...${NC}"
 
 if [ -d "$PANEL_DIR" ]; then
     if [ -d "$PANEL_DIR/.git" ]; then
@@ -286,7 +288,7 @@ echo -e "${GREEN}✓ 项目文件下载完成${NC}"
 echo
 
 # ========== 第二步：配置信息 ==========
-echo -e "${CYAN}[ 2/5 ] 配置信息${NC}"
+echo -e "${CYAN}[ 2/6 ] 配置信息${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
 # 支持环境变量非交互式配置
@@ -305,7 +307,7 @@ safe_read() {
 
     local input=""
     if [ -t 0 ]; then
-        if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
+        if [ "$is_password" = "yes" ]; then read -r -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
     elif [ -e /dev/tty ]; then
         if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input < /dev/tty; echo; else read -r -p "$prompt" input < /dev/tty; fi
     else
@@ -403,7 +405,7 @@ echo -e "${GREEN}✓ 配置完成${NC}"
 echo
 
 # ========== 第三步：安装SSR ==========
-echo -e "${CYAN}[ 3/5 ] 安装 ShadowsocksR${NC}"
+echo -e "${CYAN}[ 3/6 ] 安装 ShadowsocksR${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
 if [ -d "$SSR_DIR" ]; then
@@ -428,7 +430,7 @@ apply_ssr_python_compatibility_fix
 echo
 
 # ========== 第四步：安装管理面板 ==========
-echo -e "${CYAN}[ 4/5 ] 安装管理面板${NC}"
+echo -e "${CYAN}[ 4/6 ] 安装管理面板${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
 install_flask_runtime
