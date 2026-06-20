@@ -144,7 +144,7 @@ prepare_minimal_runtime() {
 }
 
 install_flask_runtime() {
-    if "$PYTHON3_BIN" -c "import flask; import flask_limiter" &>/dev/null; then
+    if "$PYTHON3_BIN" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
         echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
         return
     fi
@@ -174,9 +174,15 @@ install_flask_runtime() {
         install_packages python3-flask-limiter 2>/dev/null || true
     fi
 
+    if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
+        echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check waitress -q 2>/dev/null || true
+    fi
+
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
 import flask
 import flask_limiter
+import waitress
 PY
     then
         echo -e "${RED}Flask 运行时安装失败，请检查 Python 依赖${NC}"
@@ -314,7 +320,7 @@ safe_read() {
         return 1
     fi
 
-    eval "$var_name='$input'"
+    printf -v "$var_name" '%s' "$input"
     return 0
 }
 
@@ -489,9 +495,14 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/ssr-admin-panel
-ExecStart=${PYTHON3_BIN} /opt/ssr-admin-panel/app.py
+ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

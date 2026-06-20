@@ -132,7 +132,7 @@ if ! command -v python &> /dev/null; then
 fi
 
 install_flask_runtime() {
-    if "$PYTHON3_BIN" -c "import flask; import flask_limiter" &>/dev/null; then
+    if "$PYTHON3_BIN" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
         echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
         return
     fi
@@ -157,9 +157,15 @@ install_flask_runtime() {
         install_packages python3-flask-limiter 2>/dev/null || true
     fi
 
+    if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
+        echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
+        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check waitress -q 2>/dev/null || true
+    fi
+
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
 import flask
 import flask_limiter
+import waitress
 PY
     then
         echo -e "${RED}Flask 运行时安装失败，请检查 Python 依赖${NC}"
@@ -230,9 +236,7 @@ safe_read() {
     local prompt="$2"
     local is_password="$3"
     local input=""
-    local _check_val=""
-    eval "_check_val="\${${var_name}:-}""
-    if [ -n "$_check_val" ]; then return 0; fi
+    if [ -n "${!var_name:-}" ]; then return 0; fi
     if [ -t 0 ]; then
         if [ "$is_password" = "yes" ]; then read -r -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
     elif [ -e /dev/tty ]; then
@@ -240,7 +244,7 @@ safe_read() {
     else
         return 1
     fi
-    eval "$var_name='$input'"
+    printf -v "$var_name" '%s' "$input"
 }
 
 # 获取用户名
@@ -436,9 +440,14 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/ssr-admin-panel
-ExecStart=${PYTHON3_BIN} /opt/ssr-admin-panel/app.py
+ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

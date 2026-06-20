@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import base64
+import fcntl
 import gzip
 import hmac
 import json
 import os
-import random
 import secrets
 import shutil
 import string
@@ -221,9 +221,13 @@ def mudb_path():
 
 
 def load_users():
+    path = mudb_path()
     try:
-        with mudb_path().open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        with path.with_suffix(path.suffix + ".lock").open("a+", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            fcntl.flock(lock, fcntl.LOCK_UN)
         return data if isinstance(data, list) else []
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return []
@@ -232,13 +236,52 @@ def load_users():
 def save_users(users):
     path = mudb_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(users, f, indent=4, ensure_ascii=False)
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    tmp_name = None
+    mode = None
+    try:
+        mode = path.stat().st_mode & 0o777
+    except OSError:
+        pass
+
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                dir=str(path.parent),
+                text=True,
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(users, f, indent=4, ensure_ascii=False)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            if mode is not None:
+                os.chmod(tmp_name, mode)
+            os.replace(tmp_name, path)
+            tmp_name = None
+            try:
+                dir_fd = os.open(path.parent, os.O_DIRECTORY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except OSError:
+                pass
+        finally:
+            if tmp_name:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def generate_password(length=12):
     chars = string.ascii_letters + string.digits
-    return "".join(random.choice(chars) for _ in range(length))
+    return "".join(secrets.choice(chars) for _ in range(length))
 
 
 def to_int(value, default=0):
@@ -782,6 +825,49 @@ def get_uptime():
     return "unknown"
 
 
+def _json_has_ipv6_forbid(path):
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    entries = payload if isinstance(payload, list) else [payload] if isinstance(payload, dict) else []
+    for entry in entries:
+        if "::/0" in str(entry.get("forbidden_ip") or ""):
+            return True
+    return False
+
+
+def get_server_optimization_status():
+    ipv6_guard = any(_json_has_ipv6_forbid(path) for path in (MUDB_FILE, SSR_DIR / "user-config.json"))
+    quic_guard = False
+    try:
+        result = subprocess.run(
+            ["nft", "list", "table", "inet", "ssr_filter"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        quic_guard = result.returncode == 0 and "udp dport 443 reject" in result.stdout
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    if ipv6_guard and quic_guard:
+        label = "已启用"
+    elif ipv6_guard or quic_guard:
+        label = "部分启用"
+    else:
+        label = "未启用"
+
+    return {
+        "ipv6_guard": ipv6_guard,
+        "quic_guard": quic_guard,
+        "enabled": ipv6_guard and quic_guard,
+        "label": label,
+    }
+
+
 def get_system_info():
     try:
         mem_total, mem_used, mem_percent = get_memory_info()
@@ -799,6 +885,7 @@ def get_system_info():
             "disk_used": disk_used,
             "disk_percent": disk_percent,
             "uptime": get_uptime(),
+            "optimization_status": get_server_optimization_status(),
         }
     except OSError:
         return {
@@ -810,6 +897,7 @@ def get_system_info():
             "disk_used": "0",
             "disk_percent": "0",
             "uptime": "unknown",
+            "optimization_status": get_server_optimization_status(),
         }
 
 
@@ -1061,16 +1149,22 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "")
         password = request.form.get("password", "")
-        if check_auth(username, password):
+        request_token = request.form.get("csrf_token", "")
+        session_token = session.get("csrf_token", "")
+        if not session_token or not hmac.compare_digest(request_token, session_token):
+            error = "页面已过期，请刷新后重试"
+            audit_log("LOGIN_CSRF_FAILED", f"登录 CSRF 校验失败，用户名: {username}", "WARNING")
+        elif check_auth(username, password):
             session.clear()
             session["logged_in"] = True
             session["username"] = username
             ensure_csrf_token()
             audit_log("LOGIN_SUCCESS", f"用户 {username} 登录成功")
             return redirect(url_for("index"))
-        error = "用户名或密码错误"
-        audit_log("LOGIN_FAILED", f"登录失败，用户名: {username}", "WARNING")
-    return render_template("login.html", error=error)
+        else:
+            error = "用户名或密码错误"
+            audit_log("LOGIN_FAILED", f"登录失败，用户名: {username}", "WARNING")
+    return render_template("login.html", error=error, csrf_token=ensure_csrf_token())
 
 
 @app.route("/logout")
@@ -1104,6 +1198,7 @@ def index():
         format_bytes=format_bytes,
         ssr_status=get_ssr_status(),
         system_info=get_system_info(),
+        optimization_status=get_server_optimization_status(),
         panel_version=get_panel_version(),
         csrf_token=ensure_csrf_token(),
     )

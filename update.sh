@@ -241,7 +241,14 @@ ensure_python_deps() {
         fi
     fi
 
-    if ! "${PYTHON3_BIN}" -c "import flask; import flask_limiter" &>/dev/null; then
+    if ! "${PYTHON3_BIN}" -c "import waitress" &>/dev/null; then
+        echo -e "${RED}Waitress 导入失败，尝试 pip 单独安装...${NC}"
+        if "${PYTHON3_BIN}" -m pip --version &>/dev/null; then
+            "${PYTHON3_BIN}" -m pip install --no-input --disable-pip-version-check waitress -q 2>/dev/null || true
+        fi
+    fi
+
+    if ! "${PYTHON3_BIN}" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
         echo -e "${RED}Python 依赖安装失败，服务可能无法启动${NC}"
         return 1
     fi
@@ -275,6 +282,32 @@ SERVICE
 
     systemctl enable "${DEVICE_STATS_SERVICE_NAME}" >/dev/null 2>&1 || true
     systemctl restart "${DEVICE_STATS_SERVICE_NAME}" || true
+}
+
+install_or_update_panel_service() {
+    cat > /etc/systemd/system/${SERVICE_NAME}.service <<SERVICE
+[Unit]
+Description=SSR Admin Panel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${PANEL_DIR}
+ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+    systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1 || true
 }
 
 apply_server_optimization() {
@@ -380,6 +413,7 @@ write_status "restart" "正在重启服务"
 systemctl daemon-reload
 install_or_restart_device_stats_service
 apply_server_optimization
+install_or_update_panel_service
 systemctl daemon-reload
 if ! systemctl restart "${SERVICE_NAME}"; then
     echo -e "${RED}更新后服务重启命令失败${NC}"

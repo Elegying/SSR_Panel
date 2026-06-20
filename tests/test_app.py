@@ -264,6 +264,34 @@ class AppSecurityTests(unittest.TestCase):
         response = self.client.post("/api/panel/update")
         self.assertEqual(response.status_code, 403)
 
+    def test_login_requires_csrf_token(self):
+        with self.client.session_transaction() as sess:
+            sess.clear()
+            sess["csrf_token"] = "login-token"
+
+        with mock.patch.object(panel_app, "ADMIN_USER", "admin"), mock.patch.object(
+            panel_app, "ADMIN_PASS", "secret"
+        ):
+            missing = self.client.post("/login", data={"username": "admin", "password": "secret"})
+            self.assertEqual(missing.status_code, 200)
+            self.assertIn("页面已过期", missing.get_data(as_text=True))
+
+            ok = self.client.post(
+                "/login",
+                data={"username": "admin", "password": "secret", "csrf_token": "login-token"},
+            )
+            self.assertEqual(ok.status_code, 302)
+
+    def test_login_form_contains_csrf_token(self):
+        with self.client.session_transaction() as sess:
+            sess.clear()
+
+        response = self.client.get("/login")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="csrf_token"', body)
+
     def test_panel_update_start_endpoint_returns_started_result(self):
         with mock.patch.object(
             panel_app,
@@ -357,6 +385,17 @@ class AppSecurityTests(unittest.TestCase):
         )
         self.assertEqual(ok_response.status_code, 200)
         self.assertEqual(self.read_users(), [])
+
+    def test_save_users_is_atomic_when_json_dump_fails(self):
+        original = [{"user": "existing", "passwd": "pw", "port": 8080}]
+        self.write_users(original)
+
+        with mock.patch.object(panel_app.json, "dump", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                panel_app.save_users([{"user": "new", "passwd": "pw", "port": 9090}])
+
+        self.assertEqual(self.read_users(), original)
+        self.assertFalse(list(self.mudb_path.parent.glob(".mudb.json.*.tmp")))
 
     def test_add_user_validates_input_and_returns_created_password(self):
         self.write_users([])

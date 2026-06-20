@@ -1959,11 +1959,6 @@ tr {
 
     <section class="stats-grid">
         <article class="stat-card">
-            <div class="stat-label">用户总数</div>
-            <div class="stat-value" id="stat-users">{{ total_users }}</div>
-            <div class="stat-subtext">当前配置文件中的全部 SSR 用户</div>
-        </article>
-        <article class="stat-card">
             <div class="stat-label">不活跃用户</div>
             <div class="stat-value" id="stat-inactive">{{ inactive_users }}</div>
             <div class="stat-subtext">上传与下载流量都为 0 的账户</div>
@@ -2012,6 +2007,10 @@ tr {
                 <div class="service-glance-item">
                     <span>自动同步</span>
                     <strong>每 30 秒刷新一次</strong>
+                </div>
+                <div class="service-glance-item">
+                    <span>视频优化</span>
+                    <strong id="optimizationStatusText">{{ optimization_status.label }}</strong>
                 </div>
                 <div class="service-glance-item service-glance-item-wide">
                     <div class="update-row">
@@ -2228,6 +2227,7 @@ const csrfToken = {{ csrf_token | tojson }};
 const initialSystemInfo = {{ system_info | tojson }};
 const initialSsrStatus = {{ ssr_status | tojson }};
 const initialPanelVersion = {{ panel_version | tojson }};
+const initialOptimizationStatus = {{ optimization_status | tojson }};
 let usersData = [];
 let sortField = '';
 let sortDirection = 'desc';
@@ -2309,6 +2309,17 @@ function setSystemInfo(info){
     document.getElementById('metricDisk').textContent = `${info.disk_percent || 0}%`;
     document.getElementById('metricDiskText').textContent = `${info.disk_used || '0'} / ${info.disk_total || '0'}`;
     document.getElementById('metricUptime').textContent = info.uptime || 'unknown';
+    setOptimizationStatus(info.optimization_status || initialOptimizationStatus);
+}
+
+function setOptimizationStatus(status){
+    const label = status && status.label ? status.label : '未知';
+    const details = status
+        ? `IPv6 ${status.ipv6_guard ? '已防护' : '未防护'} / QUIC ${status.quic_guard ? '已回落' : '未回落'}`
+        : '';
+    const el = document.getElementById('optimizationStatusText');
+    el.textContent = label;
+    el.title = details;
 }
 
 function updateStats(){
@@ -2317,7 +2328,6 @@ function updateStats(){
     const totalDownload = usersData.reduce((sum, user) => sum + (user.d || 0), 0);
     const totalOnlineDevices = usersData.reduce((sum, user) => sum + (user.online_device_count || 0), 0);
 
-    document.getElementById('stat-users').textContent = usersData.length;
     document.getElementById('heroTotalUsers').textContent = usersData.length;
     document.getElementById('stat-inactive').textContent = inactiveUsers;
     document.getElementById('stat-online-devices').textContent = totalOnlineDevices;

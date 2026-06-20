@@ -30,11 +30,27 @@ class InstallerRegressionTests(unittest.TestCase):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("cat > /etc/systemd/system/ssr-admin.service <<SERVICE", content)
             self.assertNotIn("<< 'SERVICE'", content)
-            self.assertIn("ExecStart=${PYTHON3_BIN} /opt/ssr-admin-panel/app.py", content)
+            self.assertIn(
+                "ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app",
+                content,
+            )
+            self.assertIn("NoNewPrivileges=true", content)
+            self.assertIn("PrivateTmp=true", content)
 
     def test_runtime_requirements_no_longer_include_unused_gunicorn(self):
         requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
         self.assertNotIn("gunicorn", requirements.lower())
+        self.assertIn("waitress", requirements.lower())
+
+    def test_installers_do_not_eval_admin_input(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertNotIn("eval \"$var_name=", content)
+            self.assertIn('printf -v "$var_name"', content)
+
+    def test_ssrmu_does_not_disable_tls_certificate_checks(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+        self.assertNotIn("--no-check-certificate", content)
 
     def test_install_scripts_reference_update_command(self):
         for script in ("install.sh", "install-all.sh"):
@@ -165,6 +181,12 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertNotIn('id="copyPasswordBtn"', content)
         self.assertNotIn(">复制密码<", content)
         self.assertNotIn("copyCreatedPassword", content)
+
+    def test_total_users_stat_card_removed_because_hero_shows_current_users(self):
+        content = (REPO_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("heroTotalUsers", content)
+        self.assertNotIn('id="stat-users"', content)
+        self.assertNotIn("用户总数", content)
 
     def test_config_example_uses_safe_share_placeholders(self):
         content = (REPO_ROOT / "config.py.example").read_text(encoding="utf-8")

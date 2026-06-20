@@ -160,6 +160,7 @@ body::before {
     <div class="error-msg">{{ error }}</div>
     {% endif %}
     <form method="POST" id="loginForm" autocomplete="on">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="form-group">
             <label for="username">用户名</label>
             <input id="username" type="text" name="username" placeholder="请输入用户名" autocomplete="username" required autofocus>
