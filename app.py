@@ -839,7 +839,7 @@ def _json_has_ipv6_forbid(path):
 
 
 def get_server_optimization_status():
-    ipv6_guard = any(_json_has_ipv6_forbid(path) for path in (MUDB_FILE, SSR_DIR / "user-config.json"))
+    ipv6_guard = any(_json_has_ipv6_forbid(path) for path in (MUDB_FILE,))
     quic_guard = False
     try:
         result = subprocess.run(

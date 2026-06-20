@@ -179,7 +179,10 @@ setup_ssr_ipv6_quic_guard() {
 
     if [ "${SSR_BLOCK_IPV6_TARGETS}" = "1" ]; then
         local patched_any=0
-        for json_file in "$SSR_CONFIG" "$MUDB_FILE"; do
+        # 只改 mudb.json（per-user），不改 user-config.json。
+        # SSR shell.py 的 _decode_dict 把 JSON 字符串转成 bytes，
+        # IPNetwork 收到 bytes 会崩溃（'int' object has no attribute 'split'）。
+        for json_file in "$MUDB_FILE"; do
             [ -f "$json_file" ] || continue
             backup_file "$json_file"
             JSON_FILE="$json_file" python3 <<'PY'
