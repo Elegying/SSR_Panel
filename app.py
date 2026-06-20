@@ -853,6 +853,33 @@ def get_server_optimization_status():
     except (OSError, subprocess.SubprocessError):
         pass
 
+    # BBR 检测
+    bbr_mode = "未知"
+    bbr_available = False
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "net.ipv4.tcp_congestion_control"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        cc = result.stdout.strip()
+        if cc == "bbr":
+            bbr_available = True
+            bbr_mode = "BBR"
+        elif cc:
+            bbr_mode = cc
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "net.core.default_qdisc"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        qdisc = result.stdout.strip()
+        if bbr_available and qdisc:
+            bbr_mode = f"BBR ({qdisc})"
+    except (OSError, subprocess.SubprocessError):
+        pass
+
     if ipv6_guard and quic_guard:
         label = "已启用"
     elif ipv6_guard or quic_guard:
@@ -863,6 +890,8 @@ def get_server_optimization_status():
     return {
         "ipv6_guard": ipv6_guard,
         "quic_guard": quic_guard,
+        "bbr_mode": bbr_mode,
+        "bbr_available": bbr_available,
         "enabled": ipv6_guard and quic_guard,
         "label": label,
     }

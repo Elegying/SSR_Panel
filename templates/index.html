@@ -2012,6 +2012,10 @@ tr {
                     <span>视频优化</span>
                     <strong id="optimizationStatusText">{{ optimization_status.label }}</strong>
                 </div>
+                <div class="service-glance-item">
+                    <span>BBR 加速</span>
+                    <strong id="bbrStatusText">{{ optimization_status.bbr_mode }}</strong>
+                </div>
                 <div class="service-glance-item service-glance-item-wide">
                     <div class="update-row">
                         <div>
@@ -2320,6 +2324,8 @@ function setOptimizationStatus(status){
     const el = document.getElementById('optimizationStatusText');
     el.textContent = label;
     el.title = details;
+    const bbrEl = document.getElementById('bbrStatusText');
+    if (bbrEl) bbrEl.textContent = (status && status.bbr_mode) || '未知';
 }
 
 function updateStats(){
