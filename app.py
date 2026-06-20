@@ -1236,21 +1236,27 @@ def index():
 @app.route("/api/ssr/start", methods=["POST"])
 @requires_auth
 @requires_csrf
+@limiter.limit("10 per minute")
 def ssr_start():
+    audit_log("SSR_START", "启动 SSR 服务")
     return jsonify(execute_ssr_command("start"))
 
 
 @app.route("/api/ssr/stop", methods=["POST"])
 @requires_auth
 @requires_csrf
+@limiter.limit("10 per minute")
 def ssr_stop():
+    audit_log("SSR_STOP", "停止 SSR 服务")
     return jsonify(execute_ssr_command("stop"))
 
 
 @app.route("/api/ssr/restart", methods=["POST"])
 @requires_auth
 @requires_csrf
+@limiter.limit("10 per minute")
 def ssr_restart():
+    audit_log("SSR_RESTART", "重启 SSR 服务")
     return jsonify(execute_ssr_command("restart"))
 
 
@@ -1289,7 +1295,9 @@ def panel_update_status():
 @app.route("/api/panel/update", methods=["POST"])
 @requires_auth
 @requires_csrf
+@limiter.limit("5 per minute")
 def panel_update():
+    audit_log("PANEL_UPDATE", "触发面板更新")
     result = start_panel_update()
     return jsonify(result), (200 if result["success"] else 409)
 
@@ -1297,6 +1305,7 @@ def panel_update():
 @app.route("/api/backup", methods=["POST"])
 @requires_auth
 @requires_csrf
+@limiter.limit("10 per minute")
 def backup_data():
     try:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -1308,6 +1317,7 @@ def backup_data():
         for old_backup in backups[:-10]:
             old_backup.unlink(missing_ok=True)
 
+        audit_log("BACKUP", f"备份成功: {backup_file.name}")
         return jsonify({"success": True, "message": f"备份成功: {backup_file}"})
     except OSError as e:
         return jsonify({"success": False, "error": str(e)})
@@ -1358,6 +1368,7 @@ def api_users():
 @app.route("/api/add", methods=["POST"])
 @requires_auth
 @requires_csrf
+@limiter.limit("30 per minute")
 def add_user():
     users = load_users()
     new_user, error = validate_new_user(request.get_json(silent=True) or {}, users)
@@ -1366,6 +1377,7 @@ def add_user():
 
     users.append(new_user)
     save_users(users)
+    audit_log("USER_ADD", f"添加用户: {new_user['user']}, 端口: {new_user['port']}")
     created_user = serialize_user(new_user)
     created_user["generated_password"] = new_user["passwd"]
     return jsonify({"success": True, "message": "用户添加成功", "user": created_user})
@@ -1397,20 +1409,24 @@ def share_user(user):
 @app.route("/api/delete/<path:user>", methods=["POST"])
 @requires_auth
 @requires_csrf
+@limiter.limit("30 per minute")
 def delete_user(user):
     users = load_users()
     target = find_user(users, user)
     if not target:
         return json_error("用户不存在", 404)
 
+    port = target.get("port", "?")
     users.remove(target)
     save_users(users)
+    audit_log("USER_DELETE", f"删除用户: {user}, 端口: {port}")
     return jsonify({"success": True, "message": "用户删除成功"})
 
 
 @app.route("/api/reset/<path:user>", methods=["POST"])
 @requires_auth
 @requires_csrf
+@limiter.limit("30 per minute")
 def reset_user(user):
     users = load_users()
     target = find_user(users, user)
@@ -1420,20 +1436,24 @@ def reset_user(user):
     target["u"] = 0
     target["d"] = 0
     save_users(users)
+    audit_log("USER_RESET", f"重置流量: {user}")
     return jsonify({"success": True, "message": f"用户 {user} 流量已重置"})
 
 
 @app.route("/api/toggle/<path:user>", methods=["POST"])
 @requires_auth
 @requires_csrf
+@limiter.limit("30 per minute")
 def toggle_user(user):
     users = load_users()
     target = find_user(users, user)
     if not target:
         return json_error("用户不存在", 404)
 
-    target["enable"] = 0 if to_int(target.get("enable", 0), 0) == 1 else 1
+    new_state = 0 if to_int(target.get("enable", 0), 0) == 1 else 1
+    target["enable"] = new_state
     save_users(users)
+    audit_log("USER_TOGGLE", f"{'启用' if new_state else '禁用'}用户: {user}")
     return jsonify({"success": True, "message": f"用户 {user} 状态已切换"})
 
 
