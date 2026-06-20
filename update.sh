@@ -17,6 +17,7 @@ DEVICE_STATS_SERVICE_NAME="${SSR_DEVICE_STATS_SERVICE_NAME:-ssr-device-stats}"
 DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
 DEVICE_STATS_INTERVAL="${SSR_DEVICE_STATS_INTERVAL:-15}"
 DEVICE_STATS_WINDOW="${SSR_DEVICE_STATS_WINDOW:-900}"
+APPLY_SERVER_OPTIMIZATION="${SSR_ADMIN_APPLY_SERVER_OPTIMIZATION:-1}"
 PYTHON3_BIN="${PYTHON3_BIN:-$(command -v python3 2>/dev/null || echo /usr/bin/python3)}"
 TMP_CLONE_DIR=""
 STATUS_FILE="${SSR_ADMIN_UPDATE_STATUS_FILE:-}"
@@ -276,6 +277,23 @@ SERVICE
     systemctl restart "${DEVICE_STATS_SERVICE_NAME}" || true
 }
 
+apply_server_optimization() {
+    local optimizer="${PANEL_DIR}/scripts/optimize_server.sh"
+    if [ "${APPLY_SERVER_OPTIMIZATION}" != "1" ]; then
+        echo -e "${YELLOW}SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=0，跳过 SSR 服务器优化${NC}"
+        return 0
+    fi
+    if [ ! -d "${SSR_DIR}" ] || [ ! -f "${optimizer}" ]; then
+        return 0
+    fi
+
+    chmod +x "${optimizer}" 2>/dev/null || true
+    echo -e "${CYAN}检测到 SSR，正在应用服务器优化...${NC}"
+    if ! bash "${optimizer}"; then
+        echo -e "${YELLOW}SSR 服务器优化未完全成功，请稍后手动执行: bash ${optimizer}${NC}"
+    fi
+}
+
 if [ "${1:-}" = "--version" ]; then
     read_version "${PANEL_DIR}"
     exit 0
@@ -349,7 +367,7 @@ Path(os.environ["PANEL_BUILD_INFO_FILE"]).write_text(
 )
 PY
 
-chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" 2>/dev/null || true
+chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
 
 if [ -d "${SSR_DIR}" ]; then
     "${PYTHON3_BIN}" "${PANEL_DIR}/scripts/patch_ssr_python_compat.py" "${SSR_DIR}"
@@ -361,6 +379,7 @@ ensure_python_deps
 write_status "restart" "正在重启服务"
 systemctl daemon-reload
 install_or_restart_device_stats_service
+apply_server_optimization
 systemctl daemon-reload
 if ! systemctl restart "${SERVICE_NAME}"; then
     echo -e "${RED}更新后服务重启命令失败${NC}"

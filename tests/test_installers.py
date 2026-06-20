@@ -77,6 +77,30 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("ssr-device-stats", content)
             self.assertIn("DEVICE_STATS_FILE", content)
 
+    def test_optimizer_blocks_ipv6_targets_and_quic_by_default(self):
+        content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+        self.assertIn('SSR_BLOCK_IPV6_TARGETS="${SSR_BLOCK_IPV6_TARGETS:-1}"', content)
+        self.assertIn('SSR_BLOCK_UDP_443="${SSR_BLOCK_UDP_443:-1}"', content)
+        self.assertIn('"::/0"', content)
+        self.assertIn('"forbidden_ip"', content)
+        self.assertIn("udp dport 443 reject", content)
+        self.assertNotIn("tcp dport 443 reject", content)
+
+    def test_optimizer_persists_nft_rule_without_overwriting_existing_tables(self):
+        content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+        self.assertIn("/etc/nftables.d", content)
+        self.assertIn("ssr-filter.nft", content)
+        self.assertIn('include "/etc/nftables.d/ssr-filter.nft"', content)
+        self.assertIn("nft delete table inet ssr_filter", content)
+        self.assertNotIn("cat > \"$NFTABLES_CONF\" <<'EOF'\n#!/usr/sbin/nft -f\n\nflush ruleset\n\ntable inet ssr_filter", content)
+
+    def test_update_script_reapplies_server_optimization_when_ssr_exists(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+        self.assertIn("SSR_ADMIN_APPLY_SERVER_OPTIMIZATION", content)
+        self.assertIn("apply_server_optimization", content)
+        self.assertIn("scripts/optimize_server.sh", content)
+        self.assertIn("bash \"${optimizer}\"", content)
+
     def test_uninstall_script_requires_explicit_confirmation(self):
         content = (REPO_ROOT / "uninstall.sh").read_text(encoding="utf-8")
         self.assertIn("--yes", content)

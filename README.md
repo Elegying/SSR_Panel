@@ -22,6 +22,7 @@
 - 🔍 **搜索过滤** - 按用户名/端口搜索
 - 📊 **流量排序** - 按流量使用量一键排序
 - 🔐 **登录验证** - 保护管理面板安全
+- 🚀 **服务端视频优化** - 一键部署时自动禁止无出口 IPv6 目标，并拦截出站 UDP/443 促使 YouTube/Google QUIC 回落到 TCP
 - 📱 **响应式设计** - 完美支持手机访问
 
 ---
@@ -48,6 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/insta
 1. 设置管理面板用户名/密码
 2. 自动安装SSR
 3. 自动部署管理面板
+4. 自动应用 SSR 服务端优化（BBR/TFO、IPv6 目标防护、UDP/443 QUIC 回落、fail2ban）
 
 ### 方式三：仅安装管理面板
 
@@ -105,6 +107,27 @@ bash /opt/ssr-admin-panel/update.sh
 bash /usr/local/shadowsocksr/shadowsocks/mujson_mgr.sh
 ```
 
+## 🚀 SSR 服务端优化
+
+`install-all.sh` 和检测到 SSR 的 `install.sh` 会自动调用：
+
+```bash
+bash /opt/ssr-admin-panel/scripts/optimize_server.sh
+```
+
+该脚本默认会：
+
+- 为 `user-config.json` 和 `mudb.json` 写入 `forbidden_ip`，禁止代理 IPv6 目标 `::/0`，避免服务器没有 IPv6 出口时 YouTube/Google 连接反复超时。
+- 写入 `/etc/nftables.d/ssr-filter.nft` 并持久化 include，精确拦截出站 `udp/443`，不影响正常 `tcp/443` HTTPS。
+- 保留已有 nftables/fail2ban 表，避免覆盖现有防火墙规则。
+
+如需临时关闭其中一项：
+
+```bash
+SSR_BLOCK_IPV6_TARGETS=0 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
+SSR_BLOCK_UDP_443=0 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
+```
+
 ## 🔄 更新机制
 
 项目现在内置了版本文件 `VERSION` 和一键更新脚本 `update.sh`。
@@ -120,6 +143,7 @@ bash /opt/ssr-admin-panel/update.sh
 - 从 GitHub 拉取最新代码
 - 保留现有 `config.py`
 - 备份完整旧版应用到 `/opt/ssr-admin-panel/backups/`
+- 检测到 SSR 时重新应用服务端优化
 - 重启 `ssr-admin` 服务
 - 如果新版本启动失败，自动恢复上一版应用并重启服务
 

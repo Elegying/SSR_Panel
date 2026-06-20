@@ -48,9 +48,31 @@ curl -I http://127.0.0.1:5000/
 ```bash
 systemctl is-active ssr
 systemctl is-active ssr-device-stats || true
+nft list table inet ssr_filter
 ```
 
 没有 `/usr/local/shadowsocksr/mudb.json` 时，面板安装会跳过设备统计服务，这是正常行为。
+
+## SSR 服务端网络优化
+
+安装脚本会自动调用 `/opt/ssr-admin-panel/scripts/optimize_server.sh`。除 systemd、ulimit、sysctl、Fast Open、日志轮转、fail2ban 外，脚本还会默认启用两项面向 YouTube/Google 卡顿的服务端防护：
+
+- IPv6 目标防护：为 `/usr/local/shadowsocksr/user-config.json` 和 `/usr/local/shadowsocksr/mudb.json` 写入 `forbidden_ip`，包含 `127.0.0.0/8,::1/128,::/0`。服务器没有真实 IPv6 出口时，SSR 会快速拒绝 IPv6 目标，客户端通常会回落到 IPv4。
+- QUIC 回落：写入 `/etc/nftables.d/ssr-filter.nft`，只拦截服务器出站 `udp/443`，不拦截 `tcp/443`。这会促使 YouTube/Google 从 QUIC/HTTP3 回落到 TCP/TLS。
+
+相关配置会备份为同目录 `.bak-YYYYmmdd-HHMMSS` 文件。运行时规则和持久化配置可用下面的命令检查：
+
+```bash
+nft list table inet ssr_filter
+grep -R "::/0" /usr/local/shadowsocksr/mudb.json /usr/local/shadowsocksr/user-config.json
+```
+
+临时关闭某项优化：
+
+```bash
+SSR_BLOCK_IPV6_TARGETS=0 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
+SSR_BLOCK_UDP_443=0 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
+```
 
 ## 更新
 
@@ -67,6 +89,12 @@ bash /opt/ssr-admin-panel/update.sh
 ```
 
 更新脚本会保留 `config.py`，并在启动失败时尝试回滚到自动备份。
+
+如果服务器存在 `/usr/local/shadowsocksr`，更新脚本也会重新应用 SSR 服务端优化。临时跳过：
+
+```bash
+SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=0 bash /opt/ssr-admin-panel/update.sh
+```
 
 ## 卸载
 

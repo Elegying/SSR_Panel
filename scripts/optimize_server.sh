@@ -14,18 +14,34 @@ NC='\033[0m'
 
 SSR_DIR="/usr/local/shadowsocksr"
 SSR_CONFIG="${SSR_DIR}/user-config.json"
+MUDB_FILE="${SSR_DIR}/mudb.json"
 SYSCTL_CONF="/etc/sysctl.d/99-ssr-optimize.conf"
 LIMITS_CONF="/etc/security/limits.conf"
 LOGROTATE_CONF="/etc/logrotate.d/ssr"
 FAIL2BAN_JAIL="/etc/fail2ban/jail.local"
+NFTABLES_CONF="/etc/nftables.conf"
+NFTABLES_DIR="/etc/nftables.d"
+SSR_FILTER_NFT="${NFTABLES_DIR}/ssr-filter.nft"
+SSR_BLOCK_IPV6_TARGETS="${SSR_BLOCK_IPV6_TARGETS:-1}"
+SSR_BLOCK_UDP_443="${SSR_BLOCK_UDP_443:-1}"
 
 log_ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 log_warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
 log_info() { echo -e "  $1"; }
 
+timestamp() {
+    date +%Y%m%d-%H%M%S
+}
+
+backup_file() {
+    local target="$1"
+    [ -f "$target" ] || return 0
+    cp -a "$target" "${target}.bak-$(timestamp)"
+}
+
 # ── 1. SSR systemd 服务 ──────────────────────────────────────
 setup_ssr_service() {
-    echo -e "${GREEN}[优化 1/6] 配置 SSR systemd 服务...${NC}"
+    echo -e "${GREEN}[优化 1/7] 配置 SSR systemd 服务...${NC}"
 
     if [ ! -f "${SSR_DIR}/server.py" ]; then
         log_warn "SSR 未安装，跳过 SSR 服务配置"
@@ -77,7 +93,7 @@ SERVICE
 
 # ── 2. 文件描述符限制 ─────────────────────────────────────────
 setup_ulimit() {
-    echo -e "${GREEN}[优化 2/6] 提升文件描述符限制...${NC}"
+    echo -e "${GREEN}[优化 2/7] 提升文件描述符限制...${NC}"
 
     if grep -q "nofile 65535" "$LIMITS_CONF" 2>/dev/null; then
         log_ok "ulimit 已是 65535，跳过"
@@ -98,7 +114,7 @@ EOF
 
 # ── 3. 内核参数优化 ───────────────────────────────────────────
 setup_sysctl() {
-    echo -e "${GREEN}[优化 3/6] 优化内核网络参数...${NC}"
+    echo -e "${GREEN}[优化 3/7] 优化内核网络参数...${NC}"
 
     cat > "$SYSCTL_CONF" <<'EOF'
 # ── TCP 缓冲区（配合 BBR 发挥最大吞吐）──
@@ -129,7 +145,7 @@ EOF
 
 # ── 4. SSR Fast Open ─────────────────────────────────────────
 setup_ssr_fastopen() {
-    echo -e "${GREEN}[优化 4/6] 启用 SSR TCP Fast Open...${NC}"
+    echo -e "${GREEN}[优化 4/7] 启用 SSR TCP Fast Open...${NC}"
 
     if [ ! -f "$SSR_CONFIG" ]; then
         log_warn "未找到 ${SSR_CONFIG}，跳过"
@@ -157,9 +173,133 @@ with open('$SSR_CONFIG', 'w') as f: json.dump(d, f, indent=4, ensure_ascii=False
     fi
 }
 
-# ── 5. 日志轮转 ───────────────────────────────────────────────
+# ── 5. IPv6/QUIC 服务端防护 ──────────────────────────────────
+setup_ssr_ipv6_quic_guard() {
+    echo -e "${GREEN}[优化 5/7] 配置 IPv6/QUIC 服务端防护...${NC}"
+
+    if [ "${SSR_BLOCK_IPV6_TARGETS}" = "1" ]; then
+        local patched_any=0
+        for json_file in "$SSR_CONFIG" "$MUDB_FILE"; do
+            [ -f "$json_file" ] || continue
+            backup_file "$json_file"
+            JSON_FILE="$json_file" python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["JSON_FILE"])
+data = json.loads(path.read_text(encoding="utf-8"))
+required = ["127.0.0.0/8", "::1/128", "::/0"]
+changed = 0
+
+def patch_entry(entry):
+    global changed
+    if not isinstance(entry, dict):
+        return
+    old = entry.get("forbidden_ip") or ""
+    parts = [item.strip() for item in str(old).split(",") if item.strip()]
+    for item in required:
+        if item not in parts:
+            parts.append(item)
+    new = ",".join(parts)
+    if entry.get("forbidden_ip") != new:
+        entry["forbidden_ip"] = new
+        changed += 1
+
+if isinstance(data, list):
+    for item in data:
+        patch_entry(item)
+elif isinstance(data, dict):
+    patch_entry(data)
+else:
+    raise SystemExit(f"unsupported JSON root in {path}")
+
+if changed:
+    path.write_text(
+        json.dumps(data, sort_keys=True, indent=4, ensure_ascii=False, separators=(",", ": ")) + "\n",
+        encoding="utf-8",
+    )
+print(changed)
+PY
+            patched_any=1
+        done
+
+        if [ "$patched_any" -eq 1 ]; then
+            log_ok "已禁止 SSR 代理 IPv6 目标（避免无 IPv6 出口时反复超时）"
+        else
+            log_warn "未找到 SSR JSON 配置，跳过 IPv6 目标防护"
+        fi
+    else
+        log_warn "SSR_BLOCK_IPV6_TARGETS=0，跳过 IPv6 目标防护"
+    fi
+
+    if [ "${SSR_BLOCK_UDP_443}" != "1" ]; then
+        log_warn "SSR_BLOCK_UDP_443=0，跳过 UDP/443 QUIC 拦截"
+        return
+    fi
+
+    if ! command -v nft &>/dev/null; then
+        export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
+        if command -v apt-get &>/dev/null; then
+            apt-get install -y -qq nftables 2>/dev/null || true
+        elif command -v dnf &>/dev/null; then
+            dnf install -y -q nftables 2>/dev/null || true
+        elif command -v yum &>/dev/null; then
+            yum install -y -q nftables 2>/dev/null || true
+        fi
+    fi
+
+    if ! command -v nft &>/dev/null; then
+        log_warn "nft 未安装，无法拦截 UDP/443"
+        return
+    fi
+
+    mkdir -p "$NFTABLES_DIR"
+    backup_file "$NFTABLES_CONF"
+    cat > "$SSR_FILTER_NFT" <<'EOF'
+table inet ssr_filter {
+    chain output {
+        type filter hook output priority filter; policy accept;
+        udp dport 443 reject
+    }
+}
+EOF
+
+    if [ ! -f "$NFTABLES_CONF" ]; then
+        cat > "$NFTABLES_CONF" <<'EOF'
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+include "/etc/nftables.d/*.nft"
+EOF
+    elif ! grep -Eq 'ssr-filter\.nft|/etc/nftables\.d/\*\.nft' "$NFTABLES_CONF"; then
+        cat >> "$NFTABLES_CONF" <<'EOF'
+
+# SSR Admin Panel: block outbound QUIC/HTTP3 so video sites fall back to TCP.
+include "/etc/nftables.d/ssr-filter.nft"
+EOF
+    fi
+
+    nft list table inet ssr_filter >/dev/null 2>&1 && nft delete table inet ssr_filter || true
+    if nft -c -f "$SSR_FILTER_NFT" && nft -f "$SSR_FILTER_NFT"; then
+        log_ok "已拦截服务器出站 UDP/443（保留 TCP/443，促使 QUIC 回落）"
+    else
+        log_warn "应用 UDP/443 nftables 规则失败"
+        return
+    fi
+
+    if nft -c -f "$NFTABLES_CONF"; then
+        systemctl enable nftables >/dev/null 2>&1 || true
+        log_ok "nftables 持久化配置已写入"
+    else
+        log_warn "${NFTABLES_CONF} 校验失败，已保留运行时 UDP/443 拦截但未确认开机持久化"
+    fi
+}
+
+# ── 6. 日志轮转 ───────────────────────────────────────────────
 setup_logrotate() {
-    echo -e "${GREEN}[优化 5/6] 配置 SSR 日志轮转...${NC}"
+    echo -e "${GREEN}[优化 6/7] 配置 SSR 日志轮转...${NC}"
 
     mkdir -p "$(dirname "$LOGROTATE_CONF")"
     cat > "$LOGROTATE_CONF" <<'EOF'
@@ -178,9 +318,9 @@ EOF
     log_ok "日志轮转已配置（每天/50MB 轮转，保留 7 天压缩）"
 }
 
-# ── 6. fail2ban 防暴力破解 ────────────────────────────────────
+# ── 7. fail2ban 防暴力破解 ────────────────────────────────────
 setup_fail2ban() {
-    echo -e "${GREEN}[优化 6/6] 安装 fail2ban 防暴力破解...${NC}"
+    echo -e "${GREEN}[优化 7/7] 安装 fail2ban 防暴力破解...${NC}"
 
     if command -v fail2ban-client &>/dev/null; then
         log_ok "fail2ban 已安装"
@@ -231,6 +371,7 @@ main() {
     setup_ulimit
     setup_sysctl
     setup_ssr_fastopen
+    setup_ssr_ipv6_quic_guard
     setup_logrotate
     setup_fail2ban
 
@@ -245,6 +386,7 @@ main() {
     echo -e "${GREEN}========================================${NC}"
     echo -e "  SSR 服务:   $(systemctl is-active ssr.service 2>/dev/null || echo '未运行')"
     echo -e "  fail2ban:   $(systemctl is-active fail2ban 2>/dev/null || echo '未安装')"
+    echo -e "  QUIC拦截:   $(nft list table inet ssr_filter >/dev/null 2>&1 && echo '已启用' || echo '未启用')"
     echo -e "  监听端口:   $(ss -tlnp 2>/dev/null | grep -c "server.py" || echo 0) 个"
     echo
 }
