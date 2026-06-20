@@ -18,6 +18,7 @@ from functools import wraps
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -71,6 +72,8 @@ DEVICE_STATS_FILE = getattr(
 DEVICE_STATS_STALE_SECONDS = getattr(app_config, "DEVICE_STATS_STALE_SECONDS", 120)
 
 app = Flask(__name__)
+# 信任 nginx 反代传入的 X-Forwarded-Proto / X-Forwarded-For
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.secret_key = SECRET_KEY
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
