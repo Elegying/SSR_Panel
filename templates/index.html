@@ -558,6 +558,8 @@ td { font-size: 0.92rem; }
     align-items: center;
     justify-content: center;
     padding: 20px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 .modal.show { display: flex; }
 .modal-content {
@@ -602,6 +604,9 @@ td { font-size: 0.92rem; }
     gap: 12px;
     margin-top: 22px;
     flex-wrap: wrap;
+}
+.form-actions .btn {
+    touch-action: manipulation;
 }
 .toast-stack {
     position: fixed;
@@ -724,7 +729,8 @@ td { font-size: 0.92rem; }
     .legend-dot, .status-dot { width: 7px; height: 7px; }
     
     /* Modal - 模态框 */
-    .modal-content { width: min(100%, 86%); padding: 12px 9px; margin: 12px 0; border-radius: 10px; }
+    .modal { align-items: flex-start; padding: 12px 6px; }
+    .modal-content { width: min(100%, 86%); padding: 12px 9px; margin: auto; border-radius: 10px; }
     .modal-header { font-size: 0.92rem; margin-bottom: 3px; }
     .modal-subtitle { font-size: 0.75rem; margin-bottom: 10px; }
     .form-grid { gap: 8px; }
@@ -2940,12 +2946,12 @@ document.getElementById('startSsrBtn').addEventListener('click', () => runSsrAct
 document.getElementById('restartSsrBtn').addEventListener('click', () => runSsrAction('restart', 'restartSsrBtn'));
 document.getElementById('stopSsrBtn').addEventListener('click', () => runSsrAction('stop', 'stopSsrBtn'));
 document.getElementById('addModal').addEventListener('click', event => {
-    if(event.target.id === 'addModal'){
+    if(!event.target.closest('.modal-content')){
         closeAddModal();
     }
 });
 document.getElementById('passwordModal').addEventListener('click', event => {
-    if(event.target.id === 'passwordModal'){
+    if(!event.target.closest('.modal-content')){
         closePasswordModal();
     }
 });
