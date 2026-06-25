@@ -1175,7 +1175,7 @@ def validate_new_user(data, existing_users):
 
 
 @app.route("/login", methods=["GET", "POST"])
-@limiter.limit("5 per minute")
+@limiter.limit("5 per minute", exempt_when=lambda: request.method != "POST")
 def login():
     error = None
     if request.method == "POST":

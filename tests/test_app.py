@@ -539,5 +539,16 @@ class AppSecurityTests(unittest.TestCase):
             self.assertEqual(panel_app.get_ssr_status(), "stopped")
 
 
+    def test_login_get_not_rate_limited(self):
+        """Regression: GET /login should not be rate-limited (fix 429 on page refresh)."""
+        with self.client.session_transaction() as sess:
+            sess.clear()
+            sess["csrf_token"] = "test-token"
+
+        for i in range(8):
+            response = self.client.get("/login")
+            self.assertEqual(response.status_code, 200, f"GET /login #{i+1} returned {response.status_code}")
+
+
 if __name__ == "__main__":
     unittest.main()
