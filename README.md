@@ -1,5 +1,8 @@
 # SSR_Panel
 
+[![CI](https://github.com/Elegying/SSR_Panel/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSR_Panel/actions/workflows/ci.yml)
+
+
 SSR 和 AnyTLS 面板工具统一仓库，一站式管理代理服务端。
 
 ## 📦 项目概述
