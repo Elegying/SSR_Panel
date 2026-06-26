@@ -55,6 +55,7 @@ def update_from_script(
     panel_dir: Path,
     branch: str,
     repo_url: str,
+    repo_subdir: str,
     status_file: Path,
     log_handle,
 ) -> tuple[bool, str]:
@@ -65,6 +66,7 @@ def update_from_script(
     env = os.environ.copy()
     if repo_url:
         env["SSR_ADMIN_REPO_URL"] = repo_url
+    env["SSR_ADMIN_REPO_SUBDIR"] = repo_subdir
     env["SSR_ADMIN_UPDATE_REF"] = branch
     env["SSR_ADMIN_UPDATE_STATUS_FILE"] = str(status_file)
     result = run_command(["bash", str(update_script), branch], panel_dir, log_handle, env=env)
@@ -81,6 +83,7 @@ def main() -> int:
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--branch", default="main")
     parser.add_argument("--repo-url", default="")
+    parser.add_argument("--repo-subdir", default="ssr-admin-panel")
     parser.add_argument("--service", default="ssr-admin")
     args = parser.parse_args()
 
@@ -99,6 +102,7 @@ def main() -> int:
         "branch": args.branch,
         "remote": args.remote,
         "repo_url": args.repo_url,
+        "repo_subdir": args.repo_subdir,
         "phase": "queued",
         "backup_dir": "",
         "rollback_attempted": False,
@@ -115,6 +119,7 @@ def main() -> int:
             panel_dir,
             args.branch,
             args.repo_url,
+            args.repo_subdir,
             status_file,
             log_handle,
         )

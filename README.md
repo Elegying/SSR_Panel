@@ -10,6 +10,26 @@ SSR_Panel is the unified repository for SSR and AnyTLS management tooling.
 
 The original repositories were imported as Git subtrees, so their histories remain traceable in this monorepo. Each subproject keeps its own README, scripts, tests, and deployment notes.
 
+## One-Command Deploy
+
+SSR + admin panel:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh -o install-all.sh && bash install-all.sh
+```
+
+SSR admin panel only:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install.sh -o install.sh && bash install.sh
+```
+
+AnyTLS panel:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/anytls-panel/deploy.sh)
+```
+
 ## Layout
 
 ```text

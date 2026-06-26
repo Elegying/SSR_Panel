@@ -12,8 +12,9 @@ SECRET_KEY = 'change-this-to-random-string'
 MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'
 
 # 在线检查/更新面板使用的仓库地址和分支
-PANEL_GIT_URL = 'https://github.com/Elegying/ssr-admin-panel.git'
+PANEL_GIT_URL = 'https://github.com/Elegying/SSR_Panel.git'
 PANEL_GIT_BRANCH = 'main'
+PANEL_GIT_SUBDIR = 'ssr-admin-panel'
 
 # SSR 分享模板（默认关闭，只有填写后才启用分享功能）
 SSR_SHARE_HOST = ''

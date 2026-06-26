@@ -3,7 +3,7 @@
 #=================================================
 # SSR + 管理面板 一键部署脚本
 # Author: Elegying
-# GitHub: https://github.com/Elegying/ssr-admin-panel
+# GitHub: https://github.com/Elegying/SSR_Panel
 #=================================================
 
 set -euo pipefail
@@ -18,7 +18,7 @@ clear 2>/dev/null || true
 echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}    SSR + 管理面板 一键部署脚本${NC}"
 echo -e "${GREEN}============================================${NC}"
-echo -e "${CYAN}  GitHub: https://github.com/Elegying/ssr-admin-panel${NC}"
+echo -e "${CYAN}  GitHub: https://github.com/Elegying/SSR_Panel${NC}"
 echo
 
 # 检查root权限
@@ -34,10 +34,12 @@ MUDB_FILE="${SSR_DIR}/mudb.json"
 DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
 DEVICE_STATS_INTERVAL="${SSR_DEVICE_STATS_INTERVAL:-15}"
 DEVICE_STATS_WINDOW="${SSR_DEVICE_STATS_WINDOW:-900}"
-REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/ssr-admin-panel.git}"
+REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/SSR_Panel.git}"
 REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
+REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
 PYTHON3_BIN="/usr/bin/python3"
 APT_UPDATED=0
+SYNC_REVISION=""
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
 # 检测系统类型
@@ -233,6 +235,30 @@ SERVICE
     fi
 }
 
+sync_project_files() {
+    local target_dir="$1"
+    local tmp_clone_dir source_dir
+
+    tmp_clone_dir=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$tmp_clone_dir" -q
+    source_dir="$tmp_clone_dir"
+    if [ -n "$REPO_SUBDIR" ]; then
+        source_dir="$tmp_clone_dir/$REPO_SUBDIR"
+    fi
+
+    if [ ! -f "$source_dir/app.py" ]; then
+        echo -e "${RED}Project files not found: ${source_dir}${NC}"
+        rm -rf "$tmp_clone_dir"
+        exit 1
+    fi
+
+    mkdir -p "$target_dir"
+    find "$target_dir" -mindepth 1 -maxdepth 1 ! -name config.py ! -name backups -exec rm -rf {} +
+    cp -R "$source_dir"/. "$target_dir"/
+    SYNC_REVISION=$(git -C "$tmp_clone_dir" rev-parse --short HEAD 2>/dev/null || echo "")
+    rm -rf "$tmp_clone_dir"
+}
+
 prepare_minimal_runtime
 
 echo
@@ -244,29 +270,12 @@ echo
 # ========== 第一步：下载项目文件 ==========
 echo -e "${CYAN}[ 1/6 ] 下载项目文件...${NC}"
 
-if [ -d "$PANEL_DIR" ]; then
-    if [ -d "$PANEL_DIR/.git" ]; then
-        cd "$PANEL_DIR"
-        git fetch -q origin "$REPO_REF"
-        git merge --ff-only -q "origin/$REPO_REF" || {
-            echo -e "${RED}项目文件更新失败，当前目录存在无法快进的改动${NC}"
-            echo -e "${CYAN}诊断命令:${NC} git -C $PANEL_DIR status --short"
-            exit 1
-        }
-    else
-        TMP_CLONE_DIR=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
-        git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$TMP_CLONE_DIR" -q
-        cp -R "$TMP_CLONE_DIR"/. "$PANEL_DIR"/
-        rm -rf "$TMP_CLONE_DIR"
-    fi
-else
-    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$PANEL_DIR" -q
-fi
+sync_project_files "$PANEL_DIR"
 
 cd $PANEL_DIR
 chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/uninstall.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
-APP_REVISION=$(git -C "$PANEL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
+APP_REVISION="${SYNC_REVISION:-$(git -C "$PANEL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")}"
 PANEL_BUILD_INFO_FILE="$PANEL_DIR/.panel-build.json"
 PANEL_BUILD_VERSION="$APP_VERSION" PANEL_BUILD_REVISION="$APP_REVISION" PANEL_BUILD_INFO_FILE="$PANEL_BUILD_INFO_FILE" "$PYTHON3_BIN" <<'PY'
 import json

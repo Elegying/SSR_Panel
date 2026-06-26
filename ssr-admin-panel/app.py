@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import base64
-import fcntl
 import gzip
 import hmac
 import json
@@ -21,6 +20,20 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+
+try:
+    import fcntl
+except ImportError:
+    class _FcntlCompat:
+        LOCK_SH = 1
+        LOCK_EX = 2
+        LOCK_UN = 8
+
+        @staticmethod
+        def flock(_file, _operation):
+            return None
+
+    fcntl = _FcntlCompat()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -168,7 +181,12 @@ PANEL_GIT_BRANCH = getattr(app_config, "PANEL_GIT_BRANCH", "main")
 PANEL_GIT_URL = getattr(
     app_config,
     "PANEL_GIT_URL",
-    os.environ.get("SSR_ADMIN_REPO_URL", "https://github.com/Elegying/ssr-admin-panel.git"),
+    os.environ.get("SSR_ADMIN_REPO_URL", "https://github.com/Elegying/SSR_Panel.git"),
+)
+PANEL_GIT_SUBDIR = getattr(
+    app_config,
+    "PANEL_GIT_SUBDIR",
+    os.environ.get("SSR_ADMIN_REPO_SUBDIR", "ssr-admin-panel"),
 )
 PANEL_SERVICE_NAME = getattr(app_config, "PANEL_SERVICE_NAME", "ssr-admin")
 PANEL_UPDATE_UNIT = getattr(app_config, "PANEL_UPDATE_UNIT", "ssr-admin-panel-update")
@@ -266,7 +284,8 @@ def save_users(users):
             os.replace(tmp_name, path)
             tmp_name = None
             try:
-                dir_fd = os.open(path.parent, os.O_DIRECTORY)
+                dir_flags = getattr(os, "O_DIRECTORY", 0)
+                dir_fd = os.open(path.parent, dir_flags)
                 try:
                     os.fsync(dir_fd)
                 finally:
@@ -510,6 +529,13 @@ def read_version_file(path):
         return "unknown"
 
 
+def panel_repo_source_dir(repo_root):
+    repo_root = Path(repo_root)
+    if PANEL_GIT_SUBDIR:
+        return repo_root / PANEL_GIT_SUBDIR
+    return repo_root
+
+
 def run_capture_process(args, cwd=None, timeout=60):
     try:
         result = subprocess.run(
@@ -558,7 +584,15 @@ def fetch_remote_panel_version_from_repo():
                 "message": clone_result["error"] or clone_result["output"] or "远程更新检查失败",
             }
 
-        latest_version = read_version_file(Path(tmp_dir) / "VERSION")
+        source_dir = panel_repo_source_dir(tmp_dir)
+        if not (source_dir / "app.py").is_file():
+            return {
+                "success": False,
+                "version": "unknown",
+                "message": f"Project files not found: {source_dir}",
+            }
+
+        latest_version = read_version_file(source_dir / "VERSION")
         rev_result = run_capture_process(["git", "rev-parse", "--short", "HEAD"], cwd=tmp_dir)
         revision = rev_result["output"] if rev_result["success"] and rev_result["output"] else ""
         if latest_version == "unknown" and revision:
@@ -574,7 +608,7 @@ def fetch_remote_panel_version_from_repo():
 
 
 def resolve_latest_panel_version(fetch_remote=False):
-    if is_panel_git_workspace():
+    if is_panel_git_workspace() and not PANEL_GIT_SUBDIR:
         if fetch_remote:
             fetch_result = run_process(["git", "fetch", PANEL_GIT_REMOTE, PANEL_GIT_BRANCH], cwd=PANEL_DIR)
             if not fetch_result["success"]:
@@ -674,6 +708,8 @@ def start_panel_update():
         PANEL_GIT_BRANCH,
         "--repo-url",
         get_panel_repo_url(),
+        "--repo-subdir",
+        PANEL_GIT_SUBDIR,
         "--service",
         PANEL_SERVICE_NAME,
     ]

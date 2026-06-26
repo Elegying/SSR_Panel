@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.7+-green.svg)
 ![Flask](https://img.shields.io/badge/Flask-3.0+-orange.svg)
-[![CI](https://github.com/Elegying/ssr-admin-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/ssr-admin-panel/actions/workflows/ci.yml)
+[GitHub Actions](https://github.com/Elegying/SSR_Panel/actions)
 
 ## 📚 运维文档
 
@@ -33,7 +33,7 @@
 
 ```bash
 # 下载安装脚本
-wget https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install-all.sh
+wget https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh
 
 # 运行安装
 bash install-all.sh
@@ -42,7 +42,7 @@ bash install-all.sh
 ### 方式二：一键命令
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install-all.sh -o install-all.sh && bash install-all.sh
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh -o install-all.sh && bash install-all.sh
 ```
 
 安装过程中会提示：
@@ -56,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/insta
 已安装SSR的服务器，只安装管理面板：
 
 ```bash
-wget https://raw.githubusercontent.com/Elegying/ssr-admin-panel/main/install.sh && bash install.sh
+wget https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install.sh && bash install.sh
 ```
 
 ---
@@ -156,8 +156,9 @@ bash /opt/ssr-admin-panel/update.sh --version
 如果你维护的是自己的 GitHub 分支或 fork，也可以临时指定更新源：
 
 ```bash
-SSR_ADMIN_REPO_URL="https://github.com/your-name/ssr-admin-panel.git" \
+SSR_ADMIN_REPO_URL="https://github.com/your-name/SSR_Panel.git" \
 SSR_ADMIN_UPDATE_REF="main" \
+SSR_ADMIN_REPO_SUBDIR="ssr-admin-panel" \
 bash /opt/ssr-admin-panel/update.sh
 ```
 

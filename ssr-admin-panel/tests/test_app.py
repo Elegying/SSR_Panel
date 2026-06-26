@@ -29,6 +29,7 @@ class AppSecurityTests(unittest.TestCase):
             "SSR_PYTHON_BIN": panel_app.SSR_PYTHON_BIN,
             "BACKUP_DIR": panel_app.BACKUP_DIR,
             "PANEL_GIT_URL": panel_app.PANEL_GIT_URL,
+            "PANEL_GIT_SUBDIR": panel_app.PANEL_GIT_SUBDIR,
             "SSR_SHARE_HOST": panel_app.SSR_SHARE_HOST,
             "SSR_SHARE_PORT": panel_app.SSR_SHARE_PORT,
             "SSR_SHARE_PASSWORD": panel_app.SSR_SHARE_PASSWORD,
@@ -50,7 +51,8 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_INIT_SCRIPT = self.base_path / "etc" / "init.d" / "ssrmu"
         panel_app.SSR_PYTHON_BIN = ""
         panel_app.BACKUP_DIR = self.backup_dir
-        panel_app.PANEL_GIT_URL = "https://github.com/Elegying/ssr-admin-panel.git"
+        panel_app.PANEL_GIT_URL = "https://github.com/Elegying/SSR_Panel.git"
+        panel_app.PANEL_GIT_SUBDIR = "ssr-admin-panel"
         panel_app.SSR_SHARE_HOST = "ssr.ssrvpn.vip"
         panel_app.SSR_SHARE_PORT = 18899
         panel_app.SSR_SHARE_PASSWORD = "nikuaimobi"
@@ -79,6 +81,7 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_PYTHON_BIN = self.original_state["SSR_PYTHON_BIN"]
         panel_app.BACKUP_DIR = self.original_state["BACKUP_DIR"]
         panel_app.PANEL_GIT_URL = self.original_state["PANEL_GIT_URL"]
+        panel_app.PANEL_GIT_SUBDIR = self.original_state["PANEL_GIT_SUBDIR"]
         panel_app.SSR_SHARE_HOST = self.original_state["SSR_SHARE_HOST"]
         panel_app.SSR_SHARE_PORT = self.original_state["SSR_SHARE_PORT"]
         panel_app.SSR_SHARE_PASSWORD = self.original_state["SSR_SHARE_PASSWORD"]
@@ -336,7 +339,7 @@ class AppSecurityTests(unittest.TestCase):
                 "message": "发现新版本 1.2.0",
             },
         ), mock.patch.object(
-            panel_app, "get_panel_repo_url", return_value="https://github.com/Elegying/ssr-admin-panel.git"
+            panel_app, "get_panel_repo_url", return_value="https://github.com/Elegying/SSR_Panel.git"
         ), mock.patch.object(
             panel_app.shutil, "which", return_value="/bin/systemd-run"
         ), mock.patch.object(
@@ -347,7 +350,9 @@ class AppSecurityTests(unittest.TestCase):
         self.assertTrue(result["success"])
         command = run_process_mock.call_args.args[0]
         self.assertIn("--repo-url", command)
-        self.assertIn("https://github.com/Elegying/ssr-admin-panel.git", command)
+        self.assertIn("https://github.com/Elegying/SSR_Panel.git", command)
+        self.assertIn("--repo-subdir", command)
+        self.assertIn("ssr-admin-panel", command)
 
     def test_ssr_log_rejects_injected_lines_argument(self):
         response = self.client.get("/api/ssr/log?lines=1;echo%20INJECTED")

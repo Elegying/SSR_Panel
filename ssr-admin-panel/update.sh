@@ -10,8 +10,9 @@ NC='\033[0m'
 
 PANEL_DIR="${SSR_ADMIN_PANEL_DIR:-/opt/ssr-admin-panel}"
 SSR_DIR="${SSR_ADMIN_SSR_DIR:-/usr/local/shadowsocksr}"
-REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/ssr-admin-panel.git}"
+REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/SSR_Panel.git}"
 TARGET_REF="${1:-${SSR_ADMIN_UPDATE_REF:-main}}"
+REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
 SERVICE_NAME="${SSR_ADMIN_SERVICE_NAME:-ssr-admin}"
 DEVICE_STATS_SERVICE_NAME="${SSR_DEVICE_STATS_SERVICE_NAME:-ssr-device-stats}"
 DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
@@ -32,6 +33,15 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+repo_source_dir() {
+    local repo_root="$1"
+    if [ -n "${REPO_SUBDIR}" ]; then
+        printf '%s/%s\n' "${repo_root}" "${REPO_SUBDIR}"
+    else
+        printf '%s\n' "${repo_root}"
+    fi
+}
 
 read_version() {
     local target_dir="$1"
@@ -367,15 +377,21 @@ echo -e "${CYAN}更新来源:${NC} ${YELLOW}${REPO_URL} (${TARGET_REF})${NC}"
 TMP_CLONE_DIR="$(mktemp -d /tmp/ssr-admin-panel-update.XXXXXX)"
 write_status "clone" "正在下载新版本"
 git clone --depth 1 --branch "${TARGET_REF}" "${REPO_URL}" "${TMP_CLONE_DIR}" -q
+SOURCE_DIR="$(repo_source_dir "${TMP_CLONE_DIR}")"
+if [ ! -f "${SOURCE_DIR}/app.py" ]; then
+    echo -e "${RED}Project files not found: ${SOURCE_DIR}${NC}"
+    write_status "failed" "Project files not found: ${SOURCE_DIR}" "1"
+    exit 1
+fi
 
-NEW_VERSION="$(read_version "${TMP_CLONE_DIR}")"
+NEW_VERSION="$(read_version "${SOURCE_DIR}")"
 NEW_REVISION="$(git -C "${TMP_CLONE_DIR}" rev-parse --short HEAD 2>/dev/null || echo "")"
 write_status "backup" "正在备份当前版本"
 create_full_backup
 echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
 
 write_status "sync" "正在同步新版本"
-copy_tree "${TMP_CLONE_DIR}" "${PANEL_DIR}" "sync"
+copy_tree "${SOURCE_DIR}" "${PANEL_DIR}" "sync"
 
 PANEL_BUILD_INFO_FILE="${PANEL_DIR}/.panel-build.json"
 PANEL_BUILD_VERSION="${NEW_VERSION}" PANEL_BUILD_REVISION="${NEW_REVISION}" PANEL_BUILD_INFO_FILE="${PANEL_BUILD_INFO_FILE}" "${PYTHON3_BIN}" <<'PY'

@@ -1,4 +1,5 @@
 import subprocess
+import shutil
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,8 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertNotIn(b"\r\n", data, msg=f"{script.relative_to(REPO_ROOT)} uses CRLF line endings")
 
     def test_install_scripts_have_valid_bash_syntax(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is not available")
         for script in ("install.sh", "install-all.sh", "update.sh", "uninstall.sh"):
             result = subprocess.run(
                 ["bash", "-n", str(REPO_ROOT / script)],
@@ -56,6 +59,14 @@ class InstallerRegressionTests(unittest.TestCase):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("update.sh", content)
+
+    def test_installers_default_to_monorepo_subdir(self):
+        for script in ("install.sh", "install-all.sh", "update.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("https://github.com/Elegying/SSR_Panel.git", content)
+            self.assertIn("SSR_ADMIN_REPO_SUBDIR", content)
+            self.assertIn("ssr-admin-panel", content)
+            self.assertNotIn("https://github.com/Elegying/ssr-admin-panel.git", content)
 
     def test_install_and_update_scripts_expose_uninstall_command(self):
         for script in ("install.sh", "install-all.sh", "update.sh"):
@@ -132,8 +143,8 @@ class InstallerRegressionTests(unittest.TestCase):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertNotIn('git pull --ff-only -q origin "$REPO_REF" 2>/dev/null || true', content)
-            self.assertIn("git merge --ff-only", content)
-            self.assertIn("诊断命令", content)
+            self.assertIn("git clone --depth 1 --branch", content)
+            self.assertIn("Project files not found", content)
 
     def test_update_script_has_full_backup_status_and_rollback_fields(self):
         content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
