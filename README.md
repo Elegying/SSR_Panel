@@ -30,6 +30,12 @@ AnyTLS panel:
 bash <(curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/anytls-panel/deploy.sh)
 ```
 
+SSR server optimizer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh | bash
+```
+
 ## Layout
 
 ```text

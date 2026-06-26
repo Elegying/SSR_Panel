@@ -28,7 +28,7 @@ bash optimize-ssr.sh --check
 ## 执行优化
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-server-optimizer/main/optimize-ssr.sh -o optimize-ssr.sh
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh -o optimize-ssr.sh
 bash optimize-ssr.sh --check
 bash optimize-ssr.sh
 ```

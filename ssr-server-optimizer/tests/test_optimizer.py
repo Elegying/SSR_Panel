@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -56,6 +57,8 @@ class OptimizerScriptTests(unittest.TestCase):
         path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
     def test_check_mode_does_not_write_system_files(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is not available")
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             env, _ = self.make_env(base)
@@ -74,6 +77,8 @@ class OptimizerScriptTests(unittest.TestCase):
             self.assertFalse((base / "sysctl.d").exists())
 
     def test_failed_apply_restores_changed_files_and_removes_new_units(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is not available")
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             env, ssr_dir = self.make_env(base, fail_start=True)

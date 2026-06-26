@@ -1,6 +1,6 @@
 # SSR 服务器优化工具
 
-[![CI](https://github.com/Elegying/ssr-server-optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/ssr-server-optimizer/actions/workflows/ci.yml)
+[GitHub Actions](https://github.com/Elegying/SSR_Panel/actions)
 
 适用于 Ubuntu / Debian 上老版 Python ShadowsocksR 的一键优化脚本。
 
@@ -31,13 +31,13 @@
 在目标服务器上以 `root` 身份执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-server-optimizer/main/optimize-ssr.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh | bash
 ```
 
 如果你想从本地直接远程执行：
 
 ```bash
-ssh root@你的服务器IP "curl -fsSL https://raw.githubusercontent.com/Elegying/ssr-server-optimizer/main/optimize-ssr.sh | bash"
+ssh root@你的服务器IP "curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh | bash"
 ```
 
 ## 预检模式
