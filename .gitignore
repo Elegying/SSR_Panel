@@ -1,0 +1,33 @@
+# OS and editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+.turbo/
+
+# Logs and local env files
+*.log
+.env
+.env.*
+!.env.example
+
+# Archives and temporary files
+*.tmp
+*.bak
+*.orig
+*.rej
