@@ -1,0 +1,30 @@
+# SSR Admin Panel 配置文件示例
+# 复制此文件为 config.py 并修改相应配置
+
+# 管理员账号
+ADMIN_USER = 'admin'
+ADMIN_PASS = 'your-password'
+
+# Session密钥 (自动生成，请勿修改)
+SECRET_KEY = 'change-this-to-random-string'
+
+# mudb.json 文件路径
+MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'
+
+# 在线检查/更新面板使用的仓库地址和分支
+PANEL_GIT_URL = 'https://github.com/Elegying/ssr-admin-panel.git'
+PANEL_GIT_BRANCH = 'main'
+
+# SSR 分享模板（默认关闭，只有填写后才启用分享功能）
+SSR_SHARE_HOST = ''
+SSR_SHARE_PORT = 18899
+SSR_SHARE_PASSWORD = ''
+SSR_SHARE_REMARKS = ''
+SSR_SHARE_PROTOCOL = 'auth_aes128_md5'
+SSR_SHARE_METHOD = 'aes-256-cfb'
+SSR_SHARE_OBFS = 'tls1.2_ticket_auth'
+SSR_SHARE_OBFS_PARAM = 'www.baidu.com'
+
+# 设备统计文件路径（由 ssr-device-stats.service 自动生成）
+DEVICE_STATS_FILE = '/var/lib/ssr-admin-panel/device-stats.json'
+DEVICE_STATS_STALE_SECONDS = 120
