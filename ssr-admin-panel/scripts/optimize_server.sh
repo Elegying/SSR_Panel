@@ -342,6 +342,11 @@ setup_fail2ban() {
                 yum install -y -q epel-release 2>/dev/null || log_warn "EPEL 源安装失败，若后续 fail2ban 安装失败请手动安装 epel-release"
                 yum install -y -q fail2ban 2>/dev/null || { log_warn "fail2ban 安装失败，跳过"; return; }
             fi
+        elif command -v apt-get &>/dev/null; then
+            apt-get install -y -qq fail2ban 2>/dev/null || { log_warn "fail2ban 安装失败，跳过"; return; }
+        else
+            log_warn "未知包管理器，无法安装 fail2ban，跳过"
+            return
         fi
     fi
 

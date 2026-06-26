@@ -142,26 +142,32 @@ install_flask_runtime() {
     local req_file="$INSTALL_DIR/requirements.txt"
     echo -e "${GREEN}安装 Python 依赖...${NC}"
 
+    local pip_install_opts="--no-input --disable-pip-version-check"
+    # Debian 12+ / Ubuntu 24+ PEP 668: allow system-wide install outside venv
+    if "$PYTHON3_BIN" -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" &>/dev/null; then
+        pip_install_opts="$pip_install_opts --break-system-packages"
+    fi
+
     if "$PYTHON3_BIN" -m pip --version &>/dev/null && [ -f "${req_file}" ]; then
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check --prefer-binary -q -r "${req_file}" 2>/dev/null || true
+        "$PYTHON3_BIN" -m pip install $pip_install_opts --prefer-binary -q -r "${req_file}" 2>/dev/null || true
     fi
 
     # pip 失败或不可用时，回退到系统包
     if ! "$PYTHON3_BIN" -c "import flask" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Flask 失败，尝试系统包...${NC}"
         install_packages python3-flask || \
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check Flask -q
+        "$PYTHON3_BIN" -m pip install $pip_install_opts Flask -q
     fi
 
     if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试系统包...${NC}"
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check flask-limiter -q 2>/dev/null || \
+        "$PYTHON3_BIN" -m pip install $pip_install_opts flask-limiter -q 2>/dev/null || \
         install_packages python3-flask-limiter 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
-        "$PYTHON3_BIN" -m pip install --no-input --disable-pip-version-check waitress -q 2>/dev/null || true
+        "$PYTHON3_BIN" -m pip install $pip_install_opts waitress -q 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null

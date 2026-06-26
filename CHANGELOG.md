@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.1 (2026-06-26)
+
+### Fixed
+- install.sh / install-all.sh: 修复 Debian 12+ (PEP 668) 下 pip 安装 waitress/flask 等依赖失败的问题，添加 `--break-system-packages` 参数
+- optimize_server.sh: 修复 `setup_fail2ban()` 缺少 Debian/Ubuntu 的 `apt-get install fail2ban` 路径，导致未安装 fail2ban 就写配置文件报错退出
+
 ## v1.0.0 (2026-06-26)
 
 ### Security
