@@ -294,6 +294,7 @@ JSON
 import os
 API_INTERFACE = 'mudbjson'
 SERVER_PUB_ADDR = '127.0.0.1'
+UPDATE_TIME = 60
 MUDB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mudb.json')
 PYEOF
 
@@ -344,11 +345,20 @@ INITSH
     # 启动 SSR
     local SSR_PY="$PYTHON3_BIN"; command -v python &>/dev/null && SSR_PY="$(command -v python)"
     cd "$SSR_DIR" && nohup "$SSR_PY" server.py a > /var/log/ssr.log 2>&1 &
-    sleep 2
+    log_info "等待 SSR 初始化..."
+    sleep 5
     if pgrep -f "$SSR_DIR/server.py" >/dev/null 2>&1; then
-        log_ok "SSR 已启动"
+        # 检查是否端口已经监听
+        sleep 2
+        if ss -tlnp 2>/dev/null | grep -q ':2333 '; then
+            log_ok "SSR 已启动 (端口 2333)"
+        else
+            log_warn "SSR 进程已启动但端口 2333 未监听，查看日志: tail -10 /var/log/ssr.log"
+            tail -5 /var/log/ssr.log 2>/dev/null | while read -r l; do log_info "$l"; done
+        fi
     else
-        log_warn "SSR 启动可能失败，请检查: cat /var/log/ssr.log"
+        log_err "SSR 启动失败，检查日志: cat /var/log/ssr.log"
+        tail -10 /var/log/ssr.log 2>/dev/null || true
     fi
 
     state_done "step3"
