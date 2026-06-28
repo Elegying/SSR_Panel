@@ -29,6 +29,7 @@ fi
 
 # 安装目录
 PANEL_DIR="/opt/ssr-admin-panel"
+VENV_DIR="${PANEL_DIR}/venv"
 SSR_DIR="/usr/local/shadowsocksr"
 MUDB_FILE="${SSR_DIR}/mudb.json"
 DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
@@ -38,6 +39,7 @@ REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/SSR_Panel.git}"
 REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
 REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
 PYTHON3_BIN="/usr/bin/python3"
+SYSTEM_PYTHON3_BIN="/usr/bin/python3"
 APT_UPDATED=0
 SYNC_REVISION=""
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
@@ -174,6 +176,22 @@ install_single_python_package() {
     "$PYTHON3_BIN" -m pip install "${pip_install_opts[@]}" -q "${package}"
 }
 
+ensure_panel_venv() {
+    SYSTEM_PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
+
+    if [ ! -x "${VENV_DIR}/bin/python" ]; then
+        echo -e "${YELLOW}创建面板 Python 虚拟环境...${NC}"
+        "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}" 2>/dev/null || {
+            install_packages python3-venv python3-pip 2>/dev/null || true
+            "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}"
+        }
+    fi
+
+    PYTHON3_BIN="${VENV_DIR}/bin/python"
+    "${PYTHON3_BIN}" -m ensurepip --upgrade >/dev/null 2>&1 || true
+    "${PYTHON3_BIN}" -m pip install --upgrade pip setuptools wheel --no-input --disable-pip-version-check -q 2>/dev/null || true
+}
+
 prepare_minimal_runtime() {
     echo -e "${GREEN}检查并安装最小运行环境...${NC}"
 
@@ -204,28 +222,11 @@ prepare_minimal_runtime() {
         fi
     fi
 
-    PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
-
-    # pip 安装（ensurepip 最快，其次系统包）
-    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
-        echo -e "${YELLOW}启用 pip...${NC}"
-        "$PYTHON3_BIN" -m ensurepip --upgrade >/dev/null 2>&1 || true
-    fi
-    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
-        install_packages python3-pip 2>/dev/null || true
-    fi
-
-    # 创建 pip/pip3 命令入口
-    if "$PYTHON3_BIN" -m pip --version &>/dev/null; then
-        command -v pip3 &>/dev/null || ln -sf "$("$PYTHON3_BIN" -m site --user-base 2>/dev/null)/bin/pip3" /usr/local/bin/pip3 2>/dev/null || true
-        command -v pip &>/dev/null || ln -sf "$(command -v pip3 2>/dev/null || true)" /usr/local/bin/pip 2>/dev/null || true
-    else
-        echo -e "${YELLOW}pip 不可用，将使用系统包安装 Python 依赖${NC}"
-    fi
+    ensure_panel_venv
 }
 
 install_flask_runtime() {
-    if "$PYTHON3_BIN" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
+    if "$PYTHON3_BIN" -c "import flask; import waitress" &>/dev/null; then
         echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
         return
     fi
@@ -257,12 +258,12 @@ install_flask_runtime() {
 
     if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
-        install_single_python_package waitress 2>/dev/null || true
+        install_single_python_package waitress 2>/dev/null || \
+        install_packages python3-waitress 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
 import flask
-import flask_limiter
 import waitress
 PY
     then

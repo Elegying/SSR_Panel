@@ -174,6 +174,20 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("waitress>=2.0,<2.1", content)
             self.assertIn("Flask-Limiter>=3.0,<3.5.1", content)
 
+    def test_installers_use_panel_virtualenv_for_runtime_dependencies(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("VENV_DIR=", content)
+            self.assertIn("ensure_panel_venv", content)
+            self.assertIn('PYTHON3_BIN="${VENV_DIR}/bin/python"', content)
+
+    def test_installers_do_not_require_flask_limiter_to_start_panel(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("install_packages python3-waitress", content)
+            self.assertIn("import flask\nimport waitress", content)
+            self.assertNotIn("import flask\nimport flask_limiter\nimport waitress", content)
+
     def test_update_script_uses_python_version_checks_without_bc_or_eval(self):
         content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
         self.assertNotIn("bc -l", content)

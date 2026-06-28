@@ -24,6 +24,7 @@ fi
 
 # 安装目录
 INSTALL_DIR="/opt/ssr-admin-panel"
+VENV_DIR="${INSTALL_DIR}/venv"
 MUDB_FILE="/usr/local/shadowsocksr/mudb.json"
 SSR_DIR="/usr/local/shadowsocksr"
 DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
@@ -33,6 +34,7 @@ REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/SSR_Panel.git}"
 REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
 REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
 PYTHON3_BIN="/usr/bin/python3"
+SYSTEM_PYTHON3_BIN="/usr/bin/python3"
 APT_UPDATED=0
 SYNC_REVISION=""
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
@@ -156,6 +158,22 @@ install_single_python_package() {
     "$PYTHON3_BIN" -m pip install "${pip_install_opts[@]}" -q "${package}"
 }
 
+ensure_panel_venv() {
+    SYSTEM_PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
+
+    if [ ! -x "${VENV_DIR}/bin/python" ]; then
+        echo -e "${YELLOW}创建面板 Python 虚拟环境...${NC}"
+        "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}" 2>/dev/null || {
+            install_packages python3-venv python3-pip 2>/dev/null || true
+            "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}"
+        }
+    fi
+
+    PYTHON3_BIN="${VENV_DIR}/bin/python"
+    "${PYTHON3_BIN}" -m ensurepip --upgrade >/dev/null 2>&1 || true
+    "${PYTHON3_BIN}" -m pip install --upgrade pip setuptools wheel --no-input --disable-pip-version-check -q 2>/dev/null || true
+}
+
 ensure_basic_runtime() {
     PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
 
@@ -185,33 +203,11 @@ ensure_basic_runtime() {
         fi
     fi
 
-    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
-        echo -e "${YELLOW}未检测到可用的 pip 模块，尝试启用 ensurepip...${NC}"
-        "$PYTHON3_BIN" -m ensurepip --upgrade >/dev/null 2>&1 || true
-    fi
-
-    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
-        echo -e "${YELLOW}尝试安装 python3-pip...${NC}"
-        install_packages python3-pip || true
-    fi
-
-    if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
-        echo -e "${YELLOW}当前环境缺少 pip，将优先依赖系统包安装 Flask${NC}"
-    else
-        # 创建 pip/pip3 兼容入口
-        if ! command -v pip3 &>/dev/null; then
-            local pip3_path
-            pip3_path="$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts"))' 2>/dev/null)/pip3"
-            [ -x "${pip3_path}" ] && ln -sf "${pip3_path}" /usr/local/bin/pip3 2>/dev/null || true
-        fi
-        if ! command -v pip &>/dev/null; then
-            ln -sf "$(command -v pip3 2>/dev/null || true)" /usr/local/bin/pip 2>/dev/null || true
-        fi
-    fi
+    ensure_panel_venv
 }
 
 install_flask_runtime() {
-    if "$PYTHON3_BIN" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
+    if "$PYTHON3_BIN" -c "import flask; import waitress" &>/dev/null; then
         echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
         return
     fi
@@ -238,12 +234,12 @@ install_flask_runtime() {
 
     if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
-        install_single_python_package waitress 2>/dev/null || true
+        install_single_python_package waitress 2>/dev/null || \
+        install_packages python3-waitress 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
 import flask
-import flask_limiter
 import waitress
 PY
     then
