@@ -143,8 +143,18 @@ install_flask_runtime() {
     echo -e "${GREEN}安装 Python 依赖...${NC}"
 
     local pip_install_opts="--no-input --disable-pip-version-check"
-    # Debian 12+ / Ubuntu 24+ PEP 668: allow system-wide install outside venv
+    # PEP 668: allow system-wide install outside venv
+    # 检测 Python>=3.11 或 EXTERNALLY-MANAGED 标记文件（Debian 12/Ubuntu 23.04+）
+    local _need_break=0
     if "$PYTHON3_BIN" -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" &>/dev/null; then
+        _need_break=1
+    fi
+    local _ext_marker
+    _ext_marker=$("$PYTHON3_BIN" -c "import sysconfig; print(sysconfig.get_path('stdlib'))" 2>/dev/null)/EXTERNALLY-MANAGED
+    if [ -f "$_ext_marker" ]; then
+        _need_break=1
+    fi
+    if [ "$_need_break" -eq 1 ]; then
         pip_install_opts="$pip_install_opts --break-system-packages"
     fi
 
@@ -319,8 +329,17 @@ echo -e "${CYAN}[ 可选：配置账号分享模板 ]${NC}"
 echo -e "${YELLOW}留空或选择 N 则默认关闭分享功能，真实值只写入本机 config.py${NC}"
 
 if [ -n "${SSR_ADMIN_USER:-}" ]; then
-    ENABLE_SHARE_TEMPLATE="n"
-    echo -e "${YELLOW}检测到非交互模式，已跳过分享配置${NC}"
+    if [ -n "${SSR_SHARE_HOST:-}" ]; then
+        ENABLE_SHARE_TEMPLATE="y"
+        SHARE_HOST="$SSR_SHARE_HOST"
+        SHARE_PORT="18899"
+        SHARE_PASSWORD="nikuaimobi"
+        SHARE_REMARKS="私家车-2025"
+        echo -e "${GREEN}检测到 SSR_SHARE_HOST 环境变量，已自动启用分享: ${SHARE_HOST}${NC}"
+    else
+        ENABLE_SHARE_TEMPLATE="n"
+        echo -e "${YELLOW}检测到非交互模式，已跳过分享配置${NC}"
+    fi
 else
     if [ -t 0 ]; then read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
     elif [ -e /dev/tty ]; then read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE < /dev/tty
@@ -330,9 +349,11 @@ fi
 ENABLE_SHARE_TEMPLATE=$(printf '%s' "$ENABLE_SHARE_TEMPLATE" | tr '[:upper:]' '[:lower:]')
 
 if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; then
-    if [ -t 0 ]; then read -p "请输入分享域名/IP: " SHARE_HOST
-    elif [ -e /dev/tty ]; then read -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
-    else SHARE_HOST=""; fi
+    if [ -z "${SHARE_HOST:-}" ]; then
+        if [ -t 0 ]; then read -p "请输入分享域名/IP: " SHARE_HOST
+        elif [ -e /dev/tty ]; then read -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
+        else SHARE_HOST=""; fi
+    fi
     
     if [ -z "$SHARE_HOST" ]; then
         echo -e "${RED}分享域名不能为空，已关闭分享功能${NC}"

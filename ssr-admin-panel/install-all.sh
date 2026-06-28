@@ -50,8 +50,9 @@ elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
     SYS="centos"
     PKG_MANAGER="yum"
 else
-    SYS="other"
-    PKG_MANAGER="apt-get"
+    echo -e "${RED}不支持的系统类型，仅支持 Debian/Ubuntu 和 CentOS/RHEL${NC}"
+    echo -e "${CYAN}请检查 /etc/os-release 确认系统类型${NC}"
+    exit 1
 fi
 
 echo -e "${CYAN}系统检测: ${YELLOW}${SYS}${NC}"
@@ -155,8 +156,18 @@ install_flask_runtime() {
     echo -e "${GREEN}安装 Python 依赖...${NC}"
 
     local pip_install_opts="--no-input --disable-pip-version-check"
-    # Debian 12+ / Ubuntu 24+ PEP 668: allow system-wide install outside venv
+    # PEP 668: allow system-wide install outside venv
+    # 检测 Python>=3.11 或 EXTERNALLY-MANAGED 标记文件（Debian 12/Ubuntu 23.04+）
+    local _need_break=0
     if "$PYTHON3_BIN" -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" &>/dev/null; then
+        _need_break=1
+    fi
+    local _ext_marker
+    _ext_marker=$("$PYTHON3_BIN" -c "import sysconfig; print(sysconfig.get_path('stdlib'))" 2>/dev/null)/EXTERNALLY-MANAGED
+    if [ -f "$_ext_marker" ]; then
+        _need_break=1
+    fi
+    if [ "$_need_break" -eq 1 ]; then
         pip_install_opts="$pip_install_opts --break-system-packages"
     fi
 
@@ -206,6 +217,62 @@ apply_ssr_python_compatibility_fix() {
 
     echo -e "${GREEN}修复 ShadowsocksR 的 Python 3.10+ 兼容性...${NC}"
     "$PYTHON3_BIN" "$PANEL_DIR/scripts/patch_ssr_python_compat.py" "$SSR_DIR"
+}
+
+# CentOS 兼容性修复：安装 ssrmu.sh 依赖但系统默认没有的包
+fix_centos_compat() {
+    if [ "$SYS" != "centos" ]; then
+        return 0
+    fi
+
+    echo -e "${GREEN}修复 CentOS 兼容性...${NC}"
+
+    # CentOS Stream 10+ 默认没有 iptables（用 nftables），但 ssrmu.sh 需要
+    if ! command -v iptables &>/dev/null; then
+        echo -e "${YELLOW}安装 iptables（ssrmu.sh 依赖）...${NC}"
+        if command -v dnf &>/dev/null; then
+            timeout 120 dnf install -y -q iptables 2>/dev/null || true
+        else
+            timeout 120 yum install -y -q iptables 2>/dev/null || true
+        fi
+    fi
+
+    # 确保 cronie 已安装（CentOS 用 cronie 而非 cron）
+    if ! command -v crond &>/dev/null && ! systemctl is-active --quiet crond 2>/dev/null; then
+        echo -e "${YELLOW}安装 cronie...${NC}"
+        if command -v dnf &>/dev/null; then
+            dnf install -y -q cronie 2>/dev/null || true
+        else
+            yum install -y -q cronie 2>/dev/null || true
+        fi
+        systemctl enable crond 2>/dev/null || true
+        systemctl start crond 2>/dev/null || true
+    fi
+
+    # 修复 CentOS 10 没有 /etc/init.d/crond 的问题
+    if [ ! -f /etc/init.d/crond ] && command -v crond &>/dev/null; then
+        mkdir -p /etc/init.d
+        cat > /etc/init.d/crond <<'CRONDEOF'
+#!/bin/bash
+# chkconfig: 2345 90 10
+# description: cronie cron daemon compat wrapper
+case "$1" in
+    start)   systemctl start crond ;;
+    stop)    systemctl stop crond ;;
+    restart) systemctl restart crond ;;
+    status)  systemctl status crond ;;
+    *)       echo "Usage: $0 {start|stop|restart|status}" ;;
+esac
+CRONDEOF
+        chmod +x /etc/init.d/crond
+    fi
+
+    # 确保 jq 可执行（ssrmu.sh 自带 jq-linux64 但可能权限不对）
+    if [ -f "$SSR_DIR/jq-linux64" ] && [ ! -x "$SSR_DIR/jq-linux64" ]; then
+        chmod +x "$SSR_DIR/jq-linux64"
+    fi
+
+    echo -e "${GREEN}✓ CentOS 兼容性修复完成${NC}"
 }
 
 install_device_stats_service() {
@@ -388,10 +455,19 @@ echo
 echo -e "${CYAN}[ 可选：配置账号分享模板 ]${NC}"
 echo -e "${YELLOW}留空或选择 N 则默认关闭分享功能，真实值只写入本机 config.py${NC}"
 
-# 非交互模式（已设置环境变量）自动跳过分享配置
+# 非交互模式：如果设置了 SSR_SHARE_HOST 则自动启用分享
 if [ -n "${SSR_ADMIN_USER:-}" ]; then
-    ENABLE_SHARE_TEMPLATE="n"
-    echo -e "${YELLOW}检测到非交互模式，已跳过分享配置${NC}"
+    if [ -n "${SSR_SHARE_HOST:-}" ]; then
+        ENABLE_SHARE_TEMPLATE="y"
+        SHARE_HOST="$SSR_SHARE_HOST"
+        SHARE_PORT="18899"
+        SHARE_PASSWORD="nikuaimobi"
+        SHARE_REMARKS="私家车-2025"
+        echo -e "${GREEN}检测到 SSR_SHARE_HOST 环境变量，已自动启用分享: ${SHARE_HOST}${NC}"
+    else
+        ENABLE_SHARE_TEMPLATE="n"
+        echo -e "${YELLOW}检测到非交互模式，已跳过分享配置${NC}"
+    fi
 else
     if [ -t 0 ]; then
         read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
@@ -405,11 +481,13 @@ fi
 ENABLE_SHARE_TEMPLATE=$(printf '%s' "$ENABLE_SHARE_TEMPLATE" | tr '[:upper:]' '[:lower:]')
 
 if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; then
-    # 读取分享域名
-    if [ -t 0 ]; then read -p "请输入分享域名/IP: " SHARE_HOST
-    elif [ -e /dev/tty ]; then read -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
-    else SHARE_HOST=""; fi
-    
+    # 读取分享域名（如果环境变量已设置则跳过交互）
+    if [ -z "${SHARE_HOST:-}" ]; then
+        if [ -t 0 ]; then read -p "请输入分享域名/IP: " SHARE_HOST
+        elif [ -e /dev/tty ]; then read -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
+        else SHARE_HOST=""; fi
+    fi
+
     if [ -z "$SHARE_HOST" ]; then
         echo -e "${RED}分享域名不能为空，已关闭分享功能${NC}"
         ENABLE_SHARE_TEMPLATE="n"
@@ -429,24 +507,43 @@ echo
 echo -e "${CYAN}[ 3/6 ] 安装 ShadowsocksR${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
-if [ -d "$SSR_DIR" ]; then
+if [ -d "$SSR_DIR" ] && [ -f "$SSR_DIR/server.py" ]; then
     echo -e "${GREEN}检测到已安装SSR，跳过安装...${NC}"
 else
     echo -e "${GREEN}开始自动安装 SSR...${NC}"
-    
+
+    # CentOS 兼容性预修复
+    fix_centos_compat
+
     chmod +x $PANEL_DIR/ssrmu.sh
-    
+
     # 使用管道输入：先发送1选择安装，然后发送50个空行接受所有默认值
-    (echo '1'; for i in $(seq 1 50); do echo ''; done) | bash $PANEL_DIR/ssrmu.sh
-    
-    if [ -d "$SSR_DIR" ]; then
+    # 允许 ssrmu.sh 返回非零（mujson_mgr.py 路径问题等），只要 SSR 目录存在即可
+    (echo '1'; for i in $(seq 1 50); do echo ''; done) | bash $PANEL_DIR/ssrmu.sh || true
+
+    if [ -d "$SSR_DIR" ] && [ -f "$SSR_DIR/server.py" ]; then
         echo -e "${GREEN}✓ SSR安装完成${NC}"
     else
-        echo -e "${RED}SSR安装可能失败，请检查${NC}"
+        echo -e "${RED}SSR安装失败，请检查错误信息${NC}"
+        exit 1
     fi
 fi
 
+# 先修复 Python 兼容性，再启动
 apply_ssr_python_compatibility_fix
+
+# CentOS 第二次兼容修复（SSR 安装后的依赖）
+fix_centos_compat
+
+# 确保 SSR 可以启动（用 python 直接测试）
+if [ -f "$SSR_DIR/server.py" ]; then
+    SSR_PYTHON="${PYTHON3_BIN}"
+    if command -v python &>/dev/null; then SSR_PYTHON="$(command -v python)"; fi
+    echo -e "${GREEN}验证 SSR 服务端...${NC}"
+    cd "$SSR_DIR" && "$SSR_PYTHON" -c "import shadowsocks" 2>/dev/null && \
+        echo -e "${GREEN}✓ SSR 模块可加载${NC}" || \
+        echo -e "${YELLOW}⚠ SSR 模块加载警告（可能需要 libsodium）${NC}"
+fi
 
 echo
 
@@ -551,7 +648,7 @@ echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}           安装完成！${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo
-IP=$(curl -s ip.sb 2>/dev/null || curl -s ifconfig.me 2>/dev/null || echo 'your-server-ip')
+IP=$(curl -s -m 10 ip.sb 2>/dev/null || curl -s -m 10 ifconfig.me 2>/dev/null || echo 'your-server-ip')
 echo -e "${CYAN}管理面板信息:${NC}"
 echo -e "  访问地址: ${YELLOW}http://${IP}:5000${NC}"
 echo -e "  用户名:   ${YELLOW}${ADMIN_USER}${NC}"
