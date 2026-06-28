@@ -204,8 +204,8 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("SSR_SHARE_HOST = ''", content)
         self.assertIn("SSR_SHARE_PASSWORD = ''", content)
         self.assertIn("SSR_SHARE_REMARKS = ''", content)
-        self.assertNotIn("nikuaimobi", content)
-        self.assertNotIn("ssr.ssrvpn.vip", content)
+        self.assertNotIn("test-share-password", content)
+        self.assertNotIn("test-share.example.com", content)
 
     def test_patch_ssr_python_compat_rewrites_legacy_collections_aliases(self):
         patcher = REPO_ROOT / "scripts" / "patch_ssr_python_compat.py"

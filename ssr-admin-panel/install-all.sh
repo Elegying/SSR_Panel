@@ -228,8 +228,9 @@ echo; echo -e "${CYAN}[ 可选：配置账号分享模板 ]${NC}"
 if [ -n "${SSR_ADMIN_USER:-}" ]; then
     if [ -n "${SSR_SHARE_HOST:-}" ]; then
         ENABLE_SHARE="y"; SHARE_HOST="$SSR_SHARE_HOST"
-        SHARE_PASSWORD="nikuaimobi"; SHARE_REMARKS="私家车-2025"
+        SHARE_PASSWORD=""; SHARE_REMARKS=""
         log_ok "已自动启用分享: ${SHARE_HOST}"
+        log_warn "请通过环境变量 SSR_SHARE_PASSWORD / SSR_SHARE_REMARKS 设置分享信息"
     else
         ENABLE_SHARE="n"; log_warn "非交互模式，已跳过分享配置"
     fi
@@ -247,7 +248,7 @@ if [ "$ENABLE_SHARE" = "y" ] || [ "$ENABLE_SHARE" = "yes" ]; then
         else SHARE_HOST=""; fi
     fi
     if [ -z "$SHARE_HOST" ]; then log_err "分享域名不能为空，已关闭分享功能"; ENABLE_SHARE="n"
-    else SHARE_PASSWORD="nikuaimobi"; SHARE_REMARKS="私家车-2025"; fi
+    else SHARE_PASSWORD=""; SHARE_REMARKS=""; fi
 fi
 log_ok "配置完成"; echo
 

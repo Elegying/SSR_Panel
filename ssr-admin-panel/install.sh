@@ -333,8 +333,8 @@ if [ -n "${SSR_ADMIN_USER:-}" ]; then
         ENABLE_SHARE_TEMPLATE="y"
         SHARE_HOST="$SSR_SHARE_HOST"
         SHARE_PORT="18899"
-        SHARE_PASSWORD="nikuaimobi"
-        SHARE_REMARKS="私家车-2025"
+        SHARE_PASSWORD=""
+        SHARE_REMARKS=""
         echo -e "${GREEN}检测到 SSR_SHARE_HOST 环境变量，已自动启用分享: ${SHARE_HOST}${NC}"
     else
         ENABLE_SHARE_TEMPLATE="n"
@@ -361,8 +361,8 @@ if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; t
     else
         # 分享端口/密码/备注均使用默认值，不提示输入
         SHARE_PORT="18899"
-        SHARE_PASSWORD="nikuaimobi"
-        SHARE_REMARKS="私家车-2025"
+        SHARE_PASSWORD=""
+        SHARE_REMARKS=""
     fi
 fi
 
