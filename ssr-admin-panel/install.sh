@@ -426,6 +426,7 @@ fi
 # 下载项目文件
 echo -e "${GREEN}[1/6] 下载项目文件...${NC}" 
 sync_project_files "$INSTALL_DIR"
+ensure_panel_venv
 
 chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')

@@ -185,6 +185,8 @@ class InstallerRegressionTests(unittest.TestCase):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("! -name venv", content)
+            self.assertIn('sync_project_files "$', content)
+            self.assertIn("ensure_panel_venv\n\n", content)
 
     def test_installers_do_not_require_flask_limiter_to_start_panel(self):
         for script in ("install.sh", "install-all.sh"):

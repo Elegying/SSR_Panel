@@ -351,6 +351,7 @@ echo
 echo -e "${CYAN}[ 1/6 ] 下载项目文件...${NC}"
 
 sync_project_files "$PANEL_DIR"
+ensure_panel_venv
 
 cd $PANEL_DIR
 chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/uninstall.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
