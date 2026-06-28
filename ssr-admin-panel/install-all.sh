@@ -53,23 +53,27 @@ load_preset() {
     [ -z "$PRESET_FILE" ] && return 0
     [ -f "$PRESET_FILE" ] || { log_warn "预置文件不存在: $PRESET_FILE"; return 0; }
     log_info "加载预置文件: $PRESET_FILE"
+
+    local _tmp_eval="/tmp/ssr-preset-eval-$$.sh"
     if command -v python3 &>/dev/null; then
         python3 -c "
-import json, os, sys
+import json, sys
 try:
-    with open('$PRESET_FILE') as f:
-        cfg = json.load(f)
+    with open('$PRESET_FILE') as f: cfg = json.load(f)
     for k, v in cfg.items():
         k = 'SSR_' + k.upper()
         print(f'export {k}={json.dumps(v) if isinstance(v,str) else v}')
 except Exception as e:
     print(f'echo PRESET_PARSE_ERROR: {e}', file=sys.stderr)
     sys.exit(1)
-" 2>/dev/null | while read -r line; do eval "$line"; done
-        # 如果预置文件定义了 PORT，覆盖 PANEL_PORT
+" > "$_tmp_eval" 2>/dev/null || { rm -f "$_tmp_eval"; log_err "预置文件解析失败"; exit 1; }
+        . "$_tmp_eval"
+        rm -f "$_tmp_eval"
         [ -n "${SSR_PORT:-}" ] && PANEL_PORT="$SSR_PORT"
     elif command -v jq &>/dev/null; then
-        eval "$(jq -r 'to_entries[] | "export SSR_"+.key|ascii_upcase+"="+(.value|tostring)' "$PRESET_FILE" 2>/dev/null)"
+        jq -r 'to_entries[] | "export SSR_"+.key|ascii_upcase+"="+(.value|tostring)' "$PRESET_FILE" > "$_tmp_eval" 2>/dev/null
+        . "$_tmp_eval"
+        rm -f "$_tmp_eval"
     fi
     log_ok "预置文件已加载"
 }
@@ -542,7 +546,11 @@ echo
 # ── 第六步：服务器优化 ────────────────
 echo -e "${CYAN}[ 6/7 ] SSR 服务器性能优化${NC}"
 echo
-bash "$PANEL_DIR/scripts/optimize_server.sh"
+if [ -f "$PANEL_DIR/scripts/optimize_server.sh" ] && [ -x "$PANEL_DIR/scripts/optimize_server.sh" ]; then
+    bash "$PANEL_DIR/scripts/optimize_server.sh"
+else
+    log_warn "优化脚本不存在或不可执行，跳过服务器优化"
+fi
 echo
 
 # ── 第七步：完成 + 健康检查 ──────────
