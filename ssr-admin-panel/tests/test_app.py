@@ -53,10 +53,10 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.BACKUP_DIR = self.backup_dir
         panel_app.PANEL_GIT_URL = "https://github.com/Elegying/SSR_Panel.git"
         panel_app.PANEL_GIT_SUBDIR = "ssr-admin-panel"
-        panel_app.SSR_SHARE_HOST = "test-share.example.com"
+        panel_app.SSR_SHARE_HOST = "ssr.ssrvpn.vip"
         panel_app.SSR_SHARE_PORT = 18899
-        panel_app.SSR_SHARE_PASSWORD = "test-share-password"
-        panel_app.SSR_SHARE_REMARKS = "test-remarks"
+        panel_app.SSR_SHARE_PASSWORD = "nikuaimobi"
+        panel_app.SSR_SHARE_REMARKS = "私家车-2025"
         panel_app.SSR_SHARE_PROTOCOL = "auth_aes128_md5"
         panel_app.SSR_SHARE_METHOD = "aes-256-cfb"
         panel_app.SSR_SHARE_OBFS = "tls1.2_ticket_auth"

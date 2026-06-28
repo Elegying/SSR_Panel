@@ -58,6 +58,26 @@ read_version() {
     echo "unknown"
 }
 
+python_version_lt() {
+    "${PYTHON3_BIN}" - "$1" "$2" <<'PY' &>/dev/null
+import sys
+
+major = int(sys.argv[1])
+minor = int(sys.argv[2])
+raise SystemExit(0 if sys.version_info < (major, minor) else 1)
+PY
+}
+
+python_version_ge() {
+    "${PYTHON3_BIN}" - "$1" "$2" <<'PY' &>/dev/null
+import sys
+
+major = int(sys.argv[1])
+minor = int(sys.argv[2])
+raise SystemExit(0 if sys.version_info >= (major, minor) else 1)
+PY
+}
+
 write_status() {
     local phase="$1"
     local message="$2"
@@ -193,7 +213,7 @@ ensure_python_deps() {
 
     local pip_bin=""
     if "${PYTHON3_BIN}" -m pip --version &>/dev/null; then
-        pip_bin="${PYTHON3_BIN} -m pip"
+        pip_bin="__PYTHON3_M_PIP__"
     elif command -v pip3 &>/dev/null; then
         pip_bin="pip3"
     elif command -v pip &>/dev/null; then
@@ -208,31 +228,64 @@ ensure_python_deps() {
         fi
         "${PYTHON3_BIN}" -m ensurepip --upgrade 2>/dev/null || true
         if "${PYTHON3_BIN}" -m pip --version &>/dev/null; then
-            pip_bin="${PYTHON3_BIN} -m pip"
+            pip_bin="__PYTHON3_M_PIP__"
         else
             echo -e "${RED}pip 安装失败，跳过 Python 依赖安装${NC}"
             return 1
         fi
     fi
 
+    run_pip_install() {
+        if [ "${pip_bin}" = "__PYTHON3_M_PIP__" ]; then
+            "${PYTHON3_BIN}" -m pip install "$@"
+        else
+            "${pip_bin}" install "$@"
+        fi
+    }
+
     # 根据 Python 版本选择兼容的依赖版本
     local py_ver
-    py_ver=$("${PYTHON3_BIN}" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "3.8")
-    local pip_pkgs="-r ${req_file}"
+    py_ver=$("${PYTHON3_BIN}" -c "import sys; print('{}.{}'.format(sys.version_info.major, sys.version_info.minor))" 2>/dev/null || echo "3.8")
+    local pip_install_opts=(--no-input --disable-pip-version-check)
+    local pip_pkgs=(-r "${req_file}")
 
-    if [[ "$(echo "$py_ver >= 3.8" | bc -l 2>/dev/null || echo 1)" != "1" ]]; then
-        echo -e "${YELLOW}Python ${py_ver} 检测到，使用兼容版本...${NC}"
-        pip_pkgs="'Flask>=2.0,<2.3' 'flask-limiter>=3.0,<3.6'"
+    if python_version_ge 3 11; then
+        pip_install_opts+=(--break-system-packages)
+    fi
+
+    if python_version_lt 3 7; then
+        echo -e "${YELLOW}Python ${py_ver} 检测到，使用 Python 3.6 兼容版本...${NC}"
+        pip_pkgs=(
+            'Flask>=2.0,<2.1'
+            'Werkzeug>=2.0,<2.1'
+            'Jinja2>=3.0,<3.1'
+            'MarkupSafe>=2.0,<2.1'
+            'itsdangerous>=2.0,<2.1'
+            'click>=8.0,<8.1'
+            'Flask-Limiter>=1.5,<2.0'
+            'waitress>=2.0,<2.1'
+        )
+    elif python_version_lt 3 8; then
+        echo -e "${YELLOW}Python ${py_ver} 检测到，使用 Python 3.7 兼容版本...${NC}"
+        pip_pkgs=(
+            'Flask>=2.2,<2.3'
+            'Flask-Limiter>=3.0,<3.5.1'
+            'waitress>=2.1,<2.2'
+        )
     fi
 
     echo -e "${CYAN}正在安装 Python 依赖...${NC}"
-    if ! eval ${pip_bin} install --no-input --disable-pip-version-check --prefer-binary -q ${pip_pkgs} 2>/dev/null; then
+    if ! run_pip_install "${pip_install_opts[@]}" --prefer-binary -q "${pip_pkgs[@]}" 2>/dev/null; then
         echo -e "${YELLOW}pip install 失败，尝试逐包安装...${NC}"
-        if [ -f "${req_file}" ]; then
+        if python_version_lt 3 8; then
+            for pkg in "${pip_pkgs[@]}"; do
+                run_pip_install "${pip_install_opts[@]}" --prefer-binary -q "${pkg}" 2>/dev/null || true
+            done
+        elif [ -f "${req_file}" ]; then
             while IFS= read -r pkg; do
                 pkg="$(echo "${pkg}" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
                 [ -z "${pkg}" ] && continue
-                ${pip_bin} install --no-input --disable-pip-version-check --prefer-binary -q "${pkg}" 2>/dev/null || true
+                run_pip_install "${pip_install_opts[@]}" --prefer-binary -q "${pkg}" 2>/dev/null || true
             done < "${req_file}"
         fi
     fi
@@ -253,9 +306,7 @@ ensure_python_deps() {
 
     if ! "${PYTHON3_BIN}" -c "import waitress" &>/dev/null; then
         echo -e "${RED}Waitress 导入失败，尝试 pip 单独安装...${NC}"
-        if "${PYTHON3_BIN}" -m pip --version &>/dev/null; then
-            "${PYTHON3_BIN}" -m pip install --no-input --disable-pip-version-check waitress -q 2>/dev/null || true
-        fi
+        run_pip_install "${pip_install_opts[@]}" waitress -q 2>/dev/null || true
     fi
 
     if ! "${PYTHON3_BIN}" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then

@@ -79,6 +79,83 @@ ensure_command() {
     }
 }
 
+python_version_lt() {
+    "$PYTHON3_BIN" - "$1" "$2" <<'PY' &>/dev/null
+import sys
+
+major = int(sys.argv[1])
+minor = int(sys.argv[2])
+raise SystemExit(0 if sys.version_info < (major, minor) else 1)
+PY
+}
+
+python_version_ge() {
+    "$PYTHON3_BIN" - "$1" "$2" <<'PY' &>/dev/null
+import sys
+
+major = int(sys.argv[1])
+minor = int(sys.argv[2])
+raise SystemExit(0 if sys.version_info >= (major, minor) else 1)
+PY
+}
+
+install_python_runtime_with_pip() {
+    local req_file="$1"
+    local pip_install_opts=(--no-input --disable-pip-version-check)
+
+    # Debian 12+ / Ubuntu 24+ PEP 668: allow system-wide install outside venv.
+    if python_version_ge 3 11; then
+        pip_install_opts+=(--break-system-packages)
+    fi
+
+    if python_version_lt 3 7; then
+        echo -e "${YELLOW}检测到 Python 3.6，安装兼容版 Flask 运行时...${NC}"
+        "$PYTHON3_BIN" -m pip install "${pip_install_opts[@]}" --prefer-binary -q \
+            'Flask>=2.0,<2.1' \
+            'Werkzeug>=2.0,<2.1' \
+            'Jinja2>=3.0,<3.1' \
+            'MarkupSafe>=2.0,<2.1' \
+            'itsdangerous>=2.0,<2.1' \
+            'click>=8.0,<8.1' \
+            'Flask-Limiter>=1.5,<2.0' \
+            'waitress>=2.0,<2.1'
+        return
+    fi
+
+    if python_version_lt 3 8; then
+        echo -e "${YELLOW}检测到 Python 3.7，安装兼容版 Flask 运行时...${NC}"
+        "$PYTHON3_BIN" -m pip install "${pip_install_opts[@]}" --prefer-binary -q \
+            'Flask>=2.2,<2.3' \
+            'Flask-Limiter>=3.0,<3.5.1' \
+            'waitress>=2.1,<2.2'
+        return
+    fi
+
+    "$PYTHON3_BIN" -m pip install "${pip_install_opts[@]}" --prefer-binary -q -r "${req_file}"
+}
+
+install_single_python_package() {
+    local package="$1"
+    local pip_install_opts=(--no-input --disable-pip-version-check)
+    if python_version_ge 3 11; then
+        pip_install_opts+=(--break-system-packages)
+    fi
+    if python_version_lt 3 7; then
+        case "${package}" in
+            Flask|flask) package='Flask>=2.0,<2.1' ;;
+            flask-limiter|Flask-Limiter) package='Flask-Limiter>=1.5,<2.0' ;;
+            waitress|Waitress) package='waitress>=2.0,<2.1' ;;
+        esac
+    elif python_version_lt 3 8; then
+        case "${package}" in
+            Flask|flask) package='Flask>=2.2,<2.3' ;;
+            flask-limiter|Flask-Limiter) package='Flask-Limiter>=3.0,<3.5.1' ;;
+            waitress|Waitress) package='waitress>=2.1,<2.2' ;;
+        esac
+    fi
+    "$PYTHON3_BIN" -m pip install "${pip_install_opts[@]}" -q "${package}"
+}
+
 ensure_basic_runtime() {
     PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
 
@@ -97,6 +174,15 @@ ensure_basic_runtime() {
             exit 1
         }
         PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
+    fi
+
+    # 创建 python → python3 兼容入口（ssrmu.sh 等脚本依赖 python 命令）
+    if ! command -v python &> /dev/null; then
+        echo -e "${YELLOW}未找到 python 命令，正在创建兼容入口...${NC}"
+        install_packages python-is-python3 2>/dev/null || true
+        if ! command -v python &> /dev/null && command -v python3 &> /dev/null; then
+            ln -sf "$(command -v python3)" /usr/local/bin/python 2>/dev/null || true
+        fi
     fi
 
     if ! "$PYTHON3_BIN" -m pip --version &>/dev/null; then
@@ -124,15 +210,6 @@ ensure_basic_runtime() {
     fi
 }
 
-# 创建 python → python3 兼容入口（ssrmu.sh 等脚本依赖 python 命令）
-if ! command -v python &> /dev/null; then
-    echo -e "${YELLOW}未找到 python 命令，正在创建兼容入口...${NC}"
-    install_packages python-is-python3 2>/dev/null || true
-    if ! command -v python &> /dev/null; then
-        ln -sf "$(command -v python3)" /usr/local/bin/python 2>/dev/null || true
-    fi
-fi
-
 install_flask_runtime() {
     if "$PYTHON3_BIN" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
         echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
@@ -142,42 +219,26 @@ install_flask_runtime() {
     local req_file="$INSTALL_DIR/requirements.txt"
     echo -e "${GREEN}安装 Python 依赖...${NC}"
 
-    local pip_install_opts="--no-input --disable-pip-version-check"
-    # PEP 668: allow system-wide install outside venv
-    # 检测 Python>=3.11 或 EXTERNALLY-MANAGED 标记文件（Debian 12/Ubuntu 23.04+）
-    local _need_break=0
-    if "$PYTHON3_BIN" -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" &>/dev/null; then
-        _need_break=1
-    fi
-    local _ext_marker
-    _ext_marker=$("$PYTHON3_BIN" -c "import sysconfig; print(sysconfig.get_path('stdlib'))" 2>/dev/null)/EXTERNALLY-MANAGED
-    if [ -f "$_ext_marker" ]; then
-        _need_break=1
-    fi
-    if [ "$_need_break" -eq 1 ]; then
-        pip_install_opts="$pip_install_opts --break-system-packages"
-    fi
-
     if "$PYTHON3_BIN" -m pip --version &>/dev/null && [ -f "${req_file}" ]; then
-        "$PYTHON3_BIN" -m pip install $pip_install_opts --prefer-binary -q -r "${req_file}" 2>/dev/null || true
+        install_python_runtime_with_pip "${req_file}" 2>/dev/null || true
     fi
 
     # pip 失败或不可用时，回退到系统包
     if ! "$PYTHON3_BIN" -c "import flask" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Flask 失败，尝试系统包...${NC}"
         install_packages python3-flask || \
-        "$PYTHON3_BIN" -m pip install $pip_install_opts Flask -q
+        install_single_python_package Flask
     fi
 
     if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试系统包...${NC}"
-        "$PYTHON3_BIN" -m pip install $pip_install_opts flask-limiter -q 2>/dev/null || \
+        install_single_python_package flask-limiter 2>/dev/null || \
         install_packages python3-flask-limiter 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
-        "$PYTHON3_BIN" -m pip install $pip_install_opts waitress -q 2>/dev/null || true
+        install_single_python_package waitress 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
@@ -329,17 +390,8 @@ echo -e "${CYAN}[ 可选：配置账号分享模板 ]${NC}"
 echo -e "${YELLOW}留空或选择 N 则默认关闭分享功能，真实值只写入本机 config.py${NC}"
 
 if [ -n "${SSR_ADMIN_USER:-}" ]; then
-    if [ -n "${SSR_SHARE_HOST:-}" ]; then
-        ENABLE_SHARE_TEMPLATE="y"
-        SHARE_HOST="$SSR_SHARE_HOST"
-        SHARE_PORT="18899"
-        SHARE_PASSWORD=""
-        SHARE_REMARKS=""
-        echo -e "${GREEN}检测到 SSR_SHARE_HOST 环境变量，已自动启用分享: ${SHARE_HOST}${NC}"
-    else
-        ENABLE_SHARE_TEMPLATE="n"
-        echo -e "${YELLOW}检测到非交互模式，已跳过分享配置${NC}"
-    fi
+    ENABLE_SHARE_TEMPLATE="n"
+    echo -e "${YELLOW}检测到非交互模式，已跳过分享配置${NC}"
 else
     if [ -t 0 ]; then read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
     elif [ -e /dev/tty ]; then read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE < /dev/tty
@@ -349,11 +401,9 @@ fi
 ENABLE_SHARE_TEMPLATE=$(printf '%s' "$ENABLE_SHARE_TEMPLATE" | tr '[:upper:]' '[:lower:]')
 
 if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; then
-    if [ -z "${SHARE_HOST:-}" ]; then
-        if [ -t 0 ]; then read -p "请输入分享域名/IP: " SHARE_HOST
-        elif [ -e /dev/tty ]; then read -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
-        else SHARE_HOST=""; fi
-    fi
+    if [ -t 0 ]; then read -p "请输入分享域名/IP: " SHARE_HOST
+    elif [ -e /dev/tty ]; then read -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
+    else SHARE_HOST=""; fi
     
     if [ -z "$SHARE_HOST" ]; then
         echo -e "${RED}分享域名不能为空，已关闭分享功能${NC}"
@@ -361,8 +411,8 @@ if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; t
     else
         # 分享端口/密码/备注均使用默认值，不提示输入
         SHARE_PORT="18899"
-        SHARE_PASSWORD=""
-        SHARE_REMARKS=""
+        SHARE_PASSWORD="nikuaimobi"
+        SHARE_REMARKS="私家车-2025"
     fi
 fi
 

@@ -63,8 +63,8 @@ wget https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/i
 
 ## 📋 系统要求
 
-- 操作系统: CentOS 6+ / Debian 8+ / Ubuntu 16.04+
-- Python: 3.7+
+- 操作系统: Ubuntu 18.04+ / Debian 10+ / CentOS Stream 或 RHEL 系 8+（需 systemd）
+- Python: 3.6+（推荐 3.8+；Python 3.6/3.7 会自动安装兼容版依赖）
 - 内存: 512MB+
 
 ---
@@ -117,7 +117,7 @@ bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 
 该脚本默认会：
 
-- 为 `user-config.json` 和 `mudb.json` 写入 `forbidden_ip`，禁止代理 IPv6 目标 `::/0`，避免服务器没有 IPv6 出口时 YouTube/Google 连接反复超时。
+- 为 `mudb.json` 的用户配置写入 `forbidden_ip`，禁止代理 IPv6 目标 `::/0`，避免服务器没有 IPv6 出口时 YouTube/Google 连接反复超时。
 - 写入 `/etc/nftables.d/ssr-filter.nft` 并持久化 include，精确拦截出站 `udp/443`，不影响正常 `tcp/443` HTTPS。
 - 保留已有 nftables/fail2ban 表，避免覆盖现有防火墙规则。
 

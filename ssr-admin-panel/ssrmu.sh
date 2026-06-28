@@ -929,8 +929,8 @@ Check_python(){
 Centos_yum(){
 	local _yum="yum"
 	if command -v dnf >/dev/null 2>&1; then _yum="dnf"; fi
-	\${_yum} makecache -q 2>/dev/null || true
-	\${_yum} install -y vim unzip cronie python3 curl wget 2>/dev/null || \${_yum} install -y vim unzip crond python3
+	${_yum} makecache -q 2>/dev/null || true
+	${_yum} install -y vim unzip cronie python3 curl wget 2>/dev/null || ${_yum} install -y vim unzip crond python3
 }
 Debian_apt(){
 	apt-get update -qq

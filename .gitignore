@@ -25,6 +25,14 @@ build/
 .env
 .env.*
 !.env.example
+.secret_key
+.initial_admin_password
+anytls-panel/.secret_key
+anytls-panel/.initial_admin_password
+anytls-panel/anytls.db
+ssr-admin-panel/.panel-build.json
+ssr-admin-panel/.panel-update.log
+ssr-admin-panel/.panel-update-status.json
 
 # Archives and temporary files
 *.tmp

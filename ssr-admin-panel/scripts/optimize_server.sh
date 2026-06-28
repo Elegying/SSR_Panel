@@ -139,8 +139,11 @@ net.core.netdev_max_backlog = 5000
 net.ipv4.tcp_slow_start_after_idle = 0
 EOF
 
-    sysctl --system > /dev/null 2>&1
-    log_ok "内核参数已生效（TCP 缓冲区 16MB / TFO / 快速回收 / MTU 探测）"
+    if sysctl --system > /tmp/ssr-admin-sysctl.log 2>&1; then
+        log_ok "内核参数已生效（TCP 缓冲区 16MB / TFO / 快速回收 / MTU 探测）"
+    else
+        log_warn "内核参数未完全生效，已保留配置但不阻断部署；详情见 /tmp/ssr-admin-sysctl.log"
+    fi
 }
 
 # ── 4. SSR Fast Open ─────────────────────────────────────────

@@ -166,6 +166,30 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn('"ss:${_ss_pkg}"', content)
         self.assertIn('"systemctl:systemd"', content)
 
+    def test_installers_support_legacy_python_runtime_dependencies(self):
+        for script in ("install.sh", "install-all.sh", "update.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("python_version_lt", content)
+            self.assertIn("Flask-Limiter>=1.5,<2.0", content)
+            self.assertIn("waitress>=2.0,<2.1", content)
+            self.assertIn("Flask-Limiter>=3.0,<3.5.1", content)
+
+    def test_update_script_uses_python_version_checks_without_bc_or_eval(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+        self.assertNotIn("bc -l", content)
+        self.assertNotIn("eval ${pip_bin}", content)
+        self.assertIn("run_pip_install", content)
+
+    def test_ssrmu_centos_package_manager_expands_yum_variable(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+        self.assertIn("${_yum} makecache", content)
+        self.assertNotIn("\\${_yum}", content)
+
+    def test_optimizer_sysctl_failure_does_not_abort_full_deploy(self):
+        content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+        self.assertIn("ssr-admin-sysctl.log", content)
+        self.assertIn("不阻断部署", content)
+
     def test_ssrmu_applies_python_compatibility_patch_before_startup(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
         self.assertIn("Fix_python_collections_compatibility()", content)
@@ -204,8 +228,8 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("SSR_SHARE_HOST = ''", content)
         self.assertIn("SSR_SHARE_PASSWORD = ''", content)
         self.assertIn("SSR_SHARE_REMARKS = ''", content)
-        self.assertNotIn("test-share-password", content)
-        self.assertNotIn("test-share.example.com", content)
+        self.assertNotIn("nikuaimobi", content)
+        self.assertNotIn("ssr.ssrvpn.vip", content)
 
     def test_patch_ssr_python_compat_rewrites_legacy_collections_aliases(self):
         patcher = REPO_ROOT / "scripts" / "patch_ssr_python_compat.py"

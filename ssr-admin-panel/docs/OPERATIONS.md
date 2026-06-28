@@ -4,12 +4,13 @@
 
 ## 支持环境
 
-- Ubuntu 20.04 / 22.04 / 24.04 / 26.04
-- Debian 11 / 12
-- Python 3.8+
+- Ubuntu 18.04 / 20.04 / 22.04 / 24.04 / 26.04
+- Debian 10 / 11 / 12
+- CentOS Stream / RHEL 系 8 / 9 / 10
+- Python 3.6+（推荐 3.8+；Python 3.6/3.7 会自动使用兼容依赖）
 - systemd
 
-CentOS/RHEL 系脚本仍保留兼容分支，但建议优先在 Ubuntu/Debian 上部署和测试。
+CentOS/RHEL 系脚本使用 `dnf/yum` 分支安装基础依赖；极简系统需保证软件源可用。
 
 ## 部署方式
 
@@ -57,14 +58,14 @@ nft list table inet ssr_filter
 
 安装脚本会自动调用 `/opt/ssr-admin-panel/scripts/optimize_server.sh`。除 systemd、ulimit、sysctl、Fast Open、日志轮转、fail2ban 外，脚本还会默认启用两项面向 YouTube/Google 卡顿的服务端防护：
 
-- IPv6 目标防护：为 `/usr/local/shadowsocksr/user-config.json` 和 `/usr/local/shadowsocksr/mudb.json` 写入 `forbidden_ip`，包含 `127.0.0.0/8,::1/128,::/0`。服务器没有真实 IPv6 出口时，SSR 会快速拒绝 IPv6 目标，客户端通常会回落到 IPv4。
+- IPv6 目标防护：为 `/usr/local/shadowsocksr/mudb.json` 的用户配置写入 `forbidden_ip`，包含 `127.0.0.0/8,::1/128,::/0`。服务器没有真实 IPv6 出口时，SSR 会快速拒绝 IPv6 目标，客户端通常会回落到 IPv4。
 - QUIC 回落：写入 `/etc/nftables.d/ssr-filter.nft`，只拦截服务器出站 `udp/443`，不拦截 `tcp/443`。这会促使 YouTube/Google 从 QUIC/HTTP3 回落到 TCP/TLS。
 
 相关配置会备份为同目录 `.bak-YYYYmmdd-HHMMSS` 文件。运行时规则和持久化配置可用下面的命令检查：
 
 ```bash
 nft list table inet ssr_filter
-grep -R "::/0" /usr/local/shadowsocksr/mudb.json /usr/local/shadowsocksr/user-config.json
+grep -R "::/0" /usr/local/shadowsocksr/mudb.json
 ```
 
 临时关闭某项优化：
