@@ -333,7 +333,7 @@ sync_project_files() {
     fi
 
     mkdir -p "$target_dir"
-    find "$target_dir" -mindepth 1 -maxdepth 1 ! -name config.py ! -name backups -exec rm -rf {} +
+    find "$target_dir" -mindepth 1 -maxdepth 1 ! -name config.py ! -name backups ! -name venv -exec rm -rf {} +
     cp -R "$source_dir"/. "$target_dir"/
     SYNC_REVISION=$(git -C "$tmp_clone_dir" rev-parse --short HEAD 2>/dev/null || echo "")
     rm -rf "$tmp_clone_dir"

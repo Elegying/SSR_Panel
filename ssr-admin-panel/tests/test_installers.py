@@ -181,6 +181,11 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("ensure_panel_venv", content)
             self.assertIn('PYTHON3_BIN="${VENV_DIR}/bin/python"', content)
 
+    def test_project_sync_preserves_panel_virtualenv(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("! -name venv", content)
+
     def test_installers_do_not_require_flask_limiter_to_start_panel(self):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
