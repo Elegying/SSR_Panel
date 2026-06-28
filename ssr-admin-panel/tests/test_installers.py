@@ -185,6 +185,16 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("${_yum} makecache", content)
         self.assertNotIn("\\${_yum}", content)
 
+    def test_ssrmu_does_not_require_unzip_when_git_or_tar_is_available(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+
+        self.assertIn("git clone --depth 1 --branch manyuser", content)
+        self.assertIn("manyuser.tar.gz", content)
+        self.assertIn("command -v git", content)
+        self.assertIn("command -v tar", content)
+        self.assertIn("command -v unzip", content)
+        self.assertNotIn("依赖 unzip(解压压缩包) 安装失败", content)
+
     def test_optimizer_sysctl_failure_does_not_abort_full_deploy(self):
         content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
         self.assertIn("ssr-admin-sysctl.log", content)

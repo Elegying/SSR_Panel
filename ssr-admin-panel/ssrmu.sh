@@ -930,25 +930,39 @@ Centos_yum(){
 	local _yum="yum"
 	if command -v dnf >/dev/null 2>&1; then _yum="dnf"; fi
 	${_yum} makecache -q 2>/dev/null || true
-	${_yum} install -y vim unzip cronie python3 curl wget 2>/dev/null || ${_yum} install -y vim unzip crond python3
+	${_yum} install -y vim git tar gzip unzip cronie python3 curl wget 2>/dev/null || ${_yum} install -y vim git tar gzip crond python3 curl wget 2>/dev/null || true
 }
 Debian_apt(){
 	apt-get update -qq
-	apt-get install -y -qq vim unzip cron python3 curl wget 2>/dev/null || apt-get install -y vim unzip cron python3 curl wget
+	apt-get install -y -qq vim git tar gzip unzip cron python3 curl wget 2>/dev/null || apt-get install -y vim git tar gzip cron python3 curl wget 2>/dev/null || true
 }
 # 下载 ShadowsocksR
 Download_SSR(){
 	cd "/usr/local"
-	wget -N "https://github.com/ToyoDAdoubiBackup/shadowsocksr/archive/manyuser.zip"
-	#git config --global http.sslVerify false
-	#env GIT_SSL_NO_VERIFY=true git clone -b manyuser https://github.com/ToyoDAdoubiBackup/shadowsocksr.git
-	#[[ ! -e ${ssr_folder} ]] && echo -e "${Error} ShadowsocksR服务端 下载失败 !" && exit 1
-	[[ ! -e "manyuser.zip" ]] && echo -e "${Error} ShadowsocksR服务端 压缩包 下载失败 !" && rm -rf manyuser.zip && exit 1
-	unzip "manyuser.zip"
-	[[ ! -e "/usr/local/shadowsocksr-manyuser/" ]] && echo -e "${Error} ShadowsocksR服务端 解压失败 !" && rm -rf manyuser.zip && exit 1
-	mv "/usr/local/shadowsocksr-manyuser/" "/usr/local/shadowsocksr/"
-	[[ ! -e "/usr/local/shadowsocksr/" ]] && echo -e "${Error} ShadowsocksR服务端 重命名失败 !" && rm -rf manyuser.zip && rm -rf "/usr/local/shadowsocksr-manyuser/" && exit 1
-	rm -rf manyuser.zip
+	rm -rf "/usr/local/shadowsocksr-manyuser/" "/usr/local/manyuser.zip" "/usr/local/manyuser.tar.gz"
+
+	if command -v git >/dev/null 2>&1; then
+		git clone --depth 1 --branch manyuser https://github.com/ToyoDAdoubiBackup/shadowsocksr.git "${ssr_folder}" 2>/dev/null || true
+	fi
+
+	if [[ ! -e "${ssr_folder}" ]] && command -v tar >/dev/null 2>&1; then
+		wget -O "manyuser.tar.gz" "https://github.com/ToyoDAdoubiBackup/shadowsocksr/archive/refs/heads/manyuser.tar.gz" 2>/dev/null || true
+		if [[ -s "manyuser.tar.gz" ]]; then
+			tar -xzf "manyuser.tar.gz" 2>/dev/null || true
+			[[ -e "/usr/local/shadowsocksr-manyuser/" ]] && mv "/usr/local/shadowsocksr-manyuser/" "${ssr_folder}"
+		fi
+	fi
+
+	if [[ ! -e "${ssr_folder}" ]] && command -v unzip >/dev/null 2>&1; then
+		wget -O "manyuser.zip" "https://github.com/ToyoDAdoubiBackup/shadowsocksr/archive/manyuser.zip" 2>/dev/null || true
+		if [[ -s "manyuser.zip" ]]; then
+			unzip -q "manyuser.zip" 2>/dev/null || true
+			[[ -e "/usr/local/shadowsocksr-manyuser/" ]] && mv "/usr/local/shadowsocksr-manyuser/" "${ssr_folder}"
+		fi
+	fi
+
+	[[ ! -e "${ssr_folder}" ]] && echo -e "${Error} ShadowsocksR 服务端下载或解压失败，请检查网络、GitHub 访问或系统包源 !" && rm -rf manyuser.zip manyuser.tar.gz "/usr/local/shadowsocksr-manyuser/" && exit 1
+	rm -rf manyuser.zip manyuser.tar.gz "/usr/local/shadowsocksr-manyuser/"
 	cd "shadowsocksr"
 	cp "${ssr_folder}/config.json" "${config_user_file}"
 	cp "${ssr_folder}/mysql.json" "${ssr_folder}/usermysql.json"
@@ -1007,7 +1021,10 @@ Installation_dependency(){
 	else
 		Debian_apt
 	fi
-	[[ ! -e "/usr/bin/unzip" ]] && echo -e "${Error} 依赖 unzip(解压压缩包) 安装失败，多半是软件包源的问题，请检查 !" && exit 1
+	if ! command -v git >/dev/null 2>&1 && ! command -v tar >/dev/null 2>&1 && ! command -v unzip >/dev/null 2>&1; then
+		echo -e "${Error} 缺少 git/tar/unzip，无法下载或解压 ShadowsocksR 服务端，请先修复软件包源后重试 !"
+		exit 1
+	fi
 	Check_python
 	#echo "nameserver 8.8.8.8" > /etc/resolv.conf
 	#echo "nameserver 8.8.4.4" >> /etc/resolv.conf
