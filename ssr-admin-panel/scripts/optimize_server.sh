@@ -63,7 +63,8 @@ WorkingDirectory=${SSR_DIR}
 ExecStart=${PYTHON_BIN} ${SSR_DIR}/server.py a
 Restart=always
 RestartSec=3
-LimitNOFILE=65535
+LimitNOFILE=512000
+LimitNPROC=512000
 
 [Install]
 WantedBy=multi-user.target
@@ -95,21 +96,21 @@ SERVICE
 setup_ulimit() {
     echo -e "${GREEN}[优化 2/7] 提升文件描述符限制...${NC}"
 
-    if grep -q "nofile 65535" "$LIMITS_CONF" 2>/dev/null; then
-        log_ok "ulimit 已是 65535，跳过"
+    if grep -q "nofile 512000" "$LIMITS_CONF" 2>/dev/null; then
+        log_ok "ulimit 已是 512000，跳过"
         return
     fi
 
     cat >> "$LIMITS_CONF" <<'EOF'
 
 # SSR Server optimization - raised file descriptor limit
-* soft nofile 65535
-* hard nofile 65535
-root soft nofile 65535
-root hard nofile 65535
+* soft nofile 512000
+* hard nofile 512000
+root soft nofile 512000
+root hard nofile 512000
 EOF
 
-    log_ok "ulimit 已提升到 65535（新会话生效，SSR 服务已通过 systemd LimitNOFILE 设置）"
+    log_ok "ulimit 已提升到 512000（新会话生效，SSR 服务已通过 systemd LimitNOFILE 设置）"
 }
 
 # ── 3. 内核参数优化 ───────────────────────────────────────────
@@ -117,6 +118,10 @@ setup_sysctl() {
     echo -e "${GREEN}[优化 3/7] 优化内核网络参数...${NC}"
 
     cat > "$SYSCTL_CONF" <<'EOF'
+# ── BBR / fq（持久化拥塞控制设置，重启后仍生效）──
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+
 # ── TCP 缓冲区（配合 BBR 发挥最大吞吐）──
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
@@ -136,11 +141,14 @@ net.ipv4.tcp_tw_reuse = 1
 # ── MTU 探测 + 并发 backlog ──
 net.ipv4.tcp_mtu_probing = 1
 net.core.netdev_max_backlog = 5000
+net.core.somaxconn = 4096
+net.ipv4.tcp_max_syn_backlog = 8192
+net.ipv4.ip_local_port_range = 10000 65535
 net.ipv4.tcp_slow_start_after_idle = 0
 EOF
 
     if sysctl --system > /tmp/ssr-admin-sysctl.log 2>&1; then
-        log_ok "内核参数已生效（TCP 缓冲区 16MB / TFO / 快速回收 / MTU 探测）"
+        log_ok "内核参数已生效（BBR/fq / TCP 缓冲区 16MB / TFO / backlog / 端口范围）"
     else
         log_warn "内核参数未完全生效，已保留配置但不阻断部署；详情见 /tmp/ssr-admin-sysctl.log"
     fi

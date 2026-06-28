@@ -117,6 +117,7 @@ bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 
 该脚本默认会：
 
+- 面向统一入口端口（例如 `18899`）的多用户部署，持久化 BBR/fq、TFO、连接队列、端口范围和 systemd 文件句柄/进程数上限，提升单入口承载能力。
 - 为 `mudb.json` 的用户配置写入 `forbidden_ip`，禁止代理 IPv6 目标 `::/0`，避免服务器没有 IPv6 出口时 YouTube/Google 连接反复超时。
 - 写入 `/etc/nftables.d/ssr-filter.nft` 并持久化 include，精确拦截出站 `udp/443`，不影响正常 `tcp/443` HTTPS。
 - 保留已有 nftables/fail2ban 表，避免覆盖现有防火墙规则。

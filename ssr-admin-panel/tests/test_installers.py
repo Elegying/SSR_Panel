@@ -113,6 +113,17 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("udp dport 443 reject", content)
         self.assertNotIn("tcp dport 443 reject", content)
 
+    def test_optimizer_tunes_shared_entry_port_capacity(self):
+        content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+
+        self.assertIn("LimitNOFILE=512000", content)
+        self.assertIn("LimitNPROC=512000", content)
+        self.assertIn("net.core.default_qdisc = fq", content)
+        self.assertIn("net.ipv4.tcp_congestion_control = bbr", content)
+        self.assertIn("net.core.somaxconn = 4096", content)
+        self.assertIn("net.ipv4.tcp_max_syn_backlog = 8192", content)
+        self.assertIn("net.ipv4.ip_local_port_range = 10000 65535", content)
+
     def test_optimizer_persists_nft_rule_without_overwriting_existing_tables(self):
         content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
         self.assertIn("/etc/nftables.d", content)
