@@ -26,9 +26,10 @@ jobs:
         run: |
           flake8 anytls-panel/ --count --select=E9,F63,F7,F82 --show-source --statistics
           flake8 ssr-admin-panel/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          bash -n anytls-panel/*.sh ssr-admin-panel/*.sh ssr-admin-panel/scripts/*.sh ssr-server-optimizer/*.sh
 
       - name: Test
         run: |
-          cd anytls-panel && python -m pytest tests/ -v || true
-          cd ../ssr-admin-panel && python -m pytest tests/ -v || true
-          cd ../ssr-server-optimizer && python -m pytest tests/ -v || true
+          cd anytls-panel && python -m pytest tests/ -v
+          cd ../ssr-admin-panel && python -m pytest tests/ -v
+          cd ../ssr-server-optimizer && python -m pytest tests/ -v
