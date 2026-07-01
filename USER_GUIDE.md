@@ -89,6 +89,22 @@ curl -X POST https://your-server/api/sync-all
 
 生产环境建议通过登录后的面板按钮操作，避免把管理接口暴露给公网脚本。
 
+### 配置流量上报 token
+
+AnyTLS Panel 的流量上报接口需要独立 API token。部署脚本会生成并保存到面板目录的 `.traffic_api_token`：
+
+```bash
+cat /opt/anytls-panel/.traffic_api_token
+```
+
+节点侧 `traffic_collector.sh` 需要配置：
+
+```bash
+PANEL_URL="https://your-panel.example"
+PASSWORD="节点密码"
+API_TOKEN="上面文件里的 token"
+```
+
 ### 管理 SSR 用户
 
 SSR Admin Panel 支持在 Web 页面中添加、删除、启用、禁用用户，并查看流量与设备统计。命令行仍可使用原 SSR 管理脚本：
