@@ -1,77 +1,176 @@
-# SSR Panel 运维指南
+# SSR_Panel 运维指南
 
-SSR Panel 是一套 ShadowsocksR/AnyTLS 多节点管理面板，包含 AnyTLS Panel 和 SSR Admin Panel 两个后台。
+SSR_Panel 包含两类 Web 面板和一个服务器优化工具：
+
+- `ssr-admin-panel`：管理 ShadowsocksR 用户、流量、设备统计和服务端优化。
+- `anytls-panel`：通过订阅导入统一管理多协议节点账号。
+- `ssr-server-optimizer`：优化老版 Python ShadowsocksR 的 TCP、systemd 和运行参数。
+
+## 部署前准备
+
+- 推荐使用 Ubuntu 20.04+ 或 Debian 10+。
+- 服务器需要 `systemd`、`curl`、`bash`、`python3`。
+- Web 面板建议放在 Nginx 反向代理和 HTTPS 后面。
+- 执行安装脚本前，先确认服务器已有快照或备份。
 
 ## 快速部署
 
+### 部署 AnyTLS Panel
+
 ```bash
 git clone https://github.com/Elegying/SSR_Panel.git
-cd SSR_Panel
-# 部署 AnyTLS 面板
-cd anytls-panel && bash deploy.sh
-# 或：部署 SSR 管理面板
-cd ssr-admin-panel && bash install.sh
+cd SSR_Panel/anytls-panel
+bash deploy.sh
 ```
 
-## 功能概览
+指定端口：
 
-### AnyTLS Panel
-- **多账户管理**：订阅 URL 导入，自动解析节点
-- **流量统计**：记录每账户流量使用量
-- **到期提醒**：订阅过期日期显示
-- **节点列表**：查看/搜索所有节点
-- **Web API**：提供节点查询 HTTP API
+```bash
+bash deploy.sh 9090
+```
 
-### SSR Admin Panel
-- **用户管理**：添加/编辑/删除 SSR 用户
-- **设备统计**：连接设备数和流量图表
-- **服务器优化**：一键 TCP 优化脚本
-- **审计日志**：所有操作记录到 `/var/log/ssr-admin-panel/`
-- **CSRF 保护**：防跨站请求伪造
+### 部署 SSR Admin Panel
 
-## 默认账户
+如果需要同时安装 SSR 和管理面板：
 
-首次部署后自动创建管理员账户：
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh -o install-all.sh
+bash install-all.sh
+```
 
-- 用户名：`admin`
-- 密码：随机生成（首次启动时输出到终端）
+如果服务器已安装 SSR，只增加管理面板：
 
-> ⚠️ 请首次登录后立即修改密码。
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install.sh -o install.sh
+bash install.sh
+```
+
+### 仅执行 SSR 优化
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh | bash
+```
+
+正式执行前可先预检：
+
+```bash
+bash optimize-ssr.sh --check
+```
+
+## 默认账户和密码
+
+首次部署后会创建管理员账户。不同子项目的账号来源略有差异：
+
+- `anytls-panel`：部署脚本会创建管理员账号，首次登录后应立即修改密码。
+- `ssr-admin-panel`：安装时会提示设置管理员用户名和密码，配置保存在 `/opt/ssr-admin-panel/config.py`。
+
+如果忘记 SSR Admin Panel 密码，可在服务器上编辑：
+
+```bash
+nano /opt/ssr-admin-panel/config.py
+systemctl restart ssr-admin
+```
 
 ## 常见操作
 
-**添加订阅账户（AnyTLS Panel）**
-1. 登录面板 → 点击「添加账户」
-2. 输入账户名称和订阅 URL
-3. 系统自动解析节点并开始流量统计
+### 添加 AnyTLS 订阅账号
 
-**同步所有订阅**
+1. 登录 AnyTLS Panel。
+2. 进入「账号管理」。
+3. 点击「导入订阅」。
+4. 填写账号名称和订阅 URL。
+5. 保存后执行同步，面板会自动解析节点、流量和到期时间。
+
+### 同步所有订阅
+
 ```bash
-# 手动触发同步（需登录后访问）：
 curl -X POST https://your-server/api/sync-all
 ```
 
-**查看流量统计**
-1. 进入账户详情页
-2. 查看「已用流量 / 总流量」和到期时间
+生产环境建议通过登录后的面板按钮操作，避免把管理接口暴露给公网脚本。
 
-**修改管理员密码**
-- AnyTLS Panel：登录后点击右上角用户菜单 → 修改密码
-- SSR Admin Panel：编辑 `config.py` 中的 `ADMIN_PASS`
+### 管理 SSR 用户
 
-## 安全建议
-
-1. **部署 Nginx 反向代理 + HTTPS**
-2. **修改默认端口号**
-3. **定期更新**：`bash update.sh`
-4. **备份数据库**：`cp anytls.db /var/backups/`
-5. **防火墙限制**：仅允许管理 IP 访问 Web 端口
-
-## 服务器优化
+SSR Admin Panel 支持在 Web 页面中添加、删除、启用、禁用用户，并查看流量与设备统计。命令行仍可使用原 SSR 管理脚本：
 
 ```bash
-cd ssr-server-optimizer
-bash optimize-ssr.sh
+bash /usr/local/shadowsocksr/shadowsocks/mujson_mgr.sh
 ```
 
-该脚本会自动优化 TCP 参数、文件描述符限制、内核参数等。
+### 更新 SSR Admin Panel
+
+```bash
+bash /opt/ssr-admin-panel/update.sh
+```
+
+查看当前版本：
+
+```bash
+bash /opt/ssr-admin-panel/update.sh --version
+```
+
+## 服务管理
+
+AnyTLS Panel：
+
+```bash
+systemctl status anytls-panel
+systemctl restart anytls-panel
+journalctl -u anytls-panel -f
+```
+
+SSR Admin Panel：
+
+```bash
+systemctl status ssr-admin
+systemctl restart ssr-admin
+journalctl -u ssr-admin -f
+```
+
+SSR 服务：
+
+```bash
+systemctl status ssr --no-pager
+journalctl -u ssr -n 50 --no-pager
+```
+
+## 备份建议
+
+建议至少备份以下文件：
+
+- AnyTLS Panel 数据库：`anytls-panel/anytls.db` 或部署目录中的数据库文件。
+- SSR Admin Panel 配置：`/opt/ssr-admin-panel/config.py`。
+- SSR 用户文件：`/usr/local/shadowsocksr/mudb.json`。
+- 面板服务文件：`/etc/systemd/system/anytls-panel.service`、`/etc/systemd/system/ssr-admin.service`。
+
+示例：
+
+```bash
+mkdir -p /var/backups/ssr-panel
+cp /opt/ssr-admin-panel/config.py /var/backups/ssr-panel/
+cp /usr/local/shadowsocksr/mudb.json /var/backups/ssr-panel/
+```
+
+## 安全检查清单
+
+- 已启用 HTTPS。
+- 已修改默认密码。
+- 面板端口只允许可信 IP 访问。
+- 服务器防火墙没有暴露不必要端口。
+- 日志、截图和工单中没有订阅 URL、密码、token、服务器 IP 或面板凭据。
+- 定期执行更新脚本并保留最近一次可恢复备份。
+
+## 排障入口
+
+部署或更新后建议先检查：
+
+```bash
+systemctl is-active anytls-panel
+systemctl is-active ssr-admin
+systemctl is-active ssr
+journalctl -u anytls-panel -n 50 --no-pager
+journalctl -u ssr-admin -n 50 --no-pager
+journalctl -u ssr -n 50 --no-pager
+```
+
+如果优化脚本执行失败，先查看脚本输出中的备份路径和 `/tmp/ssr-optimizer-sysctl.log`。大多数失败都可以通过自动备份恢复到执行前状态。
