@@ -428,6 +428,13 @@ class AppSecurityTests(unittest.TestCase):
         bad_response = self.post_json("/api/add", {"port": "abc"})
         self.assertEqual(bad_response.status_code, 400)
 
+        fractional_port = self.post_json("/api/add", {"port": 9001.5, "transfer": 2048})
+        self.assertEqual(fractional_port.status_code, 400)
+
+        fractional_transfer = self.post_json("/api/add", {"port": 9001, "transfer": 2048.5})
+        self.assertEqual(fractional_transfer.status_code, 400)
+        self.assertEqual(self.read_users(), [])
+
         ok_response = self.post_json(
             "/api/add",
             {
