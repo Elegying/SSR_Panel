@@ -51,6 +51,8 @@ curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-p
 3. 自动部署管理面板
 4. 自动应用 SSR 服务端优化（BBR/TFO、IPv6 目标防护、UDP/443 放行、fail2ban）
 
+完整部署首次创建 SSR 默认用户时，初始密码会保存到 `/opt/ssr-admin-panel/.initial_ssr_password`，部署输出默认隐藏密码和 SSR 链接；如确需打印敏感值，可临时设置 `SSR_ADMIN_SHOW_SECRETS=1`。
+
 ### 方式三：仅安装管理面板
 
 已安装SSR的服务器，只安装管理面板：

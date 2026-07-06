@@ -35,6 +35,10 @@ MUDB_FILE="${SSR_DIR}/mudb.json"
 DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
 DEVICE_STATS_INTERVAL="${SSR_DEVICE_STATS_INTERVAL:-15}"
 DEVICE_STATS_WINDOW="${SSR_DEVICE_STATS_WINDOW:-900}"
+SSR_DEFAULT_PASSWORD="${SSR_DEFAULT_PASSWORD:-}"
+SSR_INITIAL_PASSWORD_FILE="${SSR_INITIAL_PASSWORD_FILE:-${PANEL_DIR}/.initial_ssr_password}"
+SSR_INSTALL_LOG="${SSR_INSTALL_LOG:-${PANEL_DIR}/ssr-install.log}"
+SSR_INSTALLED_BY_SCRIPT=0
 REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/SSR_Panel.git}"
 REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
 REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
@@ -174,6 +178,44 @@ install_single_python_package() {
         esac
     fi
     "$PYTHON3_BIN" -m pip install "${pip_install_opts[@]}" -q "${package}"
+}
+
+generate_password() {
+    "$PYTHON3_BIN" - <<'PY'
+import secrets
+import string
+
+alphabet = string.ascii_letters + string.digits
+print(''.join(secrets.choice(alphabet) for _ in range(18)))
+PY
+}
+
+harden_sensitive_files() {
+    chmod 600 "$PANEL_DIR/config.py" "$MUDB_FILE" "$SSR_INITIAL_PASSWORD_FILE" 2>/dev/null || true
+}
+
+persist_initial_ssr_password() {
+    mkdir -p "$(dirname "$SSR_INITIAL_PASSWORD_FILE")"
+    install -m 600 /dev/null "$SSR_INITIAL_PASSWORD_FILE"
+    printf '%s\n' "$SSR_DEFAULT_PASSWORD" > "$SSR_INITIAL_PASSWORD_FILE"
+    chmod 600 "$SSR_INITIAL_PASSWORD_FILE" 2>/dev/null || true
+}
+
+print_sanitized_ssr_install_log() {
+    SSR_DEFAULT_PASSWORD="$SSR_DEFAULT_PASSWORD" "$PYTHON3_BIN" - "$SSR_INSTALL_LOG" <<'PY' | tail -n 80 || true
+import os
+import re
+import sys
+from pathlib import Path
+
+log_path = Path(sys.argv[1])
+password = os.environ.get("SSR_DEFAULT_PASSWORD", "")
+text = log_path.read_text(encoding="utf-8", errors="replace")
+if password:
+    text = text.replace(password, "[redacted]")
+text = re.sub(r"ssr://[A-Za-z0-9_=-]+", "ssr://[redacted]", text)
+print(text, end="" if text.endswith("\n") else "\n")
+PY
 }
 
 ensure_panel_venv() {
@@ -508,11 +550,30 @@ if [ -d "$SSR_DIR" ]; then
     echo -e "${GREEN}检测到已安装SSR，跳过安装...${NC}"
 else
     echo -e "${GREEN}开始自动安装 SSR...${NC}"
+    SSR_INSTALLED_BY_SCRIPT=1
+    if [ -z "$SSR_DEFAULT_PASSWORD" ]; then
+        SSR_DEFAULT_PASSWORD="$(generate_password)"
+    fi
+    persist_initial_ssr_password
 
     chmod +x $PANEL_DIR/ssrmu.sh
 
-    # 使用管道输入：先发送1选择安装，然后发送50个空行接受所有默认值
-    (echo '1'; for i in $(seq 1 50); do echo ''; done) | bash $PANEL_DIR/ssrmu.sh
+    # 使用管道输入：安装 SSR，保留默认用户名/端口，但使用随机初始密码。
+    mkdir -p "$(dirname "$SSR_INSTALL_LOG")"
+    install -m 600 /dev/null "$SSR_INSTALL_LOG"
+    if ! {
+        printf '1\n'
+        printf '\n'
+        printf '\n'
+        printf '%s\n' "$SSR_DEFAULT_PASSWORD"
+        for i in $(seq 1 50); do printf '\n'; done
+    } | bash "$PANEL_DIR/ssrmu.sh" >"$SSR_INSTALL_LOG" 2>&1; then
+        echo -e "${RED}SSR 安装失败，日志: ${SSR_INSTALL_LOG}${NC}"
+        print_sanitized_ssr_install_log
+        exit 1
+    fi
+    chmod 600 "$SSR_INSTALL_LOG" 2>/dev/null || true
+    echo -e "${GREEN}SSR 安装日志: ${SSR_INSTALL_LOG}${NC}"
 
     if [ -d "$SSR_DIR" ]; then
         echo -e "${GREEN}✓ SSR安装完成${NC}"
@@ -521,6 +582,7 @@ else
     fi
 fi
 
+harden_sensitive_files
 apply_ssr_python_compatibility_fix
 
 echo
@@ -572,6 +634,7 @@ with config_path.open("w", encoding="utf-8") as f:
         f.write(f"{key} = {value!r}\n")
 PY
 fi
+harden_sensitive_files
 
 echo -e "${GREEN}配置系统服务...${NC}"
 install_device_stats_service
@@ -630,13 +693,25 @@ IP=$(curl -s ip.sb 2>/dev/null || curl -s ifconfig.me 2>/dev/null || echo 'your-
 echo -e "${CYAN}管理面板信息:${NC}"
 echo -e "  访问地址: ${YELLOW}http://${IP}:5000${NC}"
 echo -e "  用户名:   ${YELLOW}${ADMIN_USER}${NC}"
-echo -e "  密码:     ${YELLOW}${ADMIN_PASS}${NC}"
+if [ "${SSR_ADMIN_SHOW_SECRETS:-0}" = "1" ]; then
+    echo -e "  密码:     ${YELLOW}${ADMIN_PASS}${NC}"
+else
+    echo -e "  密码:     ${YELLOW}已写入 ${PANEL_DIR}/config.py（默认隐藏）${NC}"
+fi
 echo -e "  版本:     ${YELLOW}${APP_VERSION}${NC}"
 echo
 echo -e "${CYAN}SSR默认用户:${NC}"
-echo -e "  用户名:   ${YELLOW}doubi${NC}"
-echo -e "  端口:     ${YELLOW}2333${NC}"
-echo -e "  密码:     ${YELLOW}doub.io${NC}"
+if [ "$SSR_INSTALLED_BY_SCRIPT" -eq 1 ]; then
+    echo -e "  用户名:   ${YELLOW}doubi${NC}"
+    echo -e "  端口:     ${YELLOW}2333${NC}"
+    if [ "${SSR_ADMIN_SHOW_SECRETS:-0}" = "1" ]; then
+        echo -e "  密码:     ${YELLOW}${SSR_DEFAULT_PASSWORD}${NC}"
+    else
+        echo -e "  密码文件: ${YELLOW}${SSR_INITIAL_PASSWORD_FILE}${NC}"
+    fi
+else
+    echo -e "  ${YELLOW}检测到已有 SSR，未改动现有用户${NC}"
+fi
 echo
 echo -e "${CYAN}常用命令:${NC}"
 echo -e "  重启面板:     ${YELLOW}systemctl restart ssr-admin${NC}"

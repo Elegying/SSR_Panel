@@ -94,7 +94,7 @@ GitHub Actions 会在 push 和 pull request 时自动运行 CI。
 ## 安全建议
 
 - 面板建议部署在 Nginx 反向代理后，并启用 HTTPS。
-- 首次部署后立即修改默认管理员密码。
+- 首次部署后确认管理员密码，并妥善保存 `/opt/ssr-admin-panel/.initial_ssr_password` 中的 SSR 初始密码。
 - Web 管理端口应通过防火墙限制访问来源。
 - 定期备份数据库、配置文件和 SSR 用户文件。
 - 不要在 Issue、日志、截图或命令历史中泄露订阅 URL、密码、服务器 IP、token 或面板凭据。
