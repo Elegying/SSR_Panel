@@ -326,6 +326,17 @@ def to_int(value, default=0):
         return default
 
 
+def to_strict_int(value, default=None):
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, float) and not value.is_integer():
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 def format_bytes(bytes_val):
     bytes_val = float(max(0, to_int(bytes_val, 0)))
     for unit in ["B", "KB", "MB", "GB", "TB"]:
@@ -1189,7 +1200,7 @@ def validate_new_user(data, existing_users):
     if not isinstance(data, dict):
         return None, "请求数据格式错误"
 
-    port = to_int(data.get("port"), None)
+    port = to_strict_int(data.get("port"), None)
     if port is None or not 1 <= port <= 65535:
         return None, "端口必须是 1-65535 之间的数字"
 
@@ -1198,7 +1209,13 @@ def validate_new_user(data, existing_users):
         return None, "用户名不能为空"
 
     password = str(data.get("password") or "").strip() or generate_password()
-    transfer_enable = to_int(data.get("transfer"), DEFAULT_TRANSFER)
+    raw_transfer = data.get("transfer")
+    if raw_transfer in (None, ""):
+        transfer_enable = DEFAULT_TRANSFER
+    else:
+        transfer_enable = to_strict_int(raw_transfer, None)
+        if transfer_enable is None:
+            return None, "流量限额必须是非负整数"
     if transfer_enable < 0:
         return None, "流量限额不能小于 0"
 
