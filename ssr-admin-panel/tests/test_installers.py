@@ -141,6 +141,20 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("scripts/optimize_server.sh", content)
         self.assertIn("bash \"${optimizer}\"", content)
 
+    def test_update_script_installs_missing_runtime_prerequisites(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+
+        self.assertIn("APT_UPDATED=0", content)
+        self.assertIn("RPM_UPDATED=0", content)
+        self.assertIn("install_packages()", content)
+        self.assertIn('"${rpm_cmd}" makecache -q', content)
+        self.assertIn("ensure_update_runtime", content)
+        self.assertIn('ensure_command "git" "git"', content)
+        self.assertIn('ensure_command "systemctl" "systemd"', content)
+        self.assertIn('ensure_command "python3" "python3"', content)
+        self.assertIn("install_packages python3-pip", content)
+        self.assertIn('ensure_command "ss" "$_ss_pkg"', content)
+
     def test_uninstall_script_requires_explicit_confirmation(self):
         content = (REPO_ROOT / "uninstall.sh").read_text(encoding="utf-8")
         self.assertIn("--yes", content)
