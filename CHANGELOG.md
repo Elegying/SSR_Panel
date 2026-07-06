@@ -4,6 +4,7 @@
 
 ### Changed
 - ssr-admin-panel: `optimize_server.sh` 默认放行服务器出站 UDP/443，并清理旧版部署留下的 QUIC 拦截规则；如需强制 TCP 回落，可显式设置 `SSR_BLOCK_UDP_443=1`。
+- anytls-panel: 拆分到独立仓库 https://github.com/Elegying/AnyTLS_Panel，SSR_Panel 仅保留 SSR 管理面板和服务器优化工具。
 
 ## v1.0.1 (2026-06-26)
 
