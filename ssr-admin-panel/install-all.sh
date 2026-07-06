@@ -46,6 +46,7 @@ REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
 PYTHON3_BIN="/usr/bin/python3"
 SYSTEM_PYTHON3_BIN="/usr/bin/python3"
 APT_UPDATED=0
+RPM_UPDATED=0
 SYNC_REVISION=""
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
@@ -69,22 +70,30 @@ echo -e "${CYAN}[ 0/6 ] 快速准备（跳过依赖检测）...${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 install_packages() {
     if [ "$SYS" = "centos" ]; then
-        if command -v dnf &>/dev/null; then
-            dnf install -y -q "$@" 2>/dev/null
-        else
-            yum install -y -q "$@" 2>/dev/null
+        local rpm_cmd="yum"
+        command -v dnf &>/dev/null && rpm_cmd="dnf"
+        if [ "$RPM_UPDATED" -eq 0 ]; then
+            echo -e "${YELLOW}刷新 yum/dnf 软件源索引...${NC}"
+            "${rpm_cmd}" makecache -q 2>/dev/null || true
+            RPM_UPDATED=1
         fi
+        "${rpm_cmd}" install -y -q "$@" 2>/dev/null
         return
     fi
 
-    apt-get install -y -qq "$@" 2>/dev/null && return
-
-    # 首次失败 → 更新索引后重试（仅一次）
     if [ "$APT_UPDATED" -eq 0 ]; then
         echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
         apt-get update -qq
         APT_UPDATED=1
-        apt-get install -y -qq "$@"
+    fi
+    apt-get install -y -qq "$@"
+}
+
+python_venv_packages() {
+    if [ "$SYS" = "centos" ]; then
+        echo "python3-pip python3-virtualenv"
+    else
+        echo "python3-venv python3-pip"
     fi
 }
 
@@ -231,7 +240,7 @@ ensure_panel_venv() {
     if [ ! -x "${VENV_DIR}/bin/python" ]; then
         echo -e "${YELLOW}创建面板 Python 虚拟环境...${NC}"
         "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}" 2>/dev/null || {
-            install_packages python3-venv python3-pip 2>/dev/null || true
+            install_packages $(python_venv_packages) 2>/dev/null || install_packages python3-pip 2>/dev/null || true
             "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}"
         }
     fi
@@ -247,8 +256,23 @@ prepare_minimal_runtime() {
     # 批量安装所有系统依赖（一次 apt-get 调用，比逐个快 3-5 倍）
     local MISSING=""
     local _ss_pkg="iproute2"
-    [ "$SYS" = "centos" ] && _ss_pkg="iproute"
-    for cmd_pkg in "systemctl:systemd" "curl:curl" "ss:${_ss_pkg}" "git:git" "python3:python3"; do
+    local _cron_pkg="cron"
+    if [ "$SYS" = "centos" ]; then
+        _ss_pkg="iproute"
+        _cron_pkg="cronie"
+    fi
+    for cmd_pkg in \
+        "systemctl:systemd" \
+        "curl:curl" \
+        "wget:wget" \
+        "git:git" \
+        "tar:tar" \
+        "gzip:gzip" \
+        "unzip:unzip" \
+        "socat:socat" \
+        "ss:${_ss_pkg}" \
+        "crontab:${_cron_pkg}" \
+        "python3:python3"; do
         local cmd="${cmd_pkg%%:*}" pkg="${cmd_pkg##*:}"
         command -v "$cmd" &>/dev/null || MISSING="$MISSING $pkg"
     done
@@ -333,7 +357,9 @@ apply_ssr_python_compatibility_fix() {
 
 install_device_stats_service() {
     echo -e "${GREEN}配置设备统计服务...${NC}"
-    ensure_minimal_command "ss" "iproute2"
+    local _ss_pkg="iproute2"
+    [ "$SYS" = "centos" ] && _ss_pkg="iproute"
+    ensure_minimal_command "ss" "$_ss_pkg"
     mkdir -p "$(dirname "$DEVICE_STATS_FILE")"
     chmod +x "$PANEL_DIR/scripts/collect_device_stats.py" 2>/dev/null || true
 
