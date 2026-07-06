@@ -2337,7 +2337,7 @@ function setSystemInfo(info){
 function setOptimizationStatus(status){
     const label = status && status.label ? status.label : '未知';
     const details = status
-        ? `IPv6 ${status.ipv6_guard ? '已防护' : '未防护'} / QUIC ${status.quic_guard ? '已回落' : '未回落'}`
+        ? `IPv6 ${status.ipv6_guard ? '已防护' : '未防护'} / UDP443 ${status.quic_guard ? '已拦截' : '已放行'}`
         : '';
     const el = document.getElementById('optimizationStatusText');
     el.textContent = label;

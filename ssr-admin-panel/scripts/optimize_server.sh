@@ -23,7 +23,7 @@ NFTABLES_CONF="/etc/nftables.conf"
 NFTABLES_DIR="/etc/nftables.d"
 SSR_FILTER_NFT="${NFTABLES_DIR}/ssr-filter.nft"
 SSR_BLOCK_IPV6_TARGETS="${SSR_BLOCK_IPV6_TARGETS:-1}"
-SSR_BLOCK_UDP_443="${SSR_BLOCK_UDP_443:-1}"
+SSR_BLOCK_UDP_443="${SSR_BLOCK_UDP_443:-0}"
 
 log_ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 log_warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
@@ -37,6 +37,44 @@ backup_file() {
     local target="$1"
     [ -f "$target" ] || return 0
     cp -a "$target" "${target}.bak-$(timestamp)"
+}
+
+write_udp_443_allow_filter() {
+    mkdir -p "$NFTABLES_DIR"
+    if [ -f "$SSR_FILTER_NFT" ] && ! grep -q "udp dport 443 reject" "$SSR_FILTER_NFT"; then
+        return
+    fi
+
+    backup_file "$SSR_FILTER_NFT"
+    cat > "$SSR_FILTER_NFT" <<'EOF'
+table inet ssr_filter {
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}
+EOF
+}
+
+disable_udp_443_guard() {
+    local persist_filter=0
+    [ -f "$SSR_FILTER_NFT" ] && persist_filter=1
+    if [ -f "$NFTABLES_CONF" ] && grep -q 'ssr-filter\.nft' "$NFTABLES_CONF"; then
+        persist_filter=1
+    fi
+
+    if [ "$persist_filter" -eq 1 ]; then
+        write_udp_443_allow_filter
+    fi
+
+    if command -v nft &>/dev/null; then
+        nft list table inet ssr_filter >/dev/null 2>&1 && nft delete table inet ssr_filter || true
+        if [ "$persist_filter" -eq 1 ] && ! { nft -c -f "$SSR_FILTER_NFT" && nft -f "$SSR_FILTER_NFT"; }; then
+            log_warn "清理 UDP/443 nftables 拦截失败，请手动检查 ${SSR_FILTER_NFT}"
+            return
+        fi
+    fi
+
+    log_ok "已放行服务器出站 UDP/443（保留 QUIC/HTTP3，可避免首次连接回落卡顿）"
 }
 
 # ── 1. SSR systemd 服务 ──────────────────────────────────────
@@ -184,9 +222,9 @@ with open('$SSR_CONFIG', 'w') as f: json.dump(d, f, indent=4, ensure_ascii=False
     fi
 }
 
-# ── 5. IPv6/QUIC 服务端防护 ──────────────────────────────────
+# ── 5. IPv6 防护 / 可选 QUIC 回落 ─────────────────────────────
 setup_ssr_ipv6_quic_guard() {
-    echo -e "${GREEN}[优化 5/7] 配置 IPv6/QUIC 服务端防护...${NC}"
+    echo -e "${GREEN}[优化 5/7] 配置 IPv6 防护 / UDP/443 策略...${NC}"
 
     if [ "${SSR_BLOCK_IPV6_TARGETS}" = "1" ]; then
         local patched_any=0
@@ -248,7 +286,7 @@ PY
     fi
 
     if [ "${SSR_BLOCK_UDP_443}" != "1" ]; then
-        log_warn "SSR_BLOCK_UDP_443=0，跳过 UDP/443 QUIC 拦截"
+        disable_udp_443_guard
         return
     fi
 
@@ -290,7 +328,7 @@ EOF
     elif ! grep -Eq 'ssr-filter\.nft|/etc/nftables\.d/\*\.nft' "$NFTABLES_CONF"; then
         cat >> "$NFTABLES_CONF" <<'EOF'
 
-# SSR Admin Panel: block outbound QUIC/HTTP3 so video sites fall back to TCP.
+# SSR Admin Panel: optional outbound QUIC/HTTP3 block for TCP fallback.
 include "/etc/nftables.d/ssr-filter.nft"
 EOF
     fi
@@ -405,7 +443,7 @@ main() {
     echo -e "${GREEN}========================================${NC}"
     echo -e "  SSR 服务:   $(systemctl is-active ssr.service 2>/dev/null || echo '未运行')"
     echo -e "  fail2ban:   $(systemctl is-active fail2ban 2>/dev/null || echo '未安装')"
-    echo -e "  QUIC拦截:   $(nft list table inet ssr_filter >/dev/null 2>&1 && echo '已启用' || echo '未启用')"
+    echo -e "  UDP/443:    $(command -v nft >/dev/null 2>&1 && nft list table inet ssr_filter 2>/dev/null | grep -q 'udp dport 443 reject' && echo '已拦截' || echo '已放行')"
     echo -e "  监听端口:   $(ss -tlnp 2>/dev/null | grep -c "server.py" || echo 0) 个"
     echo
 }

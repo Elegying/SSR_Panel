@@ -101,6 +101,26 @@ class AppSecurityTests(unittest.TestCase):
     def read_users(self):
         return json.loads(self.mudb_path.read_text(encoding="utf-8"))
 
+    def test_server_optimization_status_treats_udp443_block_as_optional(self):
+        self.write_users([{"user": "u1", "forbidden_ip": "127.0.0.0/8,::1/128,::/0"}])
+
+        def fake_run(args, **kwargs):
+            if args == ["nft", "list", "table", "inet", "ssr_filter"]:
+                return mock.Mock(returncode=0, stdout="table inet ssr_filter { }")
+            if args == ["sysctl", "-n", "net.ipv4.tcp_congestion_control"]:
+                return mock.Mock(returncode=0, stdout="bbr\n")
+            if args == ["sysctl", "-n", "net.core.default_qdisc"]:
+                return mock.Mock(returncode=0, stdout="fq\n")
+            raise AssertionError(f"unexpected command: {args}")
+
+        with mock.patch.object(panel_app.subprocess, "run", side_effect=fake_run):
+            status = panel_app.get_server_optimization_status()
+
+        self.assertTrue(status["ipv6_guard"])
+        self.assertFalse(status["quic_guard"])
+        self.assertTrue(status["enabled"])
+        self.assertEqual(status["label"], "已启用")
+
     def post_json(self, url, payload=None):
         return self.client.post(
             url,

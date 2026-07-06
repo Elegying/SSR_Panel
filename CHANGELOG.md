@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- ssr-admin-panel: `optimize_server.sh` 默认放行服务器出站 UDP/443，并清理旧版部署留下的 QUIC 拦截规则；如需强制 TCP 回落，可显式设置 `SSR_BLOCK_UDP_443=1`。
+
 ## v1.0.1 (2026-06-26)
 
 ### Fixed

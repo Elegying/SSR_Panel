@@ -22,7 +22,7 @@
 - 🔍 **搜索过滤** - 按用户名/端口搜索
 - 📊 **流量排序** - 按流量使用量一键排序
 - 🔐 **登录验证** - 保护管理面板安全
-- 🚀 **服务端视频优化** - 一键部署时自动禁止无出口 IPv6 目标，并拦截出站 UDP/443 促使 YouTube/Google QUIC 回落到 TCP
+- 🚀 **服务端视频优化** - 一键部署时自动禁止无出口 IPv6 目标，默认放行出站 UDP/443 以保留 YouTube/Google QUIC/HTTP3 首连体验
 - 📱 **响应式设计** - 完美支持手机访问
 
 ---
@@ -49,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-p
 1. 设置管理面板用户名/密码
 2. 自动安装SSR
 3. 自动部署管理面板
-4. 自动应用 SSR 服务端优化（BBR/TFO、IPv6 目标防护、UDP/443 QUIC 回落、fail2ban）
+4. 自动应用 SSR 服务端优化（BBR/TFO、IPv6 目标防护、UDP/443 放行、fail2ban）
 
 ### 方式三：仅安装管理面板
 
@@ -119,14 +119,14 @@ bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 
 - 面向统一入口端口（例如 `18899`）的多用户部署，持久化 BBR/fq、TFO、连接队列、端口范围和 systemd 文件句柄/进程数上限，提升单入口承载能力。
 - 为 `mudb.json` 的用户配置写入 `forbidden_ip`，禁止代理 IPv6 目标 `::/0`，避免服务器没有 IPv6 出口时 YouTube/Google 连接反复超时。
-- 写入 `/etc/nftables.d/ssr-filter.nft` 并持久化 include，精确拦截出站 `udp/443`，不影响正常 `tcp/443` HTTPS。
+- 默认放行服务器出站 `udp/443`，并清理旧版脚本留下的 QUIC 拦截规则，避免浏览器首次连接先失败再回落。
 - 保留已有 nftables/fail2ban 表，避免覆盖现有防火墙规则。
 
-如需临时关闭其中一项：
+如需临时关闭 IPv6 目标防护，或强制启用 UDP/443 拦截让 QUIC 回落到 TCP：
 
 ```bash
 SSR_BLOCK_IPV6_TARGETS=0 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
-SSR_BLOCK_UDP_443=0 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
+SSR_BLOCK_UDP_443=1 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 ```
 
 ## 🔄 更新机制

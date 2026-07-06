@@ -56,11 +56,11 @@ nft list table inet ssr_filter
 
 ## SSR 服务端网络优化
 
-安装脚本会自动调用 `/opt/ssr-admin-panel/scripts/optimize_server.sh`。除 systemd、ulimit、sysctl、Fast Open、日志轮转、fail2ban 外，脚本还会默认启用两项面向 YouTube/Google 卡顿的服务端防护：
+安装脚本会自动调用 `/opt/ssr-admin-panel/scripts/optimize_server.sh`。除 systemd、ulimit、sysctl、Fast Open、日志轮转、fail2ban 外，脚本还会默认启用面向 YouTube/Google 卡顿的服务端防护：
 
 - 统一入口承载优化：适用于所有用户通过同一个入口端口（例如 `18899`）连接的部署，持久化 BBR/fq、TFO、`somaxconn`、`tcp_max_syn_backlog`、本地端口范围，以及 SSR systemd 文件句柄/进程数上限。
 - IPv6 目标防护：为 `/usr/local/shadowsocksr/mudb.json` 的用户配置写入 `forbidden_ip`，包含 `127.0.0.0/8,::1/128,::/0`。服务器没有真实 IPv6 出口时，SSR 会快速拒绝 IPv6 目标，客户端通常会回落到 IPv4。
-- QUIC 回落：写入 `/etc/nftables.d/ssr-filter.nft`，只拦截服务器出站 `udp/443`，不拦截 `tcp/443`。这会促使 YouTube/Google 从 QUIC/HTTP3 回落到 TCP/TLS。
+- UDP/443 放行：默认清理旧版脚本留下的出站 `udp/443` 拦截，允许 YouTube/Google QUIC/HTTP3 首连成功，避免先失败再回落造成首屏卡顿。确需强制 TCP 回落时，可手动启用拦截。
 
 相关配置会备份为同目录 `.bak-YYYYmmdd-HHMMSS` 文件。运行时规则和持久化配置可用下面的命令检查：
 
@@ -69,11 +69,11 @@ nft list table inet ssr_filter
 grep -R "::/0" /usr/local/shadowsocksr/mudb.json
 ```
 
-临时关闭某项优化：
+临时关闭 IPv6 目标防护，或强制启用 UDP/443 拦截：
 
 ```bash
 SSR_BLOCK_IPV6_TARGETS=0 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
-SSR_BLOCK_UDP_443=0 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
+SSR_BLOCK_UDP_443=1 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 ```
 
 ## 更新
