@@ -173,6 +173,16 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn('"venv"', content)
         self.assertIn("follow_symlinks=False", content)
 
+    def test_update_script_preserves_local_secret_artifacts_and_uses_venv(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+
+        self.assertIn('VENV_DIR="${SSR_ADMIN_VENV_DIR:-${PANEL_DIR}/venv}"', content)
+        self.assertIn('"${VENV_DIR}/bin/python"', content)
+        self.assertIn('".initial_ssr_password"', content)
+        self.assertIn('"ssr-install.log"', content)
+        self.assertIn('"${PANEL_DIR}/.initial_ssr_password"', content)
+        self.assertIn('"${PANEL_DIR}/ssr-install.log"', content)
+
     def test_installers_harden_sensitive_files(self):
         for script in ("install.sh", "install-all.sh", "update.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
@@ -221,6 +231,11 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("count_ssr_ports", content)
         self.assertIn("mudb.json", content)
         self.assertNotIn('grep -c "server.py"', content)
+
+    def test_optimizer_does_not_print_ipv6_patch_count(self):
+        content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+
+        self.assertNotIn("print(changed)", content)
 
     def test_panel_update_runner_uses_update_script_without_hard_reset(self):
         content = (REPO_ROOT / "scripts" / "run_panel_update.py").read_text(encoding="utf-8")

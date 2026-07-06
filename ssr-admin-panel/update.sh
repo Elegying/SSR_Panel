@@ -19,7 +19,14 @@ DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stat
 DEVICE_STATS_INTERVAL="${SSR_DEVICE_STATS_INTERVAL:-15}"
 DEVICE_STATS_WINDOW="${SSR_DEVICE_STATS_WINDOW:-900}"
 APPLY_SERVER_OPTIMIZATION="${SSR_ADMIN_APPLY_SERVER_OPTIMIZATION:-1}"
-PYTHON3_BIN="${PYTHON3_BIN:-$(command -v python3 2>/dev/null || echo /usr/bin/python3)}"
+VENV_DIR="${SSR_ADMIN_VENV_DIR:-${PANEL_DIR}/venv}"
+if [ -z "${PYTHON3_BIN:-}" ]; then
+    if [ -x "${VENV_DIR}/bin/python" ]; then
+        PYTHON3_BIN="${VENV_DIR}/bin/python"
+    else
+        PYTHON3_BIN="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"
+    fi
+fi
 TMP_CLONE_DIR=""
 STATUS_FILE="${SSR_ADMIN_UPDATE_STATUS_FILE:-}"
 BACKUP_DIR=""
@@ -138,7 +145,7 @@ from pathlib import Path
 source = Path(os.environ["COPY_SOURCE"])
 target = Path(os.environ["COPY_TARGET"])
 mode = os.environ.get("COPY_MODE", "sync")
-exclude = {"backups", "__pycache__", "venv"}
+exclude = {"backups", "__pycache__", "venv", ".initial_ssr_password", "ssr-install.log"}
 if mode == "sync" and not (source / "config.py").exists():
     exclude.add("config.py")
 
@@ -185,7 +192,7 @@ create_full_backup() {
 }
 
 harden_sensitive_files() {
-    chmod 600 "${PANEL_DIR}/config.py" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+    chmod 600 "${PANEL_DIR}/config.py" "${PANEL_DIR}/.initial_ssr_password" "${PANEL_DIR}/ssr-install.log" "${SSR_DIR}/mudb.json" 2>/dev/null || true
 }
 
 restore_backup() {
