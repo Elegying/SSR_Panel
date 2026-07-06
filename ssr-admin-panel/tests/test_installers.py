@@ -104,12 +104,14 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("ssr-device-stats", content)
             self.assertIn("DEVICE_STATS_FILE", content)
 
-    def test_optimizer_blocks_ipv6_targets_and_quic_by_default(self):
+    def test_optimizer_blocks_ipv6_targets_and_allows_udp443_by_default(self):
         content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
         self.assertIn('SSR_BLOCK_IPV6_TARGETS="${SSR_BLOCK_IPV6_TARGETS:-1}"', content)
-        self.assertIn('SSR_BLOCK_UDP_443="${SSR_BLOCK_UDP_443:-1}"', content)
+        self.assertIn('SSR_BLOCK_UDP_443="${SSR_BLOCK_UDP_443:-0}"', content)
         self.assertIn('"::/0"', content)
         self.assertIn('"forbidden_ip"', content)
+        self.assertIn("disable_udp_443_guard", content)
+        self.assertIn("已放行服务器出站 UDP/443", content)
         self.assertIn("udp dport 443 reject", content)
         self.assertNotIn("tcp dport 443 reject", content)
 

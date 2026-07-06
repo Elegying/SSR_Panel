@@ -932,10 +932,10 @@ def get_server_optimization_status():
     except (OSError, subprocess.SubprocessError):
         pass
 
-    if ipv6_guard and quic_guard:
+    if ipv6_guard:
         label = "已启用"
-    elif ipv6_guard or quic_guard:
-        label = "部分启用"
+    elif quic_guard:
+        label = "仅 UDP/443 拦截"
     else:
         label = "未启用"
 
@@ -944,7 +944,7 @@ def get_server_optimization_status():
         "quic_guard": quic_guard,
         "bbr_mode": bbr_mode,
         "bbr_available": bbr_available,
-        "enabled": ipv6_guard and quic_guard,
+        "enabled": ipv6_guard,
         "label": label,
     }
 
