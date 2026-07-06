@@ -32,6 +32,60 @@ STATUS_FILE="${SSR_ADMIN_UPDATE_STATUS_FILE:-}"
 BACKUP_DIR=""
 ROLLBACK_ATTEMPTED=0
 ROLLBACK_SUCCESS=0
+APT_UPDATED=0
+RPM_UPDATED=0
+export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
+
+if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
+    SYS="debian"
+elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
+    SYS="centos"
+else
+    SYS="debian"
+fi
+
+install_packages() {
+    if [ "$SYS" = "centos" ]; then
+        local rpm_cmd="yum"
+        command -v dnf &>/dev/null && rpm_cmd="dnf"
+        if [ "$RPM_UPDATED" -eq 0 ]; then
+            echo -e "${YELLOW}刷新 yum/dnf 软件源索引...${NC}"
+            "${rpm_cmd}" makecache -q 2>/dev/null || true
+            RPM_UPDATED=1
+        fi
+        "${rpm_cmd}" install -y -q "$@" 2>/dev/null
+        return
+    fi
+
+    if [ "$APT_UPDATED" -eq 0 ]; then
+        echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
+        apt-get update -qq
+        APT_UPDATED=1
+    fi
+    apt-get install -y -qq "$@"
+}
+
+ensure_command() {
+    local binary="$1"
+    shift
+    if command -v "$binary" &>/dev/null; then
+        return
+    fi
+    echo -e "${YELLOW}${binary} 未安装，正在安装...${NC}"
+    install_packages "$@" || {
+        echo -e "${RED}${binary} 安装失败，请手动安装后重试${NC}"
+        exit 1
+    }
+}
+
+ensure_update_runtime() {
+    ensure_command "git" "git"
+    ensure_command "systemctl" "systemd"
+    if ! [ -x "${PYTHON3_BIN}" ]; then
+        ensure_command "python3" "python3"
+        PYTHON3_BIN="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"
+    fi
+}
 
 cleanup() {
     if [ -n "${TMP_CLONE_DIR}" ] && [ -d "${TMP_CLONE_DIR}" ]; then
@@ -232,12 +286,7 @@ ensure_python_deps() {
         pip_bin="pip"
     else
         echo -e "${YELLOW}未检测到 pip，尝试安装...${NC}"
-        if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
-            apt-get install -y -qq python3-pip 2>/dev/null || \
-            { apt-get update -qq && apt-get install -y -qq python3-pip; }
-        elif [ -f /etc/redhat-release ]; then
-            yum install -y -q python3-pip 2>/dev/null || true
-        fi
+        install_packages python3-pip 2>/dev/null || true
         "${PYTHON3_BIN}" -m ensurepip --upgrade 2>/dev/null || true
         if "${PYTHON3_BIN}" -m pip --version &>/dev/null; then
             pip_bin="__PYTHON3_M_PIP__"
@@ -305,15 +354,11 @@ ensure_python_deps() {
     # 验证关键依赖
     if ! "${PYTHON3_BIN}" -c "import flask" &>/dev/null; then
         echo -e "${RED}Flask 导入失败，尝试系统包回退...${NC}"
-        if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
-            apt-get install -y -qq python3-flask 2>/dev/null || true
-        fi
+        install_packages python3-flask 2>/dev/null || true
     fi
     if ! "${PYTHON3_BIN}" -c "import flask_limiter" &>/dev/null; then
         echo -e "${RED}Flask-Limiter 导入失败，尝试系统包回退...${NC}"
-        if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
-            apt-get install -y -qq python3-flask-limiter 2>/dev/null || true
-        fi
+        install_packages python3-flask-limiter 2>/dev/null || true
     fi
 
     if ! "${PYTHON3_BIN}" -c "import waitress" &>/dev/null; then
@@ -335,6 +380,9 @@ install_or_restart_device_stats_service() {
         return 0
     fi
 
+    local _ss_pkg="iproute2"
+    [ "$SYS" = "centos" ] && _ss_pkg="iproute"
+    ensure_command "ss" "$_ss_pkg"
     chmod +x "${stats_script}" 2>/dev/null || true
     mkdir -p "$(dirname "${DEVICE_STATS_FILE}")"
     cat > /etc/systemd/system/${DEVICE_STATS_SERVICE_NAME}.service <<SERVICE
@@ -419,15 +467,7 @@ if [ ! -d "${PANEL_DIR}" ]; then
     exit 1
 fi
 
-if ! command -v git >/dev/null 2>&1; then
-    echo -e "${RED}未检测到 git，请先安装 git 后再更新${NC}"
-    exit 1
-fi
-
-if [ ! -x "${PYTHON3_BIN}" ]; then
-    echo -e "${RED}未检测到可用的 python3，可执行路径: ${PYTHON3_BIN}${NC}"
-    exit 1
-fi
+ensure_update_runtime
 
 if [ -d "${SSR_DIR}" ]; then
     echo -e "${CYAN}检测到 SSR 目录，应用 Python 兼容修复...${NC}"
