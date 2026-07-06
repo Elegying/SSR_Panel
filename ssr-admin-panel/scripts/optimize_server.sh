@@ -303,7 +303,6 @@ if changed:
         json.dumps(data, sort_keys=True, indent=4, ensure_ascii=False, separators=(",", ": ")) + "\n",
         encoding="utf-8",
     )
-print(changed)
 PY
             patched_any=1
         done
