@@ -244,10 +244,41 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertNotIn("reset\", \"--hard", content)
 
     def test_installers_prepare_minimal_debian_runtime(self):
-        content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
-        self.assertIn("apt-get update", content)
-        self.assertIn('"ss:${_ss_pkg}"', content)
-        self.assertIn('"systemctl:systemd"', content)
+        required_pairs = (
+            '"systemctl:systemd"',
+            '"curl:curl"',
+            '"wget:wget"',
+            '"git:git"',
+            '"tar:tar"',
+            '"gzip:gzip"',
+            '"unzip:unzip"',
+            '"socat:socat"',
+            '"ss:${_ss_pkg}"',
+            '"crontab:${_cron_pkg}"',
+            '"python3:python3"',
+        )
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("apt-get update -qq", content)
+            self.assertIn('echo "python3-venv python3-pip"', content)
+            self.assertIn("install_packages $(python_venv_packages)", content)
+            self.assertIn("install_packages python3-pip", content)
+            for pair in required_pairs:
+                self.assertIn(pair, content)
+
+    def test_installers_use_centos_package_names_for_runtime_dependencies(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("RPM_UPDATED=0", content)
+            self.assertIn('"${rpm_cmd}" makecache -q', content)
+            self.assertIn('_ss_pkg="iproute"', content)
+            self.assertIn('_cron_pkg="cronie"', content)
+            self.assertIn('echo "python3-pip python3-virtualenv"', content)
+
+        install_content = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
+        full_install_content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
+        self.assertIn('ensure_command "ss" "$_ss_pkg"', install_content)
+        self.assertIn('ensure_minimal_command "ss" "$_ss_pkg"', full_install_content)
 
     def test_installers_support_legacy_python_runtime_dependencies(self):
         for script in ("install.sh", "install-all.sh", "update.sh"):
@@ -298,6 +329,12 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("command -v tar", content)
         self.assertIn("command -v unzip", content)
         self.assertNotIn("依赖 unzip(解压压缩包) 安装失败", content)
+
+    def test_ssrmu_installs_socat_for_network_helpers(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+
+        self.assertIn("wget socat", content)
+        self.assertGreaterEqual(content.count("socat"), 2)
 
     def test_optimizer_sysctl_failure_does_not_abort_full_deploy(self):
         content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")

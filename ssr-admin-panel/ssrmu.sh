@@ -930,11 +930,11 @@ Centos_yum(){
 	local _yum="yum"
 	if command -v dnf >/dev/null 2>&1; then _yum="dnf"; fi
 	${_yum} makecache -q 2>/dev/null || true
-	${_yum} install -y vim git tar gzip unzip cronie python3 curl wget 2>/dev/null || ${_yum} install -y vim git tar gzip crond python3 curl wget 2>/dev/null || true
+	${_yum} install -y vim git tar gzip unzip cronie python3 curl wget socat 2>/dev/null || ${_yum} install -y vim git tar gzip crond python3 curl wget socat 2>/dev/null || true
 }
 Debian_apt(){
 	apt-get update -qq
-	apt-get install -y -qq vim git tar gzip unzip cron python3 curl wget 2>/dev/null || apt-get install -y vim git tar gzip cron python3 curl wget 2>/dev/null || true
+	apt-get install -y -qq vim git tar gzip unzip cron python3 curl wget socat 2>/dev/null || apt-get install -y vim git tar gzip cron python3 curl wget socat 2>/dev/null || true
 }
 # 下载 ShadowsocksR
 Download_SSR(){
