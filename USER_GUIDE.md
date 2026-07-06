@@ -48,6 +48,8 @@ bash optimize-ssr.sh --check
 
 SSR Admin Panel 安装时会提示设置管理员用户名和密码，配置保存在 `/opt/ssr-admin-panel/config.py`。
 
+完整部署首次创建 SSR 默认用户时，SSR 初始密码会保存到 `/opt/ssr-admin-panel/.initial_ssr_password`，文件仅 root 可读。部署日志默认不直接打印面板密码、SSR 密码或 SSR 链接。
+
 如果忘记 SSR Admin Panel 密码，可在服务器上编辑：
 
 ```bash

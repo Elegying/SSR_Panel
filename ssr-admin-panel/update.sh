@@ -138,7 +138,7 @@ from pathlib import Path
 source = Path(os.environ["COPY_SOURCE"])
 target = Path(os.environ["COPY_TARGET"])
 mode = os.environ.get("COPY_MODE", "sync")
-exclude = {"backups", "__pycache__"}
+exclude = {"backups", "__pycache__", "venv"}
 if mode == "sync" and not (source / "config.py").exists():
     exclude.add("config.py")
 
@@ -171,7 +171,7 @@ def copy_dir(src: Path, dst: Path) -> None:
             if dst_item.exists() and dst_item.is_dir():
                 remove_path(dst_item)
             dst_item.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_item, dst_item)
+            shutil.copy2(src_item, dst_item, follow_symlinks=False)
 
 
 copy_dir(source, target)
@@ -184,6 +184,10 @@ create_full_backup() {
     copy_tree "${PANEL_DIR}" "${BACKUP_DIR}/app" "copy"
 }
 
+harden_sensitive_files() {
+    chmod 600 "${PANEL_DIR}/config.py" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+}
+
 restore_backup() {
     if [ -z "${BACKUP_DIR}" ] || [ ! -d "${BACKUP_DIR}/app" ]; then
         return 1
@@ -193,6 +197,7 @@ restore_backup() {
     echo -e "${YELLOW}正在恢复上一版应用文件...${NC}"
     write_status "rollback" "新版本启动失败，正在恢复上一版"
     copy_tree "${BACKUP_DIR}/app" "${PANEL_DIR}" "sync"
+    harden_sensitive_files
     chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" 2>/dev/null || true
     systemctl daemon-reload || true
     if systemctl restart "${SERVICE_NAME}" && systemctl is-active --quiet "${SERVICE_NAME}"; then
@@ -437,12 +442,14 @@ fi
 
 NEW_VERSION="$(read_version "${SOURCE_DIR}")"
 NEW_REVISION="$(git -C "${TMP_CLONE_DIR}" rev-parse --short HEAD 2>/dev/null || echo "")"
+harden_sensitive_files
 write_status "backup" "正在备份当前版本"
 create_full_backup
 echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
 
 write_status "sync" "正在同步新版本"
 copy_tree "${SOURCE_DIR}" "${PANEL_DIR}" "sync"
+harden_sensitive_files
 
 PANEL_BUILD_INFO_FILE="${PANEL_DIR}/.panel-build.json"
 PANEL_BUILD_VERSION="${NEW_VERSION}" PANEL_BUILD_REVISION="${NEW_REVISION}" PANEL_BUILD_INFO_FILE="${PANEL_BUILD_INFO_FILE}" "${PYTHON3_BIN}" <<'PY'

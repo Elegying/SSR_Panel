@@ -39,6 +39,38 @@ backup_file() {
     cp -a "$target" "${target}.bak-$(timestamp)"
 }
 
+harden_ssr_files() {
+    chmod 600 "$SSR_CONFIG" "$MUDB_FILE" 2>/dev/null || true
+}
+
+count_ssr_ports() {
+    if [ -f "$MUDB_FILE" ] && command -v python3 >/dev/null 2>&1; then
+        python3 - "$MUDB_FILE" <<'PY' 2>/dev/null && return
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
+items = data if isinstance(data, list) else [data]
+ports = {str(item.get("port")) for item in items if isinstance(item, dict) and item.get("port")}
+print(len(ports))
+PY
+    fi
+    ss -tuln 2>/dev/null | awk '$5 ~ /:2333$/ { found=1 } END { print found ? 1 : 0 }'
+}
+
+check_mode() {
+    [ -d "$SSR_DIR" ] || { log_warn "SSR 目录不存在: $SSR_DIR"; exit 1; }
+    [ -f "$SSR_CONFIG" ] || { log_warn "SSR 配置不存在: $SSR_CONFIG"; exit 1; }
+    command -v systemctl >/dev/null 2>&1 || { log_warn "systemctl 不可用"; exit 1; }
+    command -v python3 >/dev/null 2>&1 || { log_warn "python3 不可用"; exit 1; }
+    echo "preflight ok"
+    echo "SSR_DIR=$SSR_DIR"
+    echo "SSR_CONFIG=$SSR_CONFIG"
+    echo "MUDB_FILE=$MUDB_FILE"
+    echo "SYSCTL_CONF=$SYSCTL_CONF"
+}
+
 write_udp_443_allow_filter() {
     mkdir -p "$NFTABLES_DIR"
     if [ -f "$SSR_FILTER_NFT" ] && ! grep -q "udp dport 443 reject" "$SSR_FILTER_NFT"; then
@@ -418,6 +450,19 @@ EOF
 
 # ── 主流程 ────────────────────────────────────────────────────
 main() {
+    case "${1:-}" in
+        --check)
+            check_mode
+            return
+            ;;
+        "")
+            ;;
+        *)
+            echo -e "${RED}未知参数: $1${NC}" >&2
+            exit 1
+            ;;
+    esac
+
     echo
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}    SSR 服务器性能与安全优化${NC}"
@@ -429,6 +474,7 @@ main() {
     setup_sysctl
     setup_ssr_fastopen
     setup_ssr_ipv6_quic_guard
+    harden_ssr_files
     setup_logrotate
     setup_fail2ban
 
@@ -444,7 +490,7 @@ main() {
     echo -e "  SSR 服务:   $(systemctl is-active ssr.service 2>/dev/null || echo '未运行')"
     echo -e "  fail2ban:   $(systemctl is-active fail2ban 2>/dev/null || echo '未安装')"
     echo -e "  UDP/443:    $(command -v nft >/dev/null 2>&1 && nft list table inet ssr_filter 2>/dev/null | grep -q 'udp dport 443 reject' && echo '已拦截' || echo '已放行')"
-    echo -e "  监听端口:   $(ss -tlnp 2>/dev/null | grep -c "server.py" || echo 0) 个"
+    echo -e "  监听端口:   $(count_ssr_ports) 个"
     echo
 }
 

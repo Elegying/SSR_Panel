@@ -167,6 +167,47 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("rollback_success", content)
         self.assertIn("backup_dir", content)
 
+    def test_update_script_excludes_virtualenv_from_backup_and_sync(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+
+        self.assertIn('"venv"', content)
+        self.assertIn("follow_symlinks=False", content)
+
+    def test_installers_harden_sensitive_files(self):
+        for script in ("install.sh", "install-all.sh", "update.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("harden_sensitive_files", content)
+            self.assertIn("chmod 600", content)
+            self.assertIn("config.py", content)
+            self.assertIn("mudb.json", content)
+
+    def test_full_install_generates_private_ssr_password(self):
+        content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
+
+        self.assertIn("generate_password", content)
+        self.assertIn("SSR_DEFAULT_PASSWORD", content)
+        self.assertIn(".initial_ssr_password", content)
+        self.assertIn("SSR_INSTALL_LOG", content)
+        self.assertIn("print_sanitized_ssr_install_log", content)
+        self.assertIn("[redacted]", content)
+        self.assertIn("SSR_ADMIN_SHOW_SECRETS", content)
+        self.assertIn("默认隐藏", content)
+        self.assertNotIn('echo -e "  密码:     ${YELLOW}doub.io${NC}"', content)
+
+    def test_embedded_optimizer_supports_check_mode(self):
+        content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+
+        self.assertIn("check_mode()", content)
+        self.assertIn("--check)", content)
+        self.assertIn("preflight ok", content)
+
+    def test_optimizer_summary_counts_listening_ssr_ports(self):
+        content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+
+        self.assertIn("count_ssr_ports", content)
+        self.assertIn("mudb.json", content)
+        self.assertNotIn('grep -c "server.py"', content)
+
     def test_panel_update_runner_uses_update_script_without_hard_reset(self):
         content = (REPO_ROOT / "scripts" / "run_panel_update.py").read_text(encoding="utf-8")
         self.assertIn("SSR_ADMIN_UPDATE_STATUS_FILE", content)
