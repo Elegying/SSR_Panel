@@ -36,6 +36,7 @@ DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stat
 DEVICE_STATS_INTERVAL="${SSR_DEVICE_STATS_INTERVAL:-15}"
 DEVICE_STATS_WINDOW="${SSR_DEVICE_STATS_WINDOW:-900}"
 SSR_DEFAULT_PASSWORD="${SSR_DEFAULT_PASSWORD:-}"
+SSR_SERVER_PUB_ADDR="${SSR_SERVER_PUB_ADDR:-}"
 SSR_INITIAL_PASSWORD_FILE="${SSR_INITIAL_PASSWORD_FILE:-${PANEL_DIR}/.initial_ssr_password}"
 SSR_INSTALL_LOG="${SSR_INSTALL_LOG:-${PANEL_DIR}/ssr-install.log}"
 SSR_INSTALLED_BY_SCRIPT=0
@@ -188,6 +189,12 @@ import string
 alphabet = string.ascii_letters + string.digits
 print(''.join(secrets.choice(alphabet) for _ in range(18)))
 PY
+}
+
+detect_server_pub_addr() {
+    local detected
+    detected="$(curl -fsS --max-time 5 ip.sb 2>/dev/null || curl -fsS --max-time 5 ifconfig.me 2>/dev/null || true)"
+    printf '%s' "$detected"
 }
 
 harden_sensitive_files() {
@@ -554,15 +561,19 @@ else
     if [ -z "$SSR_DEFAULT_PASSWORD" ]; then
         SSR_DEFAULT_PASSWORD="$(generate_password)"
     fi
+    if [ -z "$SSR_SERVER_PUB_ADDR" ]; then
+        SSR_SERVER_PUB_ADDR="$(detect_server_pub_addr)"
+    fi
     persist_initial_ssr_password
 
     chmod +x $PANEL_DIR/ssrmu.sh
 
-    # 使用管道输入：安装 SSR，保留默认用户名/端口，但使用随机初始密码。
+    # 使用管道输入：安装 SSR，设置服务器地址，保留默认用户名/端口，但使用随机初始密码。
     mkdir -p "$(dirname "$SSR_INSTALL_LOG")"
     install -m 600 /dev/null "$SSR_INSTALL_LOG"
     if ! {
         printf '1\n'
+        printf '%s\n' "$SSR_SERVER_PUB_ADDR"
         printf '\n'
         printf '\n'
         printf '%s\n' "$SSR_DEFAULT_PASSWORD"

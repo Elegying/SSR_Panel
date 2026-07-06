@@ -186,6 +186,8 @@ class InstallerRegressionTests(unittest.TestCase):
 
         self.assertIn("generate_password", content)
         self.assertIn("SSR_DEFAULT_PASSWORD", content)
+        self.assertIn("SSR_SERVER_PUB_ADDR", content)
+        self.assertIn("detect_server_pub_addr", content)
         self.assertIn(".initial_ssr_password", content)
         self.assertIn("SSR_INSTALL_LOG", content)
         self.assertIn("print_sanitized_ssr_install_log", content)
@@ -193,6 +195,18 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("SSR_ADMIN_SHOW_SECRETS", content)
         self.assertIn("默认隐藏", content)
         self.assertNotIn('echo -e "  密码:     ${YELLOW}doub.io${NC}"', content)
+
+    def test_full_install_feeds_ssrmu_prompts_in_order(self):
+        content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "printf '1\\n'\n"
+            "        printf '%s\\n' \"$SSR_SERVER_PUB_ADDR\"\n"
+            "        printf '\\n'\n"
+            "        printf '\\n'\n"
+            "        printf '%s\\n' \"$SSR_DEFAULT_PASSWORD\"",
+            content,
+        )
 
     def test_embedded_optimizer_supports_check_mode(self):
         content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
