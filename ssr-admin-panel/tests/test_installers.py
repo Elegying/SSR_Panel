@@ -196,6 +196,23 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("rollback_success", content)
         self.assertIn("backup_dir", content)
 
+    def test_update_script_guards_the_entire_post_backup_transaction(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+
+        self.assertIn("set -Eeuo pipefail", content)
+        self.assertIn("flock -n", content)
+        self.assertIn("TRANSACTION_ACTIVE", content)
+        self.assertIn("trap 'handle_update_error $? $LINENO' ERR", content)
+        self.assertIn('cp -a "${VENV_DIR}" "${BACKUP_DIR}/venv"', content)
+        self.assertIn('restore_virtualenv', content)
+        self.assertIn('verify_panel_health', content)
+
+    def test_update_does_not_mutate_ssr_by_default(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+
+        self.assertIn('SSR_ADMIN_APPLY_SERVER_OPTIMIZATION:-0', content)
+        self.assertIn('SSR_ADMIN_PATCH_SSR_COMPAT:-0', content)
+
     def test_update_script_excludes_virtualenv_from_backup_and_sync(self):
         content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
 
