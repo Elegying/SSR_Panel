@@ -37,6 +37,8 @@ apt-get update && apt-get install -y ca-certificates sudo curl wget
 
 部署要求 systemd 是 PID 1；不支持未启用 systemd 的容器、WSL 或 chroot。
 
+刚重装的 Debian/Ubuntu 若有系统自动更新占用 dpkg，安装器会安全等待最多 300 秒并自动重试，不需要也不应手工删除 apt/dpkg 锁。可用 `SSR_ADMIN_APT_LOCK_TIMEOUT=600` 延长等待。
+
 ### 方式一：下载后运行（推荐）
 
 ```bash

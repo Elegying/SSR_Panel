@@ -188,7 +188,12 @@ class InstallerRegressionTests(unittest.TestCase):
 
         self.assertIn("APT_UPDATED=0", content)
         self.assertIn("RPM_UPDATED=0", content)
+        self.assertIn('APT_LOCK_TIMEOUT="${SSR_ADMIN_APT_LOCK_TIMEOUT:-300}"', content)
+        self.assertIn('PACKAGE_INSTALL_RETRIES="${SSR_ADMIN_PACKAGE_INSTALL_RETRIES:-3}"', content)
         self.assertIn("install_packages()", content)
+        self.assertIn("retry_command()", content)
+        self.assertIn('DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}', content)
+        self.assertIn("Acquire::Retries=3", content)
         self.assertIn('"${rpm_cmd}" makecache -q', content)
         self.assertIn("ensure_update_runtime", content)
         self.assertIn('ensure_command "git" "git"', content)
@@ -319,7 +324,8 @@ class InstallerRegressionTests(unittest.TestCase):
     def test_installers_prepare_minimal_debian_runtime(self):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
-            self.assertIn("DPkg::Lock::Timeout=60", content)
+            self.assertIn('APT_LOCK_TIMEOUT="${SSR_ADMIN_APT_LOCK_TIMEOUT:-300}"', content)
+            self.assertIn('DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}', content)
             self.assertIn(
                 "ca-certificates sudo curl wget socat git tar gzip unzip cron "
                 "iproute2 jq iptables python3 python3-venv python3-pip systemd",
@@ -362,12 +368,29 @@ class InstallerRegressionTests(unittest.TestCase):
                 content.index("# bootstrap-common:start") : content.index("# bootstrap-common:end")
             ]
 
-            self.assertIn("PACKAGE_INSTALL_RETRIES=3", content)
-            self.assertIn("DPkg::Lock::Timeout=60", bootstrap)
+            self.assertIn('PACKAGE_INSTALL_RETRIES="${SSR_ADMIN_PACKAGE_INSTALL_RETRIES:-3}"', content)
+            self.assertIn('DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}', bootstrap)
             self.assertIn("retry_command", bootstrap)
             self.assertNotIn("makecache -q 2>/dev/null || true", bootstrap)
             self.assertLess(bootstrap.index("update -qq"), bootstrap.index("APT_UPDATED=1"))
             self.assertLess(bootstrap.index("makecache"), bootstrap.index("RPM_UPDATED=1"))
+
+    def test_package_installers_wait_for_locks_without_deleting_lock_files(self):
+        forbidden_lock_removals = (
+            "rm -f /var/lib/dpkg/lock",
+            "rm -f /var/lib/dpkg/lock-frontend",
+            "rm -f /var/lib/apt/lists/lock",
+            "rm -f /var/cache/apt/archives/lock",
+        )
+
+        for script in ("install.sh", "install-all.sh", "update.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn('APT_LOCK_TIMEOUT="${SSR_ADMIN_APT_LOCK_TIMEOUT:-300}"', content)
+            self.assertIn('PACKAGE_INSTALL_RETRIES="${SSR_ADMIN_PACKAGE_INSTALL_RETRIES:-3}"', content)
+            self.assertGreaterEqual(content.count('DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}'), 1)
+            self.assertIn("apt/dpkg", content)
+            for forbidden in forbidden_lock_removals:
+                self.assertNotIn(forbidden, content)
 
     def test_installers_install_and_verify_base_dependencies(self):
         debian_packages = (

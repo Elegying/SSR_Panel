@@ -12,6 +12,16 @@
 
 安装脚本会先刷新包索引，再一次性安装并验证 CA、`sudo`、`curl`、`wget`、`socat`、Git、Python/venv、systemd、iproute、jq 和防火墙兼容包。未知系统会在复制项目文件之前退出。
 
+Debian/Ubuntu 刚重装后，`apt-daily`、`unattended-upgrades` 或 cloud-init 可能正在占用 dpkg。安装和更新脚本会使用 apt 原生锁机制等待最多 300 秒，并对网络/软件源错误重试 3 次，不会删除任何锁文件。慢速镜像可按需延长等待：
+
+```bash
+SSR_ADMIN_APT_LOCK_TIMEOUT=600 \
+SSR_ADMIN_PACKAGE_INSTALL_RETRIES=3 \
+bash install-all.sh
+```
+
+若等待后仍失败，应先用错误中显示的 PID 检查合法进程；不要手工删除 `/var/lib/dpkg/lock*`。
+
 ## 部署方式
 
 极简 Debian/Ubuntu 如果尚无下载器，先以 root 执行：

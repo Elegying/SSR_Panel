@@ -38,6 +38,8 @@ VENV_DIR="${SSR_ADMIN_VENV_DIR:-${PANEL_DIR}/venv}"
 SYSTEMD_DIR="${SSR_ADMIN_SYSTEMD_DIR:-/etc/systemd/system}"
 HEALTH_URL="${SSR_ADMIN_HEALTH_URL:-http://127.0.0.1:5000/login}"
 LOCK_FILE="${SSR_ADMIN_UPDATE_LOCK_FILE:-/run/lock/ssr-admin-panel-update.lock}"
+PACKAGE_INSTALL_RETRIES="${SSR_ADMIN_PACKAGE_INSTALL_RETRIES:-3}"
+APT_LOCK_TIMEOUT="${SSR_ADMIN_APT_LOCK_TIMEOUT:-300}"
 if [ -z "${PYTHON3_BIN:-}" ]; then
     if [ -x "${VENV_DIR}/bin/python" ]; then
         PYTHON3_BIN="${VENV_DIR}/bin/python"
@@ -70,6 +72,43 @@ else
     fi
 fi
 
+retry_command() {
+    local attempt=1
+
+    while [ "$attempt" -le "$PACKAGE_INSTALL_RETRIES" ]; do
+        if "$@"; then
+            return 0
+        fi
+        if [ "$attempt" -eq "$PACKAGE_INSTALL_RETRIES" ]; then
+            break
+        fi
+        echo -e "${YELLOW}命令失败，正在重试 (${attempt}/${PACKAGE_INSTALL_RETRIES})...${NC}" >&2
+        sleep "$attempt"
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
+validate_package_settings() {
+    case "$PACKAGE_INSTALL_RETRIES" in
+        ''|*[!0-9]*|0)
+            echo -e "${RED}SSR_ADMIN_PACKAGE_INSTALL_RETRIES 必须是正整数${NC}" >&2
+            return 1
+            ;;
+    esac
+    case "$APT_LOCK_TIMEOUT" in
+        ''|*[!0-9]*)
+            echo -e "${RED}SSR_ADMIN_APT_LOCK_TIMEOUT 必须是非负整数${NC}" >&2
+            return 1
+            ;;
+    esac
+}
+
+apt_get() {
+    apt-get -o Acquire::Retries=3 -o "DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}" "$@"
+}
+
 install_packages() {
     if [ "$SYS" = "unsupported" ]; then
         echo -e "${RED}不支持当前系统：未找到 apt-get、dnf 或 yum${NC}" >&2
@@ -80,19 +119,26 @@ install_packages() {
         command -v dnf &>/dev/null && rpm_cmd="dnf"
         if [ "$RPM_UPDATED" -eq 0 ]; then
             echo -e "${YELLOW}刷新 yum/dnf 软件源索引...${NC}"
-            "${rpm_cmd}" makecache -q 2>/dev/null || true
+            retry_command "${rpm_cmd}" makecache -q || {
+                echo -e "${RED}${rpm_cmd} 软件源刷新失败${NC}" >&2
+                return 1
+            }
             RPM_UPDATED=1
         fi
-        "${rpm_cmd}" install -y -q "$@" 2>/dev/null
+        retry_command "${rpm_cmd}" install -y -q "$@"
         return
     fi
 
     if [ "$APT_UPDATED" -eq 0 ]; then
+        echo -e "${YELLOW}如 apt/dpkg 正被系统更新占用，将等待最多 ${APT_LOCK_TIMEOUT} 秒...${NC}"
         echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
-        apt-get update -qq
+        retry_command apt_get update -qq || {
+            echo -e "${RED}apt 软件源刷新失败${NC}" >&2
+            return 1
+        }
         APT_UPDATED=1
     fi
-    apt-get install -y -qq "$@"
+    retry_command apt_get install -y -qq "$@"
 }
 
 ensure_command() {
@@ -109,6 +155,7 @@ ensure_command() {
 }
 
 ensure_update_runtime() {
+    validate_package_settings
     ensure_command "git" "git"
     ensure_command "systemctl" "systemd"
     ensure_command "flock" "util-linux"

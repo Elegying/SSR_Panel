@@ -38,7 +38,8 @@ SYSTEM_PYTHON3_BIN="/usr/bin/python3"
 SYS=""
 PACKAGE_FAMILY=""
 PACKAGE_MANAGER=""
-PACKAGE_INSTALL_RETRIES=3
+PACKAGE_INSTALL_RETRIES="${SSR_ADMIN_PACKAGE_INSTALL_RETRIES:-3}"
+APT_LOCK_TIMEOUT="${SSR_ADMIN_APT_LOCK_TIMEOUT:-300}"
 APT_UPDATED=0
 RPM_UPDATED=0
 SYNC_REVISION=""
@@ -105,17 +106,37 @@ retry_command() {
     return 1
 }
 
+validate_package_settings() {
+    case "$PACKAGE_INSTALL_RETRIES" in
+        ''|*[!0-9]*|0)
+            echo -e "${RED}SSR_ADMIN_PACKAGE_INSTALL_RETRIES 必须是正整数${NC}" >&2
+            return 1
+            ;;
+    esac
+    case "$APT_LOCK_TIMEOUT" in
+        ''|*[!0-9]*)
+            echo -e "${RED}SSR_ADMIN_APT_LOCK_TIMEOUT 必须是非负整数${NC}" >&2
+            return 1
+            ;;
+    esac
+}
+
+apt_get() {
+    apt-get -o Acquire::Retries=3 -o "DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}" "$@"
+}
+
 install_packages() {
     if [ "$PACKAGE_FAMILY" = "apt" ]; then
         if [ "$APT_UPDATED" -eq 0 ]; then
+            echo -e "${YELLOW}如 apt/dpkg 正被系统更新占用，将等待最多 ${APT_LOCK_TIMEOUT} 秒...${NC}"
             echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
-            retry_command apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 update -qq || {
+            retry_command apt_get update -qq || {
                 echo -e "${RED}apt 软件源刷新失败${NC}" >&2
                 return 1
             }
             APT_UPDATED=1
         fi
-        retry_command apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 install -y -qq "$@"
+        retry_command apt_get install -y -qq "$@"
         return
     fi
 
@@ -434,6 +455,7 @@ sync_project_files() {
 }
 
 detect_platform
+validate_package_settings || exit 1
 echo -e "${CYAN}系统检测: ${YELLOW}${SYS} (${PACKAGE_MANAGER})${NC}"
 echo -e "${GREEN}[0/6] 安装基础系统依赖...${NC}"
 ensure_basic_runtime

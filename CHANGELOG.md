@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.3.1 (2026-07-10)
+
+### Fixed
+- Debian/Ubuntu 安装与更新统一使用 apt 原生锁等待，默认等待 `apt/dpkg` 最多 300 秒并保留网络重试，避免新装系统的 `apt-daily`、`unattended-upgrades` 或 cloud-init 占锁时立即部署失败。
+- 更新器不再忽略 yum/dnf 仓库刷新失败，所有包管理器入口现在使用一致的重试与错误报告逻辑。
+
+### Changed
+- 可通过 `SSR_ADMIN_APT_LOCK_TIMEOUT` 调整 apt 锁等待秒数，通过 `SSR_ADMIN_PACKAGE_INSTALL_RETRIES` 调整包安装重试次数；脚本只等待合法锁持有者，绝不删除 dpkg/apt 锁文件。
+
 ## v1.3.0 (2026-07-10)
 
 ### Security
