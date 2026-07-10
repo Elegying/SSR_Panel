@@ -6,6 +6,7 @@
 - Debian/Ubuntu 安装与更新统一使用 apt 原生锁等待，默认等待 `apt/dpkg` 最多 300 秒并保留网络重试，避免新装系统的 `apt-daily`、`unattended-upgrades` 或 cloud-init 占锁时立即部署失败。
 - 更新器不再忽略 yum/dnf 仓库刷新失败，所有包管理器入口现在使用一致的重试与错误报告逻辑。
 - 交互式安装现在原样保留管理员密码中的反斜杠，并使用 Bash 数组传递依赖列表，消除意外分词和输入转义问题。
+- `ssrmu.sh` 的端口、设备数、限速和流量输入先执行纯数字校验，再进行范围判断，避免 Bash 算术表达式被当作用户输入求值。
 
 ### Changed
 - 可通过 `SSR_ADMIN_APT_LOCK_TIMEOUT` 调整 apt 锁等待秒数，通过 `SSR_ADMIN_PACKAGE_INSTALL_RETRIES` 调整包安装重试次数；脚本只等待合法锁持有者，绝不删除 dpkg/apt 锁文件。

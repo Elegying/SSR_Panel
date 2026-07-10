@@ -508,6 +508,20 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn('Run_with_retries "${_yum}" makecache', content)
         self.assertNotIn("\\${_yum}", content)
 
+    def test_ssrmu_validates_numeric_input_without_arithmetic_expansion(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+        numeric_inputs = (
+            "ssr_port",
+            "ssr_protocol_param",
+            "ssr_speed_limit_per_con",
+            "ssr_speed_limit_per_user",
+            "ssr_transfer",
+        )
+
+        for variable in numeric_inputs:
+            self.assertIn(f'[[ "${variable}" =~ ^[0-9]+$ ]]', content)
+            self.assertNotIn(f'$((${{{variable}}}+0))', content)
+
     def test_ssrmu_bootstraps_python_and_does_not_hide_package_failures(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
         python_init = content[

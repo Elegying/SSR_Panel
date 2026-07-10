@@ -532,16 +532,11 @@ Set_config_port(){
 	while true
 	do
 	echo -e "请输入要设置的用户 端口(请勿重复, 用于区分)"
-	read -e -p "(默认: 2333):" ssr_port
+	read -r -e -p "(默认: 2333):" ssr_port
 	[[ -z "$ssr_port" ]] && ssr_port="2333"
-	echo $((${ssr_port}+0)) &>/dev/null
-	if [[ $? == 0 ]]; then
-		if [[ ${ssr_port} -ge 1 ]] && [[ ${ssr_port} -le 65535 ]]; then
-			echo && echo ${Separator_1} && echo -e "	端口 : ${Green_font_prefix}${ssr_port}${Font_color_suffix}" && echo ${Separator_1} && echo
-			break
-		else
-			echo -e "${Error} 请输入正确的数字(1-65535)"
-		fi
+	if [[ "$ssr_port" =~ ^[0-9]+$ ]] && (( ssr_port >= 1 && ssr_port <= 65535 )); then
+		echo && echo ${Separator_1} && echo -e "	端口 : ${Green_font_prefix}${ssr_port}${Font_color_suffix}" && echo ${Separator_1} && echo
+		break
 	else
 		echo -e "${Error} 请输入正确的数字(1-65535)"
 	fi
@@ -694,16 +689,11 @@ Set_config_protocol_param(){
 	do
 	echo -e "请输入要设置的用户 欲限制的设备数 (${Green_font_prefix} auth_* 系列协议 不兼容原版才有效 ${Font_color_suffix})"
 	echo -e "${Tip} 设备数限制：每个端口同一时间能链接的客户端数量(多端口模式，每个端口都是独立计算)，建议最少 2个。"
-	read -e -p "(默认: 无限):" ssr_protocol_param
+	read -r -e -p "(默认: 无限):" ssr_protocol_param
 	[[ -z "$ssr_protocol_param" ]] && ssr_protocol_param="" && echo && break
-	echo $((${ssr_protocol_param}+0)) &>/dev/null
-	if [[ $? == 0 ]]; then
-		if [[ ${ssr_protocol_param} -ge 1 ]] && [[ ${ssr_protocol_param} -le 9999 ]]; then
-			echo && echo ${Separator_1} && echo -e "	设备数限制 : ${Green_font_prefix}${ssr_protocol_param}${Font_color_suffix}" && echo ${Separator_1} && echo
-			break
-		else
-			echo -e "${Error} 请输入正确的数字(1-9999)"
-		fi
+	if [[ "$ssr_protocol_param" =~ ^[0-9]+$ ]] && (( ssr_protocol_param >= 1 && ssr_protocol_param <= 9999 )); then
+		echo && echo ${Separator_1} && echo -e "	设备数限制 : ${Green_font_prefix}${ssr_protocol_param}${Font_color_suffix}" && echo ${Separator_1} && echo
+		break
 	else
 		echo -e "${Error} 请输入正确的数字(1-9999)"
 	fi
@@ -714,16 +704,11 @@ Set_config_speed_limit_per_con(){
 	do
 	echo -e "请输入要设置的用户 单线程 限速上限(单位：KB/S)"
 	echo -e "${Tip} 单线程限速：每个端口 单线程的限速上限，多线程即无效。"
-	read -e -p "(默认: 无限):" ssr_speed_limit_per_con
+	read -r -e -p "(默认: 无限):" ssr_speed_limit_per_con
 	[[ -z "$ssr_speed_limit_per_con" ]] && ssr_speed_limit_per_con=0 && echo && break
-	echo $((${ssr_speed_limit_per_con}+0)) &>/dev/null
-	if [[ $? == 0 ]]; then
-		if [[ ${ssr_speed_limit_per_con} -ge 1 ]] && [[ ${ssr_speed_limit_per_con} -le 131072 ]]; then
-			echo && echo ${Separator_1} && echo -e "	单线程限速 : ${Green_font_prefix}${ssr_speed_limit_per_con} KB/S${Font_color_suffix}" && echo ${Separator_1} && echo
-			break
-		else
-			echo -e "${Error} 请输入正确的数字(1-131072)"
-		fi
+	if [[ "$ssr_speed_limit_per_con" =~ ^[0-9]+$ ]] && (( ssr_speed_limit_per_con >= 1 && ssr_speed_limit_per_con <= 131072 )); then
+		echo && echo ${Separator_1} && echo -e "	单线程限速 : ${Green_font_prefix}${ssr_speed_limit_per_con} KB/S${Font_color_suffix}" && echo ${Separator_1} && echo
+		break
 	else
 		echo -e "${Error} 请输入正确的数字(1-131072)"
 	fi
@@ -735,16 +720,11 @@ Set_config_speed_limit_per_user(){
 	echo
 	echo -e "请输入要设置的用户 总速度 限速上限(单位：KB/S)"
 	echo -e "${Tip} 端口总限速：每个端口 总速度 限速上限，单个端口整体限速。"
-	read -e -p "(默认: 无限):" ssr_speed_limit_per_user
+	read -r -e -p "(默认: 无限):" ssr_speed_limit_per_user
 	[[ -z "$ssr_speed_limit_per_user" ]] && ssr_speed_limit_per_user=0 && echo && break
-	echo $((${ssr_speed_limit_per_user}+0)) &>/dev/null
-	if [[ $? == 0 ]]; then
-		if [[ ${ssr_speed_limit_per_user} -ge 1 ]] && [[ ${ssr_speed_limit_per_user} -le 131072 ]]; then
-			echo && echo ${Separator_1} && echo -e "	用户总限速 : ${Green_font_prefix}${ssr_speed_limit_per_user} KB/S${Font_color_suffix}" && echo ${Separator_1} && echo
-			break
-		else
-			echo -e "${Error} 请输入正确的数字(1-131072)"
-		fi
+	if [[ "$ssr_speed_limit_per_user" =~ ^[0-9]+$ ]] && (( ssr_speed_limit_per_user >= 1 && ssr_speed_limit_per_user <= 131072 )); then
+		echo && echo ${Separator_1} && echo -e "	用户总限速 : ${Green_font_prefix}${ssr_speed_limit_per_user} KB/S${Font_color_suffix}" && echo ${Separator_1} && echo
+		break
 	else
 		echo -e "${Error} 请输入正确的数字(1-131072)"
 	fi
@@ -755,16 +735,11 @@ Set_config_transfer(){
 	do
 	echo
 	echo -e "请输入要设置的用户 可使用的总流量上限(单位: GB, 1-838868 GB)"
-	read -e -p "(默认: 无限):" ssr_transfer
+	read -r -e -p "(默认: 无限):" ssr_transfer
 	[[ -z "$ssr_transfer" ]] && ssr_transfer="838868" && echo && break
-	echo $((${ssr_transfer}+0)) &>/dev/null
-	if [[ $? == 0 ]]; then
-		if [[ ${ssr_transfer} -ge 1 ]] && [[ ${ssr_transfer} -le 838868 ]]; then
-			echo && echo ${Separator_1} && echo -e "	用户总流量 : ${Green_font_prefix}${ssr_transfer} GB${Font_color_suffix}" && echo ${Separator_1} && echo
-			break
-		else
-			echo -e "${Error} 请输入正确的数字(1-838868)"
-		fi
+	if [[ "$ssr_transfer" =~ ^[0-9]+$ ]] && (( ssr_transfer >= 1 && ssr_transfer <= 838868 )); then
+		echo && echo ${Separator_1} && echo -e "	用户总流量 : ${Green_font_prefix}${ssr_transfer} GB${Font_color_suffix}" && echo ${Separator_1} && echo
+		break
 	else
 		echo -e "${Error} 请输入正确的数字(1-838868)"
 	fi
