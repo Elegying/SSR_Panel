@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import shutil
@@ -11,10 +12,13 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from security_utils import verify_password
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 UPDATE_SCRIPT = REPO_ROOT / "update.sh"
 ROLLBACK_SCRIPT = REPO_ROOT / "rollback.sh"
+LEGACY_CONFIG = "ADMIN_PASS = 'keep-password'\nSECRET = 'keep'\n"
 
 
 class HealthyHandler(BaseHTTPRequestHandler):
@@ -44,7 +48,7 @@ class UpdateTransactionTests(unittest.TestCase):
         panel.mkdir()
         (panel / "app.py").write_text("OLD_APP = True\n", encoding="utf-8")
         (panel / "VERSION").write_text("1.0.0\n", encoding="utf-8")
-        (panel / "config.py").write_text("SECRET = 'keep'\n", encoding="utf-8")
+        (panel / "config.py").write_text(LEGACY_CONFIG, encoding="utf-8")
         (panel / "local-note.txt").write_text("keep me\n", encoding="utf-8")
 
         venv = panel / "venv"
@@ -71,6 +75,7 @@ class UpdateTransactionTests(unittest.TestCase):
         (source_panel / "app.py").write_text("NEW_APP = True\n", encoding="utf-8")
         (source_panel / "VERSION").write_text("2.0.0\n", encoding="utf-8")
         (source_panel / "requirements.txt").write_text("Flask\n", encoding="utf-8")
+        shutil.copy2(REPO_ROOT / "security_utils.py", source_panel / "security_utils.py")
         (source_panel / "scripts").mkdir()
         (source_panel / "scripts" / "collect_device_stats.py").write_text(
             "#!/usr/bin/env python3\n",
@@ -178,7 +183,7 @@ class UpdateTransactionTests(unittest.TestCase):
             self.assertIn("disable ssr-device-stats", systemctl_log)
             self.assertIn("stop ssr-device-stats", systemctl_log)
             self.assertEqual(
-                (panel / "config.py").read_text(encoding="utf-8"), "SECRET = 'keep'\n"
+                (panel / "config.py").read_text(encoding="utf-8"), LEGACY_CONFIG
             )
             status = json.loads(status_file.read_text(encoding="utf-8"))
             self.assertTrue(status["rollback_attempted"])
@@ -215,8 +220,23 @@ class UpdateTransactionTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual((panel / "app.py").read_text(encoding="utf-8"), "NEW_APP = True\n")
             self.assertEqual(marker.read_text(encoding="utf-8"), "new\n")
-            self.assertEqual(
-                (panel / "config.py").read_text(encoding="utf-8"), "SECRET = 'keep'\n"
+            config_source = (panel / "config.py").read_text(encoding="utf-8")
+            self.assertNotIn("ADMIN_PASS =", config_source)
+            self.assertIn("ADMIN_PASSWORD_HASH =", config_source)
+            assignments = {
+                node.targets[0].id: ast.literal_eval(node.value)
+                for node in ast.parse(config_source).body
+                if isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+            }
+            self.assertEqual(assignments["SECRET"], "keep")
+            self.assertTrue(verify_password("keep-password", assignments["ADMIN_PASSWORD_HASH"]))
+            backup_configs = list((panel / "backups").glob("update_*/app/config.py"))
+            self.assertEqual(len(backup_configs), 1)
+            self.assertNotIn(
+                "ADMIN_PASS =",
+                backup_configs[0].read_text(encoding="utf-8"),
             )
             self.assertEqual(
                 (panel / "local-note.txt").read_text(encoding="utf-8"), "keep me\n"

@@ -463,7 +463,30 @@ create_full_backup() {
 }
 
 harden_sensitive_files() {
-    chmod 600 "${PANEL_DIR}/config.py" "${PANEL_DIR}/.initial_ssr_password" "${PANEL_DIR}/ssr-install.log" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+    if getent group ssr-panel >/dev/null 2>&1; then
+        chown root:ssr-panel "${PANEL_DIR}/config.py" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+        chmod 0640 "${PANEL_DIR}/config.py" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+    else
+        chmod 0600 "${PANEL_DIR}/config.py" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+    fi
+    chmod 0600 "${PANEL_DIR}/.initial_ssr_password" "${PANEL_DIR}/ssr-install.log" 2>/dev/null || true
+}
+
+scrub_legacy_password_backups() {
+    local backup_config failed=0
+    [ -d "${PANEL_DIR}/backups" ] || return 0
+    while IFS= read -r -d '' backup_config; do
+        [ ! -L "${backup_config}" ] || continue
+        if grep -Eq '^ADMIN_PASS[[:space:]]*=' "${backup_config}"; then
+            if ! "${PYTHON3_BIN}" "${PANEL_DIR}/security_utils.py" migrate-config "${backup_config}" >/dev/null; then
+                echo -e "${YELLOW}无法清理备份中的旧密码: ${backup_config}${NC}" >&2
+                failed=1
+                continue
+            fi
+        fi
+        chmod 0600 "${backup_config}" 2>/dev/null || failed=1
+    done < <(find "${PANEL_DIR}/backups" -type f -path '*/app/config.py' -print0)
+    return "${failed}"
 }
 
 restore_virtualenv() {
@@ -686,16 +709,12 @@ ensure_python_deps() {
     if ! "${PYTHON3_BIN}" -c "import flask" &>/dev/null; then
         echo -e "${RED}Flask 导入失败${NC}"
     fi
-    if ! "${PYTHON3_BIN}" -c "import flask_limiter" &>/dev/null; then
-        echo -e "${YELLOW}Flask-Limiter 导入失败，将以应用内置限流兼容模式运行${NC}"
-    fi
-
     if ! "${PYTHON3_BIN}" -c "import waitress" &>/dev/null; then
         echo -e "${RED}Waitress 导入失败，尝试 pip 单独安装...${NC}"
         run_pip_install "${pip_install_opts[@]}" waitress -q 2>/dev/null || true
     fi
 
-    if ! "${PYTHON3_BIN}" -c "import flask; import waitress" &>/dev/null; then
+    if ! "${PYTHON3_BIN}" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
         echo -e "${RED}Python 依赖安装失败，服务可能无法启动${NC}"
         return 1
     fi
@@ -723,7 +742,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 ExecStart=${PYTHON3_BIN} ${stats_script} --mudb ${SSR_DIR}/mudb.json --output ${DEVICE_STATS_FILE} --interval ${DEVICE_STATS_INTERVAL} --window ${DEVICE_STATS_WINDOW} --watch
 Restart=always
 RestartSec=5
@@ -746,16 +766,24 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 WorkingDirectory=${PANEL_DIR}
 ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
 Restart=always
 RestartSec=5
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
 RestrictSUIDSGID=true
 LockPersonality=true
-UMask=0077
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0007
 
 [Install]
 WantedBy=multi-user.target
@@ -875,6 +903,7 @@ echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
 write_status "sync" "正在同步新版本"
 copy_tree "${SOURCE_DIR}" "${PANEL_DIR}" "sync"
 printf 'managed\n' > "${PANEL_DIR}/.ssr-panel-managed"
+"${PYTHON3_BIN}" "${PANEL_DIR}/security_utils.py" migrate-config "${PANEL_DIR}/config.py"
 harden_sensitive_files
 
 PANEL_BUILD_INFO_FILE="${PANEL_DIR}/.panel-build.json"
@@ -900,7 +929,7 @@ Path(os.environ["PANEL_BUILD_INFO_FILE"]).write_text(
 )
 PY
 
-chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" "${PANEL_DIR}/scripts/admin_helper.py" "${PANEL_DIR}/scripts/provision_panel_runtime.sh" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
 
 if [ "${PATCH_SSR_COMPAT}" = "1" ] && [ -d "${SSR_DIR}" ]; then
     "${PYTHON3_BIN}" "${PANEL_DIR}/scripts/patch_ssr_python_compat.py" "${SSR_DIR}"
@@ -909,6 +938,10 @@ fi
 write_status "deps" "正在安装 Python 依赖"
 ensure_panel_venv
 ensure_python_deps
+if [ "${SSR_ADMIN_SKIP_ROOT_CHECK:-0}" != "1" ]; then
+    SSR_ADMIN_PANEL_DIR="${PANEL_DIR}" SSR_ADMIN_MUDB_FILE="${SSR_DIR}/mudb.json" \
+        bash "${PANEL_DIR}/scripts/provision_panel_runtime.sh"
+fi
 
 write_status "restart" "正在重启服务"
 systemctl daemon-reload
@@ -920,6 +953,9 @@ systemctl restart "${SERVICE_NAME}"
 verify_panel_health
 
 TRANSACTION_ACTIVE=0
+if ! scrub_legacy_password_backups; then
+    echo -e "${YELLOW}部分历史备份仍含旧配置，请仅以 root 检查 ${PANEL_DIR}/backups${NC}" >&2
+fi
 echo -e "${GREEN}更新完成${NC}"
 echo -e "${CYAN}新版本:${NC} ${YELLOW}${NEW_VERSION}${NC}"
 echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"

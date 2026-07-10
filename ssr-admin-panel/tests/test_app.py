@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import app as panel_app
+from security_utils import hash_password
 
 
 class AppSecurityTests(unittest.TestCase):
@@ -23,12 +24,12 @@ class AppSecurityTests(unittest.TestCase):
         self.original_state = {
             "MUDB_FILE": panel_app.MUDB_FILE,
             "SSR_DIR": panel_app.SSR_DIR,
-            "SSR_WORKDIR": panel_app.SSR_WORKDIR,
-            "SSR_SERVER": panel_app.SSR_SERVER,
             "SSR_LOG_FILE": panel_app.SSR_LOG_FILE,
             "SSR_INIT_SCRIPT": panel_app.SSR_INIT_SCRIPT,
             "SSR_SYSTEMD_UNIT": panel_app.SSR_SYSTEMD_UNIT,
-            "SSR_FIREWALL_SYNC_HELPER": panel_app.SSR_FIREWALL_SYNC_HELPER,
+            "PRIVILEGED_HELPER": panel_app.PRIVILEGED_HELPER,
+            "USER_DB_LOCK_FILE": panel_app.USER_DB_LOCK_FILE,
+            "USER_DB_PENDING_FILE": panel_app.USER_DB_PENDING_FILE,
             "SSR_PYTHON_BIN": panel_app.SSR_PYTHON_BIN,
             "BACKUP_DIR": panel_app.BACKUP_DIR,
             "PANEL_GIT_URL": panel_app.PANEL_GIT_URL,
@@ -48,12 +49,12 @@ class AppSecurityTests(unittest.TestCase):
 
         panel_app.MUDB_FILE = str(self.mudb_path)
         panel_app.SSR_DIR = self.ssr_dir
-        panel_app.SSR_WORKDIR = self.ssr_dir / "shadowsocks"
-        panel_app.SSR_SERVER = panel_app.SSR_WORKDIR / "server.py"
         panel_app.SSR_LOG_FILE = self.log_file
         panel_app.SSR_INIT_SCRIPT = self.base_path / "etc" / "init.d" / "ssrmu"
         panel_app.SSR_SYSTEMD_UNIT = self.base_path / "systemd" / "ssr.service"
-        panel_app.SSR_FIREWALL_SYNC_HELPER = self.base_path / "sync-firewall.py"
+        panel_app.PRIVILEGED_HELPER = self.base_path / "admin-helper"
+        panel_app.USER_DB_LOCK_FILE = self.base_path / "runtime" / "mudb.lock"
+        panel_app.USER_DB_PENDING_FILE = self.base_path / "runtime" / "mudb.pending.json"
         panel_app.SSR_PYTHON_BIN = ""
         panel_app.BACKUP_DIR = self.backup_dir
         panel_app.PANEL_GIT_URL = "https://github.com/Elegying/SSR_Panel.git"
@@ -79,12 +80,12 @@ class AppSecurityTests(unittest.TestCase):
     def tearDown(self):
         panel_app.MUDB_FILE = self.original_state["MUDB_FILE"]
         panel_app.SSR_DIR = self.original_state["SSR_DIR"]
-        panel_app.SSR_WORKDIR = self.original_state["SSR_WORKDIR"]
-        panel_app.SSR_SERVER = self.original_state["SSR_SERVER"]
         panel_app.SSR_LOG_FILE = self.original_state["SSR_LOG_FILE"]
         panel_app.SSR_INIT_SCRIPT = self.original_state["SSR_INIT_SCRIPT"]
         panel_app.SSR_SYSTEMD_UNIT = self.original_state["SSR_SYSTEMD_UNIT"]
-        panel_app.SSR_FIREWALL_SYNC_HELPER = self.original_state["SSR_FIREWALL_SYNC_HELPER"]
+        panel_app.PRIVILEGED_HELPER = self.original_state["PRIVILEGED_HELPER"]
+        panel_app.USER_DB_LOCK_FILE = self.original_state["USER_DB_LOCK_FILE"]
+        panel_app.USER_DB_PENDING_FILE = self.original_state["USER_DB_PENDING_FILE"]
         panel_app.SSR_PYTHON_BIN = self.original_state["SSR_PYTHON_BIN"]
         panel_app.BACKUP_DIR = self.original_state["BACKUP_DIR"]
         panel_app.PANEL_GIT_URL = self.original_state["PANEL_GIT_URL"]
@@ -236,6 +237,34 @@ class AppSecurityTests(unittest.TestCase):
         self.assertTrue(payload["update_available"])
         self.assertEqual(payload["latest_version"], "new456")
 
+    def test_update_remains_available_until_security_migration_finishes(self):
+        with mock.patch.object(panel_app, "get_panel_version", return_value="1.4.0"), mock.patch.object(
+            panel_app,
+            "resolve_latest_panel_version",
+            return_value={"success": True, "version": "1.4.0", "display_version": "1.4.0"},
+        ), mock.patch.object(panel_app, "panel_security_migration_required", return_value=True, create=True):
+            info = panel_app.collect_panel_update_info(fetch_remote=True)
+
+        self.assertTrue(info["update_available"])
+        self.assertIn("安全迁移", info["message"])
+
+    def test_root_legacy_update_bootstraps_helper_before_panel_update(self):
+        success = {"success": True, "output": "", "error": ""}
+        with mock.patch.object(
+            panel_app, "privileged_helper_available", side_effect=[False, True]
+        ), mock.patch.object(
+            panel_app, "panel_security_migration_required", return_value=True, create=True
+        ), mock.patch.object(
+            panel_app.os, "geteuid", return_value=0
+        ), mock.patch.object(
+            panel_app, "run_process", side_effect=[success, success]
+        ) as run_process_mock:
+            result = panel_app.run_privileged_action("panel-update")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(run_process_mock.call_args_list[0].args[0][:2], ["bash", str(panel_app.PANEL_DIR / "scripts" / "provision_panel_runtime.sh")])
+        self.assertEqual(run_process_mock.call_args_list[1].args[0][-1], "panel-update")
+
     def test_collect_panel_update_info_falls_back_to_repo_check_without_git_workspace(self):
         with mock.patch.object(panel_app, "is_panel_git_workspace", return_value=False), mock.patch.object(
             panel_app, "get_panel_version", return_value="1.1.0"
@@ -300,7 +329,7 @@ class AppSecurityTests(unittest.TestCase):
             sess["csrf_token"] = "login-token"
 
         with mock.patch.object(panel_app, "ADMIN_USER", "admin"), mock.patch.object(
-            panel_app, "ADMIN_PASS", "secret"
+            panel_app, "ADMIN_PASSWORD_HASH", hash_password("secret")
         ):
             missing = self.client.post("/login", data={"username": "admin", "password": "secret"})
             self.assertEqual(missing.status_code, 200)
@@ -349,7 +378,7 @@ class AppSecurityTests(unittest.TestCase):
         self.assertFalse(status["rollback_attempted"])
         self.assertFalse(status["rollback_success"])
 
-    def test_start_panel_update_passes_repo_url_to_runner(self):
+    def test_start_panel_update_uses_allowlisted_privileged_helper(self):
         runner_path = self.base_path / "run_panel_update.py"
         runner_path.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
 
@@ -366,26 +395,21 @@ class AppSecurityTests(unittest.TestCase):
                 "message": "发现新版本 1.2.0",
             },
         ), mock.patch.object(
-            panel_app, "get_panel_repo_url", return_value="https://github.com/Elegying/SSR_Panel.git"
-        ), mock.patch.object(
-            panel_app.shutil, "which", return_value="/bin/systemd-run"
-        ), mock.patch.object(
-            panel_app, "run_process", return_value={"success": True, "output": "detached", "error": ""}
-        ) as run_process_mock:
+            panel_app,
+            "run_privileged_action",
+            return_value={"success": True, "output": "detached", "error": ""},
+            create=True,
+        ) as privileged_mock:
             result = panel_app.start_panel_update()
 
         self.assertTrue(result["success"])
-        command = run_process_mock.call_args.args[0]
-        self.assertIn("--repo-url", command)
-        self.assertIn("https://github.com/Elegying/SSR_Panel.git", command)
-        self.assertIn("--repo-subdir", command)
-        self.assertIn("ssr-admin-panel", command)
+        privileged_mock.assert_called_once_with("panel-update")
 
     def test_start_panel_update_writes_queued_status_before_launch(self):
         runner_path = self.base_path / "run_panel_update.py"
         runner_path.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
 
-        def assert_status_exists_before_launch(_command):
+        def assert_status_exists_before_launch(_action):
             status = json.loads(panel_app.PANEL_UPDATE_STATUS_FILE.read_text(encoding="utf-8"))
             self.assertTrue(status["in_progress"])
             self.assertEqual(status["phase"], "queued")
@@ -404,11 +428,7 @@ class AppSecurityTests(unittest.TestCase):
                 "message": "发现新版本 1.2.0",
             },
         ), mock.patch.object(
-            panel_app, "get_panel_repo_url", return_value="https://github.com/Elegying/SSR_Panel.git"
-        ), mock.patch.object(
-            panel_app.shutil, "which", return_value="/bin/systemd-run"
-        ), mock.patch.object(
-            panel_app, "run_process", side_effect=assert_status_exists_before_launch
+            panel_app, "run_privileged_action", side_effect=assert_status_exists_before_launch, create=True
         ):
             result = panel_app.start_panel_update()
 
@@ -453,13 +473,13 @@ class AppSecurityTests(unittest.TestCase):
 
     def test_user_add_and_delete_sync_the_firewall_without_hiding_success(self):
         self.write_users([])
-        panel_app.SSR_FIREWALL_SYNC_HELPER.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
 
         with mock.patch.object(
             panel_app,
-            "run_process",
+            "run_privileged_action",
             return_value={"success": False, "output": "", "error": "firewall unavailable"},
-        ) as run_process_mock, mock.patch.object(panel_app, "audit_log") as audit_mock:
+            create=True,
+        ) as privileged_mock, mock.patch.object(panel_app, "audit_log") as audit_mock:
             added = self.post_json(
                 "/api/add",
                 {"port": 9001, "user": "firewall-user", "password": "pw", "transfer": 2048},
@@ -474,10 +494,10 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(deleted.status_code, 200)
         self.assertTrue(deleted.get_json()["success"])
         self.assertEqual(
-            run_process_mock.call_args_list,
+            privileged_mock.call_args_list,
             [
-                mock.call([str(panel_app.SSR_FIREWALL_SYNC_HELPER)]),
-                mock.call([str(panel_app.SSR_FIREWALL_SYNC_HELPER)]),
+                mock.call("firewall-sync"),
+                mock.call("firewall-sync"),
             ],
         )
         warning_calls = [call for call in audit_mock.call_args_list if call.kwargs.get("level") == "WARNING"]
@@ -502,6 +522,26 @@ class AppSecurityTests(unittest.TestCase):
             panel_app.save_users([{"user": "new", "passwd": "pw", "port": 9090}])
 
         self.assertEqual(self.mudb_path.read_bytes(), original)
+
+    def test_save_users_stages_data_before_privileged_commit(self):
+        original = [{"user": "existing", "passwd": "pw", "port": 8080}]
+        replacement = [{"user": "new", "passwd": "pw", "port": 18899}]
+        self.write_users(original)
+        panel_app.PRIVILEGED_HELPER.write_text("#!/usr/bin/python3\n", encoding="utf-8")
+
+        def commit_staged(action):
+            self.assertEqual(action, "mudb-commit")
+            staged = json.loads(panel_app.USER_DB_PENDING_FILE.read_text(encoding="utf-8"))
+            self.assertEqual(staged, replacement)
+            panel_app._write_users_unlocked(self.mudb_path, staged)
+            panel_app.USER_DB_PENDING_FILE.unlink()
+            return {"success": True, "output": "", "error": ""}
+
+        with mock.patch.object(panel_app, "run_privileged_action", side_effect=commit_staged):
+            panel_app.save_users(replacement)
+
+        self.assertEqual(self.read_users(), replacement)
+        self.assertFalse(panel_app.USER_DB_PENDING_FILE.exists())
 
     def test_add_user_refuses_to_overwrite_corrupt_database(self):
         original = b"{broken-json\n"
@@ -643,69 +683,52 @@ class AppSecurityTests(unittest.TestCase):
             "ssr://c3NyLnNzcnZwbi52aXA6MTg4OTk6YXV0aF9hZXMxMjhfbWQ1OmFlcy0yNTYtY2ZiOnRsczEuMl90aWNrZXRfYXV0aDpibWxyZFdGcGJXOWlhUS8_cmVtYXJrcz01NmVCNWE2MjZMMm1MVEl3TWpVJnByb3RvcGFyYW09TVRBd01EcDVhVzVuYW1sbE1YSSZvYmZzcGFyYW09ZDNkM0xtSmhhV1IxTG1OdmJR",
         )
 
-    def test_execute_ssr_command_prefers_init_script(self):
-        panel_app.SSR_INIT_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
-        panel_app.SSR_INIT_SCRIPT.write_text("#!/bin/sh\n", encoding="utf-8")
-
+    def test_execute_ssr_command_uses_allowlisted_privileged_helper(self):
         with mock.patch.object(
             panel_app,
-            "run_process",
+            "run_privileged_action",
             return_value={"success": True, "output": "started", "error": ""},
-        ) as run_process_mock, mock.patch.object(
-            panel_app, "wait_for_ssr_status", return_value=True
-        ), mock.patch.object(panel_app, "get_ssr_status", return_value="running"):
-            result = panel_app.execute_ssr_command("start")
-
-        self.assertTrue(result["success"])
-        run_process_mock.assert_called_once_with([str(panel_app.SSR_INIT_SCRIPT), "start"])
-
-    def test_execute_ssr_command_uses_only_systemd_when_managed_unit_exists(self):
-        panel_app.SSR_SYSTEMD_UNIT.parent.mkdir(parents=True)
-        panel_app.SSR_SYSTEMD_UNIT.write_text("[Service]\n", encoding="utf-8")
-        panel_app.SSR_INIT_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
-        panel_app.SSR_INIT_SCRIPT.write_text("#!/bin/sh\n", encoding="utf-8")
-
-        with mock.patch.object(panel_app, "systemd_controls_ssr", return_value=True), mock.patch.object(
-            panel_app,
-            "run_process",
-            return_value={"success": True, "output": "", "error": ""},
-        ) as run_process_mock, mock.patch.object(
+            create=True,
+        ) as privileged_mock, mock.patch.object(
             panel_app, "wait_for_ssr_status", return_value=True
         ), mock.patch.object(panel_app, "get_ssr_status", return_value="running"):
             result = panel_app.execute_ssr_command("restart")
 
         self.assertTrue(result["success"])
-        run_process_mock.assert_called_once_with(["systemctl", "restart", "ssr.service"])
+        privileged_mock.assert_called_once_with("ssr-restart")
 
-    def test_execute_ssr_command_falls_back_to_server_script(self):
-        panel_app.SSR_WORKDIR.mkdir(parents=True, exist_ok=True)
-        panel_app.SSR_SERVER.write_text("print('ok')\n", encoding="utf-8")
-
+    def test_execute_ssr_command_rejects_unknown_action_before_privilege_boundary(self):
         with mock.patch.object(
-            panel_app, "get_ssr_python_candidates", return_value=["/usr/bin/python2"]
-        ), mock.patch.object(
             panel_app,
-            "run_process",
+            "run_privileged_action",
+            return_value={"success": True, "output": "", "error": ""},
+            create=True,
+        ) as privileged_mock:
+            result = panel_app.execute_ssr_command("shell")
+
+        self.assertFalse(result["success"])
+        privileged_mock.assert_not_called()
+
+    def test_execute_ssr_command_reports_unreached_final_state(self):
+        with mock.patch.object(
+            panel_app,
+            "run_privileged_action",
             return_value={"success": True, "output": "started", "error": ""},
-        ) as run_process_mock, mock.patch.object(
-            panel_app, "wait_for_ssr_status", return_value=True
-        ), mock.patch.object(panel_app, "get_ssr_status", return_value="running"):
+            create=True,
+        ), mock.patch.object(
+            panel_app, "wait_for_ssr_status", return_value=False
+        ), mock.patch.object(panel_app, "get_ssr_status", return_value="stopped"):
             result = panel_app.execute_ssr_command("start")
 
-        self.assertTrue(result["success"])
-        run_process_mock.assert_called_once_with(
-            ["/usr/bin/python2", "server.py", "-d", "start"],
-            cwd=panel_app.SSR_WORKDIR,
-        )
+        self.assertFalse(result["success"])
+        self.assertIn("stopped", result["error"])
 
     def test_execute_ssr_command_accepts_expected_final_state(self):
-        panel_app.SSR_INIT_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
-        panel_app.SSR_INIT_SCRIPT.write_text("#!/bin/sh\n", encoding="utf-8")
-
         with mock.patch.object(
             panel_app,
-            "run_process",
+            "run_privileged_action",
             return_value={"success": False, "output": "", "error": "ShadowsocksR 未运行 !"},
+            create=True,
         ), mock.patch.object(panel_app, "wait_for_ssr_status", return_value=True), mock.patch.object(
             panel_app, "get_ssr_status", return_value="stopped"
         ):

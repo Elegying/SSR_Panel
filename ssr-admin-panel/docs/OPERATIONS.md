@@ -58,13 +58,21 @@ SSR_ADMIN_PASS="change-this-password" \
 bash install.sh
 ```
 
+安装器只把 PBKDF2-SHA256 哈希写入 `config.py`。旧版本的 `ADMIN_PASS` 会在更新时自动迁移，原密码保持不变。
+
+面板和设备统计以无登录 shell 的 `ssr-panel` 用户运行。源码目录由 root 持有；SSR 启停、防火墙同步、`mudb.json` 提交和面板更新只能通过固定提权助手执行。当前仍监听 `0.0.0.0:5000`，原有 `http://服务器IP:5000` 访问方式不变。
+
 ## 部署后验证
 
 ```bash
 systemctl is-active ssr-admin
+systemctl show ssr-admin -p User -p Group --value
 journalctl -u ssr-admin -n 50 --no-pager
 curl -I http://127.0.0.1:5000/
+sudo -l -U ssr-panel
 ```
+
+`systemctl show` 应显示 `ssr-panel`；`sudo -l` 只能列出 admin-helper 的固定动作，不应出现通配符或任意 shell。
 
 如果服务器已经安装 SSR，再检查：
 
@@ -89,7 +97,9 @@ SSR_EXTRA_PORTS=18899
 
 ```bash
 install -m 600 /root/mudb.json /usr/local/shadowsocksr/mudb.json
-systemctl restart ssr
+# helper 会校正 root:ssr-panel / 0640 权限并同步端口
+/usr/local/libexec/ssr-panel/admin-helper firewall-sync
+systemctl restart ssr ssr-device-stats
 systemctl is-active ssr
 cat /var/lib/ssr-panel-firewall/managed-ports.json
 ss -lntup | grep ':18899' || true
@@ -124,6 +134,16 @@ SSR_BLOCK_UDP_443=1 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 
 ## 更新
 
+从 v1.3.1 或更早版本首次升级到低权限安全版时，建议直接运行远端的新版更新器，使源码同步和服务降权在同一事务中完成：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/update.sh -o /tmp/ssr-panel-update.sh
+bash /tmp/ssr-panel-update.sh main
+rm -f /tmp/ssr-panel-update.sh
+```
+
+如果使用旧面板内的在线更新，旧更新器第一次只会同步新源码。新面板会继续显示“需要完成安全迁移”，再次执行更新后才会迁移密码、安装 helper 并把服务切换到 `ssr-panel`；这不是更新失败。
+
 ```bash
 bash /opt/ssr-admin-panel/update.sh
 ```
@@ -151,12 +171,12 @@ bash /opt/ssr-admin-panel/update.sh
 
 ### 使用正式发布包回滚
 
-GitHub Release 提供 `SSR_Panel-v1.3.1-rollback.tar.gz` 和 `SHA256SUMS`。把两个文件放在同一目录，先校验再解压执行：
+GitHub Release 提供 `SSR_Panel-v1.4.0-rollback.tar.gz` 和 `SHA256SUMS`。把两个文件放在同一目录，先校验再解压执行：
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf SSR_Panel-v1.3.1-rollback.tar.gz
-bash SSR_Panel-v1.3.1/ssr-admin-panel/rollback.sh --yes
+tar -xzf SSR_Panel-v1.4.0-rollback.tar.gz
+bash SSR_Panel-v1.4.0/ssr-admin-panel/rollback.sh --yes
 ```
 
 回滚入口使用归档内的本地源码，不执行 Git clone；它仍复用更新器的互斥锁、完整备份、失败自动恢复、服务状态验证和 HTTP 健康检查。`config.py`、`mudb.json`、venv 与本地文件不会被归档内容直接覆盖。脚本会输出本次备份目录，便于继续人工恢复。

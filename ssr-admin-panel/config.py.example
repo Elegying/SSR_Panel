@@ -3,7 +3,8 @@
 
 # 管理员账号
 ADMIN_USER = 'admin'
-ADMIN_PASS = 'your-password'
+# 生成命令: printf '%s' 'your-password' | python3 security_utils.py hash
+ADMIN_PASSWORD_HASH = 'replace-with-generated-pbkdf2-hash'
 
 # Session密钥 (自动生成，请勿修改)
 SECRET_KEY = 'change-this-to-random-string'

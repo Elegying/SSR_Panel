@@ -30,6 +30,7 @@ class UninstallSafetyTests(unittest.TestCase):
         self.default_panel_dir = self.root / "default-panel"
         self.default_ssr_dir = self.root / "default-ssr"
         self.default_stats_dir = self.root / "default-stats"
+        self.default_log_dir = self.root / "default-log"
         self.systemd_dir = self.root / "systemd"
         self.legacy_init = self.root / "ssrmu"
         self.firewall_helper_dir = self.root / "firewall-helper"
@@ -39,7 +40,12 @@ class UninstallSafetyTests(unittest.TestCase):
         self.firewall_state = self.root / "firewall-state"
         self.firewall_state.mkdir()
         self.systemd_dir.mkdir()
-        for path in (self.default_panel_dir, self.default_ssr_dir, self.default_stats_dir):
+        for path in (
+            self.default_panel_dir,
+            self.default_ssr_dir,
+            self.default_stats_dir,
+            self.default_log_dir,
+        ):
             path.mkdir()
 
         source = UNINSTALL_SCRIPT.read_text(encoding="utf-8")
@@ -54,6 +60,7 @@ class UninstallSafetyTests(unittest.TestCase):
             ('DEFAULT_PANEL_DIR="/opt/ssr-admin-panel"', f'DEFAULT_PANEL_DIR="{self.default_panel_dir}"'),
             ('DEFAULT_SSR_DIR="/usr/local/shadowsocksr"', f'DEFAULT_SSR_DIR="{self.default_ssr_dir}"'),
             ('DEFAULT_DEVICE_STATS_DIR="/var/lib/ssr-admin-panel"', f'DEFAULT_DEVICE_STATS_DIR="{self.default_stats_dir}"'),
+            ('DEFAULT_PANEL_LOG_DIR="/var/log/ssr-admin-panel"', f'DEFAULT_PANEL_LOG_DIR="{self.default_log_dir}"'),
             ('DEFAULT_LEGACY_INIT_SCRIPT="/etc/init.d/ssrmu"', f'DEFAULT_LEGACY_INIT_SCRIPT="{self.legacy_init}"'),
             ('DEFAULT_FIREWALL_HELPER_DIR="/usr/local/libexec/ssr-panel"', f'DEFAULT_FIREWALL_HELPER_DIR="{self.firewall_helper_dir}"'),
             ('DEFAULT_FIREWALL_CONFIG="/etc/default/ssr-panel-firewall"', f'DEFAULT_FIREWALL_CONFIG="{self.firewall_config}"'),
@@ -231,7 +238,7 @@ class UninstallSafetyTests(unittest.TestCase):
             [
                 f"rm\t-f\t{self.systemd_dir}/custom-panel.service",
                 f"rm\t-f\t{self.systemd_dir}/custom-stats.service",
-                f"rm\t-rf\t{self.default_panel_dir}\t{self.default_stats_dir}",
+                f"rm\t-rf\t{self.default_panel_dir}\t{self.default_stats_dir}\t{self.default_log_dir}",
             ],
         )
 
@@ -344,7 +351,7 @@ class UninstallSafetyTests(unittest.TestCase):
                 f"rm\t-f\t{self.systemd_dir}/ssr-device-stats.service",
                 f"rm\t-f\t{self.systemd_dir}/ssr.service",
                 f"rm\t-rf\t{self.default_ssr_dir}",
-                f"rm\t-rf\t{self.default_panel_dir}\t{self.default_stats_dir}",
+                f"rm\t-rf\t{self.default_panel_dir}\t{self.default_stats_dir}\t{self.default_log_dir}",
             ],
         )
 
@@ -371,7 +378,7 @@ class UninstallSafetyTests(unittest.TestCase):
                 f"rm\t-f\t{self.systemd_dir}/ssr-device-stats.service",
                 f"rm\t-f\t{self.systemd_dir}/ssr.service",
                 f"rm\t-rf\t{ssr_dir}",
-                f"rm\t-rf\t{panel_dir}\t{stats_dir}",
+                f"rm\t-rf\t{panel_dir}\t{stats_dir}\t{self.default_log_dir}",
             ],
         )
 

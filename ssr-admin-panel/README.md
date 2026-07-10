@@ -22,6 +22,7 @@
 - 🔍 **搜索过滤** - 按用户名/端口搜索
 - 📊 **流量排序** - 按流量使用量一键排序
 - 🔐 **登录验证** - 保护管理面板安全
+- 🔒 **最小权限** - 面板以专用用户运行，密码只保存 PBKDF2 哈希，root 操作经过固定白名单 helper
 - 🚀 **服务端视频优化** - 一键部署时自动禁止无出口 IPv6 目标，默认放行出站 UDP/443 以保留 YouTube/Google QUIC/HTTP3 首连体验
 - 📱 **响应式设计** - 完美支持手机访问
 
@@ -89,10 +90,18 @@ wget https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/i
 
 ```python
 ADMIN_USER = 'your-username'    # 管理员用户名
-ADMIN_PASS = 'your-password'    # 管理员密码
+ADMIN_PASSWORD_HASH = 'pbkdf2_sha256$...'  # 管理员密码哈希（安装器自动生成）
 SECRET_KEY = '...'              # Session密钥（自动生成）
 MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'  # SSR用户文件
 DEVICE_STATS_FILE = '/var/lib/ssr-admin-panel/device-stats.json'  # 设备统计文件
+```
+
+修改密码时，先生成新哈希再替换 `ADMIN_PASSWORD_HASH`：
+
+```bash
+read -r -s -p '新密码: ' PANEL_PASSWORD; echo
+printf '%s' "$PANEL_PASSWORD" | /opt/ssr-admin-panel/venv/bin/python /opt/ssr-admin-panel/security_utils.py hash
+unset PANEL_PASSWORD
 ```
 
 修改配置后重启服务：
@@ -155,6 +164,8 @@ SSR_BLOCK_UDP_443=1 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 ```bash
 bash /opt/ssr-admin-panel/update.sh
 ```
+
+从 v1.3.1 或更早版本首次升级到低权限安全版，请优先按[运维手册](docs/OPERATIONS.md#更新)直接运行新版更新器；若从旧面板在线更新，需按页面提示再次执行一次以完成服务降权。
 
 脚本会自动：
 

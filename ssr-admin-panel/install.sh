@@ -332,7 +332,7 @@ ensure_basic_runtime() {
 }
 
 install_flask_runtime() {
-    if "$PYTHON3_BIN" -c "import flask; import waitress" &>/dev/null; then
+    if "$PYTHON3_BIN" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
         echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
         return
     fi
@@ -351,8 +351,8 @@ install_flask_runtime() {
     fi
 
     if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
-        echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试系统包...${NC}"
-        install_single_python_package flask-limiter 2>/dev/null || true
+        echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试单独安装...${NC}"
+        install_single_python_package flask-limiter
     fi
 
     if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
@@ -362,6 +362,7 @@ install_flask_runtime() {
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
 import flask
+import flask_limiter
 import waitress
 PY
     then
@@ -402,7 +403,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 ExecStart=${PYTHON3_BIN} ${INSTALL_DIR}/scripts/collect_device_stats.py --mudb ${MUDB_FILE} --output ${DEVICE_STATS_FILE} --interval ${DEVICE_STATS_INTERVAL} --window ${DEVICE_STATS_WINDOW} --watch
 Restart=always
 RestartSec=5
@@ -423,7 +425,12 @@ SERVICE
 }
 
 harden_sensitive_files() {
-    chmod 600 "$INSTALL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+    if getent group ssr-panel >/dev/null 2>&1; then
+        chown root:ssr-panel "$INSTALL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+        chmod 0640 "$INSTALL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+    else
+        chmod 0600 "$INSTALL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+    fi
 }
 
 sync_project_files() {
@@ -570,7 +577,7 @@ echo -e "${GREEN}[1/6] 下载项目文件...${NC}"
 sync_project_files "$INSTALL_DIR"
 printf 'managed\n' > "$INSTALL_DIR/.ssr-panel-managed"
 
-chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/sync_ssr_firewall.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/sync_ssr_firewall.py" "$INSTALL_DIR/scripts/admin_helper.py" "$INSTALL_DIR/scripts/provision_panel_runtime.sh" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION="${SYNC_REVISION:-$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")}"
 PANEL_BUILD_INFO_FILE="$INSTALL_DIR/.panel-build.json"
@@ -608,9 +615,11 @@ echo
 echo -e "${GREEN}[3/6] 生成配置文件...${NC}"
 if [ -f "$INSTALL_DIR/config.py" ]; then
     echo -e "${YELLOW}检测到现有配置文件，已保留: $INSTALL_DIR/config.py${NC}"
+    "$PYTHON3_BIN" "$INSTALL_DIR/security_utils.py" migrate-config "$INSTALL_DIR/config.py"
 else
 SECRET_KEY=$("$PYTHON3_BIN" -c "import secrets; print(secrets.token_hex(32))")
-INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" DEVICE_STATS_FILE="$DEVICE_STATS_FILE" SHARE_HOST="$SHARE_HOST" SHARE_PORT="$SHARE_PORT" SHARE_PASSWORD="$SHARE_PASSWORD" SHARE_REMARKS="$SHARE_REMARKS" SHARE_PROTOCOL="$SHARE_PROTOCOL" SHARE_METHOD="$SHARE_METHOD" SHARE_OBFS="$SHARE_OBFS" SHARE_OBFS_PARAM="$SHARE_OBFS_PARAM" "$PYTHON3_BIN" << 'PY'
+ADMIN_PASSWORD_HASH=$(printf '%s' "$ADMIN_PASS" | "$PYTHON3_BIN" "$INSTALL_DIR/security_utils.py" hash)
+INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASSWORD_HASH="$ADMIN_PASSWORD_HASH" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" DEVICE_STATS_FILE="$DEVICE_STATS_FILE" SHARE_HOST="$SHARE_HOST" SHARE_PORT="$SHARE_PORT" SHARE_PASSWORD="$SHARE_PASSWORD" SHARE_REMARKS="$SHARE_REMARKS" SHARE_PROTOCOL="$SHARE_PROTOCOL" SHARE_METHOD="$SHARE_METHOD" SHARE_OBFS="$SHARE_OBFS" SHARE_OBFS_PARAM="$SHARE_OBFS_PARAM" "$PYTHON3_BIN" << 'PY'
 import os
 from pathlib import Path
 
@@ -625,7 +634,7 @@ def to_int(value, default):
 config_path = Path(os.environ["INSTALL_DIR"]) / "config.py"
 values = {
     "ADMIN_USER": os.environ["ADMIN_USER"],
-    "ADMIN_PASS": os.environ["ADMIN_PASS"],
+    "ADMIN_PASSWORD_HASH": os.environ["ADMIN_PASSWORD_HASH"],
     "SECRET_KEY": os.environ["SECRET_KEY"],
     "MUDB_FILE": os.environ["MUDB_FILE"],
     "SSR_SHARE_HOST": os.environ.get("SHARE_HOST", ""),
@@ -649,6 +658,8 @@ PY
 
 echo -e "${GREEN}✓ 配置文件已生成: $INSTALL_DIR/config.py${NC}"
 fi
+SSR_ADMIN_PANEL_DIR="$INSTALL_DIR" SSR_ADMIN_MUDB_FILE="$MUDB_FILE" \
+    bash "$INSTALL_DIR/scripts/provision_panel_runtime.sh"
 harden_sensitive_files
 
 # 创建systemd服务
@@ -663,16 +674,24 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 WorkingDirectory=/opt/ssr-admin-panel
 ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
 Restart=always
 RestartSec=5
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
 RestrictSUIDSGID=true
 LockPersonality=true
-UMask=0077
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0007
 
 [Install]
 WantedBy=multi-user.target
@@ -718,7 +737,7 @@ echo
 echo -e "访问地址: ${YELLOW}http://your-server-ip:5000${NC}"
 echo -e "管理员账号: ${YELLOW}${ADMIN_USER}${NC}"
 echo
-echo -e "${CYAN}提示: 如需修改账号密码，编辑 config.py 后执行:${NC}"
+echo -e "${CYAN}提示: 如需修改密码，先用 security_utils.py hash 生成哈希并替换 config.py 中的 ADMIN_PASSWORD_HASH，再执行:${NC}"
 echo -e "${CYAN}  systemctl restart ssr-admin${NC}"
 echo -e "${CYAN}更新命令:${NC}"
 echo -e "${CYAN}  bash /opt/ssr-admin-panel/update.sh${NC}"

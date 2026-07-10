@@ -30,15 +30,15 @@ class RepositoryPolicyTests(unittest.TestCase):
         )
 
     def test_release_metadata_and_operations_docs_match_new_defaults(self):
-        self.assertEqual((PANEL_ROOT / "VERSION").read_text(encoding="utf-8").strip(), "1.3.1")
+        self.assertEqual((PANEL_ROOT / "VERSION").read_text(encoding="utf-8").strip(), "1.4.0")
         changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         operations = (PANEL_ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
 
-        self.assertIn("v1.3.1", changelog)
+        self.assertIn("v1.4.0", changelog)
         self.assertIn("SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=1", operations)
         self.assertIn("SSR_ADMIN_PATCH_SSR_COMPAT=1", operations)
         self.assertIn("HTTP 健康检查", operations)
-        self.assertIn("SSR_Panel-v1.3.1-rollback.tar.gz", operations)
+        self.assertIn("SSR_Panel-v1.4.0-rollback.tar.gz", operations)
         self.assertIn("sha256sum -c SHA256SUMS", operations)
         self.assertIn("rollback.sh --yes", operations)
         self.assertNotIn("更新脚本也会重新应用 SSR 服务端优化", operations)
