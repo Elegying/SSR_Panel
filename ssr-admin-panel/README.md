@@ -165,6 +165,8 @@ SSR_BLOCK_UDP_443=1 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 bash /opt/ssr-admin-panel/update.sh
 ```
 
+从 v1.3.1 或更早版本首次升级到低权限安全版，请优先按[运维手册](docs/OPERATIONS.md#更新)直接运行新版更新器；若从旧面板在线更新，需按页面提示再次执行一次以完成服务降权。
+
 脚本会自动：
 
 - 从 GitHub 拉取最新代码

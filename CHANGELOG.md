@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.4.0 (2026-07-10)
 
 ### Security
 - 管理面板和设备统计服务改用无登录权限的 `ssr-panel` 专用账户；root 操作只能通过 `/usr/local/libexec/ssr-panel/admin-helper` 的六个固定动作执行，sudoers 不接受任意命令或参数。

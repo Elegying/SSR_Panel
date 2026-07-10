@@ -134,6 +134,16 @@ SSR_BLOCK_UDP_443=1 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 
 ## 更新
 
+从 v1.3.1 或更早版本首次升级到低权限安全版时，建议直接运行远端的新版更新器，使源码同步和服务降权在同一事务中完成：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/update.sh -o /tmp/ssr-panel-update.sh
+bash /tmp/ssr-panel-update.sh main
+rm -f /tmp/ssr-panel-update.sh
+```
+
+如果使用旧面板内的在线更新，旧更新器第一次只会同步新源码。新面板会继续显示“需要完成安全迁移”，再次执行更新后才会迁移密码、安装 helper 并把服务切换到 `ssr-panel`；这不是更新失败。
+
 ```bash
 bash /opt/ssr-admin-panel/update.sh
 ```

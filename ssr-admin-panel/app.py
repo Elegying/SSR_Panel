@@ -71,8 +71,9 @@ def _default_secret_key():
 
 ADMIN_USER = getattr(app_config, "ADMIN_USER", "admin")
 ADMIN_PASSWORD_HASH = getattr(app_config, "ADMIN_PASSWORD_HASH", "")
+legacy_admin_password = getattr(app_config, "ADMIN_PASS", "")
+LEGACY_ADMIN_PASSWORD_CONFIGURED = bool(legacy_admin_password and not ADMIN_PASSWORD_HASH)
 if not ADMIN_PASSWORD_HASH:
-    legacy_admin_password = getattr(app_config, "ADMIN_PASS", "")
     ADMIN_PASSWORD_HASH = hash_password(legacy_admin_password or secrets.token_urlsafe(32))
 SECRET_KEY = getattr(app_config, "SECRET_KEY", _default_secret_key())
 MUDB_FILE = getattr(app_config, "MUDB_FILE", "/usr/local/shadowsocksr/mudb.json")
@@ -319,6 +320,11 @@ def _write_users_unlocked(path, users):
 
 def privileged_helper_available():
     return PRIVILEGED_HELPER.is_file() and not PRIVILEGED_HELPER.is_symlink()
+
+
+def panel_security_migration_required():
+    deployed_as_root = PANEL_DIR == Path("/opt/ssr-admin-panel") and os.geteuid() == 0
+    return LEGACY_ADMIN_PASSWORD_CONFIGURED or deployed_as_root
 
 
 def commit_users(path, users):
@@ -735,14 +741,16 @@ def resolve_latest_panel_version(fetch_remote=False):
 
 def collect_panel_update_info(fetch_remote=False):
     current_version = get_panel_version()
+    migration_required = panel_security_migration_required()
     info = {
         "success": True,
         "current_version": current_version,
         "latest_version": current_version,
-        "update_available": False,
+        "update_available": migration_required,
+        "migration_required": migration_required,
         "remote": PANEL_GIT_REMOTE,
         "branch": PANEL_GIT_BRANCH,
-        "message": "当前已是最新版本",
+        "message": "需要完成安全迁移" if migration_required else "当前已是最新版本",
     }
 
     latest_result = resolve_latest_panel_version(fetch_remote=fetch_remote)
@@ -753,8 +761,11 @@ def collect_panel_update_info(fetch_remote=False):
 
     latest_version = latest_result.get("display_version") or latest_result["version"]
     info["latest_version"] = latest_version
-    info["update_available"] = latest_version != "unknown" and latest_version != current_version
-    if info["update_available"]:
+    version_update_available = latest_version != "unknown" and latest_version != current_version
+    info["update_available"] = version_update_available or migration_required
+    if migration_required:
+        info["message"] = "源码已更新，需要再次执行以完成低权限安全迁移"
+    elif version_update_available:
         info["message"] = f"发现新版本 {latest_version}"
     return info
 
@@ -1111,7 +1122,25 @@ def run_privileged_action(action):
     }:
         return {"success": False, "output": "", "error": "不支持的提权操作"}
     if not privileged_helper_available():
-        return {"success": False, "output": "", "error": f"提权助手不可用: {PRIVILEGED_HELPER}"}
+        provisioner = PANEL_DIR / "scripts" / "provision_panel_runtime.sh"
+        can_bootstrap = (
+            action == "panel-update"
+            and os.geteuid() == 0
+            and panel_security_migration_required()
+            and provisioner.is_file()
+            and not provisioner.is_symlink()
+        )
+        if not can_bootstrap:
+            return {"success": False, "output": "", "error": f"提权助手不可用: {PRIVILEGED_HELPER}"}
+        provision_result = run_process(["bash", str(provisioner)])
+        if not provision_result["success"] or not privileged_helper_available():
+            return {
+                "success": False,
+                "output": provision_result["output"],
+                "error": provision_result["error"] or "提权助手安装失败",
+            }
+    if os.geteuid() == 0:
+        return run_process([str(PRIVILEGED_HELPER), action])
     return run_process(["/usr/bin/sudo", "-n", str(PRIVILEGED_HELPER), action])
 
 

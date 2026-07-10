@@ -237,6 +237,34 @@ class AppSecurityTests(unittest.TestCase):
         self.assertTrue(payload["update_available"])
         self.assertEqual(payload["latest_version"], "new456")
 
+    def test_update_remains_available_until_security_migration_finishes(self):
+        with mock.patch.object(panel_app, "get_panel_version", return_value="1.4.0"), mock.patch.object(
+            panel_app,
+            "resolve_latest_panel_version",
+            return_value={"success": True, "version": "1.4.0", "display_version": "1.4.0"},
+        ), mock.patch.object(panel_app, "panel_security_migration_required", return_value=True, create=True):
+            info = panel_app.collect_panel_update_info(fetch_remote=True)
+
+        self.assertTrue(info["update_available"])
+        self.assertIn("安全迁移", info["message"])
+
+    def test_root_legacy_update_bootstraps_helper_before_panel_update(self):
+        success = {"success": True, "output": "", "error": ""}
+        with mock.patch.object(
+            panel_app, "privileged_helper_available", side_effect=[False, True]
+        ), mock.patch.object(
+            panel_app, "panel_security_migration_required", return_value=True, create=True
+        ), mock.patch.object(
+            panel_app.os, "geteuid", return_value=0
+        ), mock.patch.object(
+            panel_app, "run_process", side_effect=[success, success]
+        ) as run_process_mock:
+            result = panel_app.run_privileged_action("panel-update")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(run_process_mock.call_args_list[0].args[0][:2], ["bash", str(panel_app.PANEL_DIR / "scripts" / "provision_panel_runtime.sh")])
+        self.assertEqual(run_process_mock.call_args_list[1].args[0][-1], "panel-update")
+
     def test_collect_panel_update_info_falls_back_to_repo_check_without_git_workspace(self):
         with mock.patch.object(panel_app, "is_panel_git_workspace", return_value=False), mock.patch.object(
             panel_app, "get_panel_version", return_value="1.1.0"
