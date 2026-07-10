@@ -25,7 +25,8 @@ class OptimizerScriptTests(unittest.TestCase):
             json.dumps({"timeout": 120, "udp_timeout": 60, "fast_open": False}) + "\n",
             encoding="utf-8",
         )
-        (ssr_dir / "server.py").write_text("# server\n", encoding="utf-8")
+        (ssr_dir / "shadowsocks").mkdir()
+        (ssr_dir / "shadowsocks" / "server.py").write_text("# server\n", encoding="utf-8")
 
         bin_dir = base / "bin"
         bin_dir.mkdir()
@@ -99,6 +100,27 @@ class OptimizerScriptTests(unittest.TestCase):
             self.assertFalse((base / "systemd" / "ssr.service").exists())
             self.assertFalse((base / "sysctl.d" / "99-z-ssr-performance.conf").exists())
             self.assertIn("restoring changed files", result.stdout)
+
+    def test_generated_unit_uses_real_ssr_entrypoint_and_disables_sysv_autostart(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            env, ssr_dir = self.make_env(base)
+
+            result = subprocess.run(
+                ["bash", str(SCRIPT)],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            unit = (base / "systemd" / "ssr.service").read_text(encoding="utf-8")
+            self.assertIn(f"WorkingDirectory={ssr_dir / 'shadowsocks'}", unit)
+            self.assertIn(f"{ssr_dir / 'shadowsocks' / 'server.py'} a", unit)
+            self.assertIn("disable ssrmu.service", (base / "systemctl.log").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

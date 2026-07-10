@@ -180,6 +180,10 @@ SSR_WORKDIR = SSR_DIR / "shadowsocks"
 SSR_SERVER = SSR_WORKDIR / "server.py"
 SSR_LOG_FILE = SSR_DIR / "ssserver.log"
 SSR_INIT_SCRIPT = Path(getattr(app_config, "SSR_INIT_SCRIPT", "/etc/init.d/ssrmu"))
+SSR_SYSTEMD_UNIT = Path(
+    getattr(app_config, "SSR_SYSTEMD_UNIT", "/etc/systemd/system/ssr.service")
+)
+SSR_SYSTEMD_SERVICE = getattr(app_config, "SSR_SYSTEMD_SERVICE", "ssr.service")
 SSR_PYTHON_BIN = getattr(app_config, "SSR_PYTHON_BIN", "")
 BACKUP_DIR = Path("/opt/ssr-admin-panel/backups")
 PANEL_DIR = Path(__file__).resolve().parent
@@ -1144,6 +1148,18 @@ def run_ssr_init_script(action):
     return run_process([str(SSR_INIT_SCRIPT), action])
 
 
+def systemd_controls_ssr():
+    return (
+        SSR_SYSTEMD_UNIT.is_file()
+        and Path("/run/systemd/system").is_dir()
+        and shutil.which("systemctl") is not None
+    )
+
+
+def run_ssr_systemd_command(action):
+    return run_process(["systemctl", action, SSR_SYSTEMD_SERVICE])
+
+
 def run_ssr_server_command_once(action):
     if not SSR_SERVER.exists():
         return {"success": False, "output": "", "error": f"未找到 SSR 服务脚本: {SSR_SERVER}"}
@@ -1174,11 +1190,14 @@ def execute_ssr_command(action):
     if action not in {"start", "stop", "restart"}:
         return {"success": False, "output": "", "error": "不支持的操作"}
 
-    runners = []
-    if SSR_INIT_SCRIPT.exists():
-        runners.append(run_ssr_init_script)
-    if SSR_SERVER.exists():
-        runners.append(run_ssr_server_command)
+    if systemd_controls_ssr():
+        runners = [run_ssr_systemd_command]
+    else:
+        runners = []
+        if SSR_INIT_SCRIPT.exists():
+            runners.append(run_ssr_init_script)
+        if SSR_SERVER.exists():
+            runners.append(run_ssr_server_command)
 
     if not runners:
         return {
@@ -1212,6 +1231,16 @@ def execute_ssr_command(action):
 
 def get_ssr_status():
     try:
+        if systemd_controls_ssr():
+            result = run_process(["systemctl", "is-active", SSR_SYSTEMD_SERVICE])
+            status = (result["output"] or result["error"]).strip().lower().splitlines()
+            state = status[0] if status else ""
+            if result["success"] or state in {"active", "activating", "reloading"}:
+                return "running"
+            if state in {"inactive", "failed", "deactivating", "dead"}:
+                return "stopped"
+            return "unknown"
+
         if SSR_INIT_SCRIPT.exists():
             result = run_process([str(SSR_INIT_SCRIPT), "status"])
             output = "\n".join(filter(None, [result["output"], result["error"]])).lower()

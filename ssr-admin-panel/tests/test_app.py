@@ -27,6 +27,7 @@ class AppSecurityTests(unittest.TestCase):
             "SSR_SERVER": panel_app.SSR_SERVER,
             "SSR_LOG_FILE": panel_app.SSR_LOG_FILE,
             "SSR_INIT_SCRIPT": panel_app.SSR_INIT_SCRIPT,
+            "SSR_SYSTEMD_UNIT": panel_app.SSR_SYSTEMD_UNIT,
             "SSR_PYTHON_BIN": panel_app.SSR_PYTHON_BIN,
             "BACKUP_DIR": panel_app.BACKUP_DIR,
             "PANEL_GIT_URL": panel_app.PANEL_GIT_URL,
@@ -50,6 +51,7 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_SERVER = panel_app.SSR_WORKDIR / "server.py"
         panel_app.SSR_LOG_FILE = self.log_file
         panel_app.SSR_INIT_SCRIPT = self.base_path / "etc" / "init.d" / "ssrmu"
+        panel_app.SSR_SYSTEMD_UNIT = self.base_path / "systemd" / "ssr.service"
         panel_app.SSR_PYTHON_BIN = ""
         panel_app.BACKUP_DIR = self.backup_dir
         panel_app.PANEL_GIT_URL = "https://github.com/Elegying/SSR_Panel.git"
@@ -79,6 +81,7 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_SERVER = self.original_state["SSR_SERVER"]
         panel_app.SSR_LOG_FILE = self.original_state["SSR_LOG_FILE"]
         panel_app.SSR_INIT_SCRIPT = self.original_state["SSR_INIT_SCRIPT"]
+        panel_app.SSR_SYSTEMD_UNIT = self.original_state["SSR_SYSTEMD_UNIT"]
         panel_app.SSR_PYTHON_BIN = self.original_state["SSR_PYTHON_BIN"]
         panel_app.BACKUP_DIR = self.original_state["BACKUP_DIR"]
         panel_app.PANEL_GIT_URL = self.original_state["PANEL_GIT_URL"]
@@ -579,6 +582,24 @@ class AppSecurityTests(unittest.TestCase):
 
         self.assertTrue(result["success"])
         run_process_mock.assert_called_once_with([str(panel_app.SSR_INIT_SCRIPT), "start"])
+
+    def test_execute_ssr_command_uses_only_systemd_when_managed_unit_exists(self):
+        panel_app.SSR_SYSTEMD_UNIT.parent.mkdir(parents=True)
+        panel_app.SSR_SYSTEMD_UNIT.write_text("[Service]\n", encoding="utf-8")
+        panel_app.SSR_INIT_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
+        panel_app.SSR_INIT_SCRIPT.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        with mock.patch.object(panel_app, "systemd_controls_ssr", return_value=True), mock.patch.object(
+            panel_app,
+            "run_process",
+            return_value={"success": True, "output": "", "error": ""},
+        ) as run_process_mock, mock.patch.object(
+            panel_app, "wait_for_ssr_status", return_value=True
+        ), mock.patch.object(panel_app, "get_ssr_status", return_value="running"):
+            result = panel_app.execute_ssr_command("restart")
+
+        self.assertTrue(result["success"])
+        run_process_mock.assert_called_once_with(["systemctl", "restart", "ssr.service"])
 
     def test_execute_ssr_command_falls_back_to_server_script(self):
         panel_app.SSR_WORKDIR.mkdir(parents=True, exist_ok=True)

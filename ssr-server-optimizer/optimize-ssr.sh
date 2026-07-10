@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 SSR_DIR="${SSR_DIR:-/usr/local/shadowsocksr}"
+SSR_WORKDIR="${SSR_DIR}/shadowsocks"
+SSR_SERVER="${SSR_DIR}/shadowsocks/server.py"
 SSR_CONFIG="${SSR_CONFIG:-$SSR_DIR/user-config.json}"
 MUDB_FILE="${MUDB_FILE:-$SSR_DIR/mudb.json}"
 PANEL_DIR="${PANEL_DIR:-/opt/ssr-admin-panel}"
@@ -100,6 +102,7 @@ detect_python() {
 
 validate_layout() {
   [[ -d "$SSR_DIR" ]] || fail "$SSR_DIR not found"
+  [[ -f "$SSR_SERVER" ]] || fail "$SSR_SERVER not found"
   [[ -f "$SSR_CONFIG" ]] || fail "$SSR_CONFIG not found"
 }
 
@@ -173,8 +176,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=$SSR_DIR
-ExecStart=$pybin $SSR_DIR/server.py a
+WorkingDirectory=$SSR_WORKDIR
+ExecStart=$pybin ${SSR_DIR}/shadowsocks/server.py a
 Restart=always
 RestartSec=3
 LimitNOFILE=1048576
@@ -233,10 +236,15 @@ apply_sysctl() {
 restart_ssr() {
   log "reloading systemd"
   systemctl daemon-reload
+  systemctl stop ssrmu.service >/dev/null 2>&1 || true
+  systemctl disable ssrmu.service >/dev/null 2>&1 || true
+  if command -v update-rc.d >/dev/null 2>&1; then
+    update-rc.d -f ssrmu remove >/dev/null 2>&1 || true
+  fi
   systemctl stop ssr >/dev/null 2>&1 || true
-  if pgrep -f "$SSR_DIR/server.py a" >/dev/null 2>&1; then
+  if pgrep -f "$SSR_SERVER a" >/dev/null 2>&1; then
     log "stopping existing SSR process"
-    pkill -f "$SSR_DIR/server.py a" || true
+    pkill -f "$SSR_SERVER a" || true
     sleep 2
   fi
   log "enabling and starting ssr.service"

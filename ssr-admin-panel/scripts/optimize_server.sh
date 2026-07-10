@@ -13,6 +13,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 SSR_DIR="/usr/local/shadowsocksr"
+SSR_WORKDIR="${SSR_DIR}/shadowsocks"
+SSR_SERVER="${SSR_DIR}/shadowsocks/server.py"
 SSR_CONFIG="${SSR_DIR}/user-config.json"
 MUDB_FILE="${SSR_DIR}/mudb.json"
 SYSCTL_CONF="/etc/sysctl.d/99-ssr-optimize.conf"
@@ -113,7 +115,7 @@ disable_udp_443_guard() {
 setup_ssr_service() {
     echo -e "${GREEN}[优化 1/7] 配置 SSR systemd 服务...${NC}"
 
-    if [ ! -f "${SSR_DIR}/server.py" ]; then
+    if [ ! -f "${SSR_SERVER}" ]; then
         log_warn "SSR 未安装，跳过 SSR 服务配置"
         return
     fi
@@ -129,8 +131,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=${SSR_DIR}
-ExecStart=${PYTHON_BIN} ${SSR_DIR}/server.py a
+WorkingDirectory=${SSR_WORKDIR}
+ExecStart=${PYTHON_BIN} ${SSR_DIR}/shadowsocks/server.py a
 Restart=always
 RestartSec=3
 LimitNOFILE=512000
@@ -141,11 +143,16 @@ WantedBy=multi-user.target
 SERVICE
 
     systemctl daemon-reload
+    systemctl stop ssrmu.service 2>/dev/null || true
+    systemctl disable ssrmu.service 2>/dev/null || true
+    if command -v update-rc.d >/dev/null 2>&1; then
+        update-rc.d -f ssrmu remove >/dev/null 2>&1 || true
+    fi
     systemctl enable ssr.service 2>/dev/null
 
     # 如果 SSR 正在裸进程运行，迁移到 systemd 管理
     local OLD_PID
-    OLD_PID=$(pgrep -f "${SSR_DIR}/server.py" | head -1 || true)
+    OLD_PID=$(pgrep -f "${SSR_SERVER}" | head -1 || true)
     if [ -n "$OLD_PID" ]; then
         log_info "迁移 SSR 进程 PID=$OLD_PID 到 systemd 管理..."
         kill "$OLD_PID" 2>/dev/null || true

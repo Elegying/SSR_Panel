@@ -126,6 +126,21 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("net.ipv4.tcp_max_syn_backlog = 8192", content)
         self.assertIn("net.ipv4.ip_local_port_range = 10000 65535", content)
 
+    def test_optimizers_use_the_real_ssr_server_entrypoint(self):
+        expected = "${SSR_DIR}/shadowsocks/server.py"
+        embedded = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+        standalone = (REPO_ROOT.parent / "ssr-server-optimizer" / "optimize-ssr.sh").read_text(
+            encoding="utf-8"
+        )
+
+        for content in (embedded, standalone):
+            self.assertIn(expected, content)
+            self.assertNotIn("ExecStart=${PYTHON_BIN} ${SSR_DIR}/server.py a", content)
+            self.assertNotIn("ExecStart=$pybin $SSR_DIR/server.py a", content)
+
+        self.assertIn("systemctl disable ssrmu.service", embedded)
+        self.assertIn("systemctl disable ssrmu.service", standalone)
+
     def test_optimizer_persists_nft_rule_without_overwriting_existing_tables(self):
         content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
         self.assertIn("/etc/nftables.d", content)
