@@ -149,6 +149,20 @@ bash /opt/ssr-admin-panel/update.sh
 
 可通过 `SSR_ADMIN_HEALTH_URL` 覆盖默认健康检查地址 `http://127.0.0.1:5000/login`。
 
+### 使用正式发布包回滚
+
+GitHub Release 提供 `SSR_Panel-v1.3.1-rollback.tar.gz` 和 `SHA256SUMS`。把两个文件放在同一目录，先校验再解压执行：
+
+```bash
+sha256sum -c SHA256SUMS
+tar -xzf SSR_Panel-v1.3.1-rollback.tar.gz
+bash SSR_Panel-v1.3.1/ssr-admin-panel/rollback.sh --yes
+```
+
+回滚入口使用归档内的本地源码，不执行 Git clone；它仍复用更新器的互斥锁、完整备份、失败自动恢复、服务状态验证和 HTTP 健康检查。`config.py`、`mudb.json`、venv 与本地文件不会被归档内容直接覆盖。脚本会输出本次备份目录，便于继续人工恢复。
+
+发布包用于已安装面板的版本恢复，不是全新系统安装包。正常回滚会复用服务器已有依赖；如果目标机缺少系统包或 Python 依赖，补齐依赖时仍可能访问软件源。
+
 ## SSR 来源与可复现性
 
 完整安装默认从 `ToyoDAdoubiBackup/shadowsocksr` 的固定提交 `c4507b7af1fe20a5a6adbb5e3b5a86da9d3a35e8` 获取源码，并把实际 revision 写入 `/usr/local/shadowsocksr/.ssr-upstream-revision`。如需自定义上游，`SSR_UPSTREAM_REF` 仍必须是完整 40 位提交哈希：
