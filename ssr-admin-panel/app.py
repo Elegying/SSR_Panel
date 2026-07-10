@@ -168,30 +168,25 @@ def favicon():
     return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
 
 SSR_DIR = Path("/usr/local/shadowsocksr")
-SSR_WORKDIR = SSR_DIR / "shadowsocks"
-SSR_SERVER = SSR_WORKDIR / "server.py"
 SSR_LOG_FILE = SSR_DIR / "ssserver.log"
 SSR_INIT_SCRIPT = Path(getattr(app_config, "SSR_INIT_SCRIPT", "/etc/init.d/ssrmu"))
 SSR_SYSTEMD_UNIT = Path(
     getattr(app_config, "SSR_SYSTEMD_UNIT", "/etc/systemd/system/ssr.service")
 )
 SSR_SYSTEMD_SERVICE = getattr(app_config, "SSR_SYSTEMD_SERVICE", "ssr.service")
-SSR_FIREWALL_SYNC_HELPER = Path(
-    getattr(
-        app_config,
-        "SSR_FIREWALL_SYNC_HELPER",
-        "/usr/local/libexec/ssr-panel/sync-firewall.py",
-    )
-)
 SSR_PYTHON_BIN = getattr(app_config, "SSR_PYTHON_BIN", "")
-BACKUP_DIR = Path("/opt/ssr-admin-panel/backups")
 PANEL_DIR = Path(__file__).resolve().parent
+PANEL_RUNTIME_DIR = Path("/var/lib/ssr-admin-panel")
+PRIVILEGED_HELPER = Path("/usr/local/libexec/ssr-panel/admin-helper")
+USER_DB_LOCK_FILE = PANEL_RUNTIME_DIR / "mudb.lock"
+USER_DB_PENDING_FILE = PANEL_RUNTIME_DIR / "mudb.pending.json"
+BACKUP_DIR = PANEL_RUNTIME_DIR / "backups"
 PANEL_VERSION_FILE = PANEL_DIR / "VERSION"
 PANEL_BUILD_INFO_FILE = PANEL_DIR / ".panel-build.json"
 PANEL_UPDATE_SCRIPT = PANEL_DIR / "update.sh"
 PANEL_UPDATE_RUNNER = PANEL_DIR / "scripts" / "run_panel_update.py"
-PANEL_UPDATE_LOG = PANEL_DIR / ".panel-update.log"
-PANEL_UPDATE_STATUS_FILE = PANEL_DIR / ".panel-update-status.json"
+PANEL_UPDATE_LOG = PANEL_RUNTIME_DIR / "panel-update.log"
+PANEL_UPDATE_STATUS_FILE = PANEL_RUNTIME_DIR / "panel-update-status.json"
 PANEL_GIT_REMOTE = getattr(app_config, "PANEL_GIT_REMOTE", "origin")
 PANEL_GIT_BRANCH = getattr(app_config, "PANEL_GIT_BRANCH", "main")
 PANEL_GIT_URL = getattr(
@@ -322,12 +317,31 @@ def _write_users_unlocked(path, users):
                 pass
 
 
+def privileged_helper_available():
+    return PRIVILEGED_HELPER.is_file() and not PRIVILEGED_HELPER.is_symlink()
+
+
+def commit_users(path, users):
+    if not privileged_helper_available():
+        _write_users_unlocked(path, users)
+        return
+
+    USER_DB_PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _write_users_unlocked(USER_DB_PENDING_FILE, users)
+    result = run_privileged_action("mudb-commit")
+    if not result["success"]:
+        USER_DB_PENDING_FILE.unlink(missing_ok=True)
+        details = result["error"] or result["output"] or "unknown error"
+        raise UserDatabaseError(f"无法提交用户数据库: {details}")
+
+
 def load_users():
     path = mudb_path()
     if not path.exists():
         return []
     try:
-        with path.with_suffix(path.suffix + ".lock").open("a+", encoding="utf-8") as lock:
+        USER_DB_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with USER_DB_LOCK_FILE.open("a+", encoding="utf-8") as lock:
             fcntl.flock(lock, fcntl.LOCK_SH)
             try:
                 return _read_users_unlocked(path)
@@ -341,29 +355,27 @@ def load_users():
 
 def save_users(users):
     path = mudb_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_suffix(path.suffix + ".lock")
-    with lock_path.open("a+", encoding="utf-8") as lock:
+    USER_DB_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with USER_DB_LOCK_FILE.open("a+", encoding="utf-8") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             if path.exists():
                 _read_users_unlocked(path)
-            _write_users_unlocked(path, users)
+            commit_users(path, users)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def mutate_users(mutator):
     path = mudb_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_suffix(path.suffix + ".lock")
+    USER_DB_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with lock_path.open("a+", encoding="utf-8") as lock:
+        with USER_DB_LOCK_FILE.open("a+", encoding="utf-8") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 users = _read_users_unlocked(path)
                 result = mutator(users)
-                _write_users_unlocked(path, users)
+                commit_users(path, users)
                 return result
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
@@ -783,31 +795,6 @@ def start_panel_update():
             "latest_version": info["latest_version"],
         }
 
-    command = [
-        "systemd-run",
-        "--unit",
-        PANEL_UPDATE_UNIT,
-        "--property=Type=oneshot",
-        sys.executable,
-        str(PANEL_UPDATE_RUNNER),
-        "--panel-dir",
-        str(PANEL_DIR),
-        "--status-file",
-        str(PANEL_UPDATE_STATUS_FILE),
-        "--log-file",
-        str(PANEL_UPDATE_LOG),
-        "--remote",
-        PANEL_GIT_REMOTE,
-        "--branch",
-        PANEL_GIT_BRANCH,
-        "--repo-url",
-        get_panel_repo_url(),
-        "--repo-subdir",
-        PANEL_GIT_SUBDIR,
-        "--service",
-        PANEL_SERVICE_NAME,
-    ]
-
     status = {
         "in_progress": True,
         "started_at": datetime.now().isoformat(),
@@ -830,21 +817,7 @@ def start_panel_update():
     except OSError as e:
         return {"success": False, "message": f"无法创建更新状态文件: {e}"}
 
-    if shutil.which("systemd-run"):
-        launch_result = run_process(command)
-    else:
-        try:
-            subprocess.Popen(
-                command[4:],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-                close_fds=True,
-            )
-            launch_result = {"success": True, "output": "detached", "error": ""}
-        except OSError as e:
-            launch_result = {"success": False, "output": "", "error": str(e)}
+    launch_result = run_privileged_action("panel-update")
 
     if not launch_result["success"]:
         status.update(
@@ -1127,11 +1100,23 @@ def run_process(args, cwd=None):
         return {"success": False, "output": "", "error": str(e)}
 
 
-def sync_ssr_firewall():
-    if not SSR_FIREWALL_SYNC_HELPER.is_file() or SSR_FIREWALL_SYNC_HELPER.is_symlink():
-        return {"success": True, "output": "", "error": "", "skipped": True}
+def run_privileged_action(action):
+    if action not in {
+        "ssr-start",
+        "ssr-stop",
+        "ssr-restart",
+        "firewall-sync",
+        "mudb-commit",
+        "panel-update",
+    }:
+        return {"success": False, "output": "", "error": "不支持的提权操作"}
+    if not privileged_helper_available():
+        return {"success": False, "output": "", "error": f"提权助手不可用: {PRIVILEGED_HELPER}"}
+    return run_process(["/usr/bin/sudo", "-n", str(PRIVILEGED_HELPER), action])
 
-    result = run_process([str(SSR_FIREWALL_SYNC_HELPER)])
+
+def sync_ssr_firewall():
+    result = run_privileged_action("firewall-sync")
     if not result["success"]:
         details = (result["error"] or result["output"] or "unknown error").replace("\n", " ")[:500]
         audit_log("FIREWALL_SYNC_FAILED", details, level="WARNING")
@@ -1167,20 +1152,6 @@ def wait_for_ssr_status(expected_status, retries=10, delay=0.5):
     return False
 
 
-def merge_process_results(results):
-    return {
-        "success": any(result.get("success") for result in results),
-        "output": "\n".join(filter(None, (result.get("output", "").strip() for result in results))),
-        "error": "\n".join(filter(None, (result.get("error", "").strip() for result in results))),
-    }
-
-
-def run_ssr_init_script(action):
-    if not SSR_INIT_SCRIPT.exists():
-        return None
-    return run_process([str(SSR_INIT_SCRIPT), action])
-
-
 def systemd_controls_ssr():
     return (
         SSR_SYSTEMD_UNIT.is_file()
@@ -1189,77 +1160,23 @@ def systemd_controls_ssr():
     )
 
 
-def run_ssr_systemd_command(action):
-    return run_process(["systemctl", action, SSR_SYSTEMD_SERVICE])
-
-
-def run_ssr_server_command_once(action):
-    if not SSR_SERVER.exists():
-        return {"success": False, "output": "", "error": f"未找到 SSR 服务脚本: {SSR_SERVER}"}
-
-    failures = []
-    for python_bin in get_ssr_python_candidates():
-        result = run_process([python_bin, "server.py", "-d", action], cwd=SSR_WORKDIR)
-        if result["success"]:
-            return result
-        failures.append((python_bin, result))
-
-    messages = []
-    for python_bin, result in failures:
-        details = result["error"] or result["output"] or "命令执行失败"
-        messages.append(f"{python_bin}: {details}")
-    return {"success": False, "output": "", "error": "\n".join(messages)}
-
-
-def run_ssr_server_command(action):
-    if action == "restart":
-        return merge_process_results(
-            [run_ssr_server_command_once("stop"), run_ssr_server_command_once("start")]
-        )
-    return run_ssr_server_command_once(action)
-
-
 def execute_ssr_command(action):
     if action not in {"start", "stop", "restart"}:
         return {"success": False, "output": "", "error": "不支持的操作"}
 
-    if systemd_controls_ssr():
-        runners = [run_ssr_systemd_command]
-    else:
-        runners = []
-        if SSR_INIT_SCRIPT.exists():
-            runners.append(run_ssr_init_script)
-        if SSR_SERVER.exists():
-            runners.append(run_ssr_server_command)
-
-    if not runners:
-        return {
-            "success": False,
-            "output": "",
-            "error": f"未找到 SSR 控制脚本: {SSR_INIT_SCRIPT}，也未找到 SSR 服务脚本: {SSR_SERVER}",
-        }
-
     expected_status = get_expected_ssr_status(action)
-    attempted_results = []
+    result = run_privileged_action(f"ssr-{action}")
+    if wait_for_ssr_status(expected_status):
+        if not result["output"]:
+            result["output"] = f"SSR 当前状态: {expected_status}"
+        result["success"] = True
+        return result
 
-    for runner in runners:
-        result = runner(action)
-        if result is None:
-            continue
-        attempted_results.append(result)
-        if wait_for_ssr_status(expected_status):
-            merged = merge_process_results(attempted_results)
-            if not merged["output"]:
-                merged["output"] = f"SSR 当前状态: {expected_status}"
-            merged["success"] = True
-            return merged
-
-    merged = merge_process_results(attempted_results)
-    merged["success"] = False
-    merged["error"] = "\n".join(
-        filter(None, [merged["error"], f"执行后 SSR 状态仍未达到预期，当前状态: {get_ssr_status()}"])
+    result["success"] = False
+    result["error"] = "\n".join(
+        filter(None, [result["error"], f"执行后 SSR 状态仍未达到预期，当前状态: {get_ssr_status()}"])
     )
-    return merged
+    return result
 
 
 def get_ssr_status():

@@ -43,7 +43,9 @@ class InstallerRegressionTests(unittest.TestCase):
                 "ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app",
                 content,
             )
-            self.assertIn("NoNewPrivileges=true", content)
+            self.assertIn("User=ssr-panel", content)
+            self.assertIn("Group=ssr-panel", content)
+            self.assertIn("NoNewPrivileges=false", content)
             self.assertIn("PrivateTmp=true", content)
 
     def test_runtime_requirements_no_longer_include_unused_gunicorn(self):
@@ -79,6 +81,13 @@ class InstallerRegressionTests(unittest.TestCase):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("uninstall.sh", content)
 
+    def test_uninstaller_removes_panel_privilege_boundary(self):
+        content = (REPO_ROOT / "uninstall.sh").read_text(encoding="utf-8")
+        self.assertIn("/etc/sudoers.d/ssr-panel", content)
+        self.assertIn("admin-helper", content)
+        self.assertIn("userdel", content)
+        self.assertIn("groupdel", content)
+
     def test_install_and_update_scripts_write_panel_build_metadata(self):
         for script in ("install.sh", "install-all.sh", "update.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
@@ -109,6 +118,37 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("collect_device_stats.py", content)
             self.assertIn("ssr-device-stats", content)
             self.assertIn("DEVICE_STATS_FILE", content)
+            self.assertIn("User=ssr-panel", content)
+            self.assertIn("Group=ssr-panel", content)
+
+    def test_panel_runs_as_dedicated_user_with_allowlisted_sudo_helper(self):
+        provisioner = (REPO_ROOT / "scripts" / "provision_panel_runtime.sh").read_text(
+            encoding="utf-8"
+        )
+        for script in ("install.sh", "install-all.sh", "update.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("provision_panel_runtime.sh", content)
+            self.assertIn("User=ssr-panel", content)
+            self.assertIn("Group=ssr-panel", content)
+            self.assertIn("NoNewPrivileges=false", content)
+            self.assertIn("--host=0.0.0.0 --port=5000", content)
+
+        self.assertIn("/etc/sudoers.d/ssr-panel", provisioner)
+        self.assertIn("/usr/local/libexec/ssr-panel/admin-helper", provisioner)
+        for action in (
+            "ssr-start",
+            "ssr-stop",
+            "ssr-restart",
+            "firewall-sync",
+            "mudb-commit",
+            "panel-update",
+        ):
+            self.assertIn(action, provisioner)
+        self.assertIn('PANEL_GROUP="ssr-panel"', provisioner)
+        self.assertIn("0640", provisioner)
+        self.assertIn('chmod g+rx,g-w,g+s "$(dirname "${MUDB_FILE}")"', provisioner)
+        self.assertIn('usermod --groups ""', provisioner)
+        self.assertIn("must not be a symlink", provisioner)
 
     def test_optimizer_blocks_ipv6_targets_and_allows_udp443_by_default(self):
         content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
@@ -271,7 +311,8 @@ class InstallerRegressionTests(unittest.TestCase):
         for script in ("install.sh", "install-all.sh", "update.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("harden_sensitive_files", content)
-            self.assertIn("chmod 600", content)
+            self.assertIn("chmod 0600", content)
+            self.assertIn("chmod 0640", content)
             self.assertIn("config.py", content)
             self.assertIn("mudb.json", content)
 

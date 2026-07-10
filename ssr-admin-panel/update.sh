@@ -463,7 +463,13 @@ create_full_backup() {
 }
 
 harden_sensitive_files() {
-    chmod 600 "${PANEL_DIR}/config.py" "${PANEL_DIR}/.initial_ssr_password" "${PANEL_DIR}/ssr-install.log" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+    if getent group ssr-panel >/dev/null 2>&1; then
+        chown root:ssr-panel "${PANEL_DIR}/config.py" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+        chmod 0640 "${PANEL_DIR}/config.py" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+    else
+        chmod 0600 "${PANEL_DIR}/config.py" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+    fi
+    chmod 0600 "${PANEL_DIR}/.initial_ssr_password" "${PANEL_DIR}/ssr-install.log" 2>/dev/null || true
 }
 
 restore_virtualenv() {
@@ -719,7 +725,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 ExecStart=${PYTHON3_BIN} ${stats_script} --mudb ${SSR_DIR}/mudb.json --output ${DEVICE_STATS_FILE} --interval ${DEVICE_STATS_INTERVAL} --window ${DEVICE_STATS_WINDOW} --watch
 Restart=always
 RestartSec=5
@@ -742,16 +749,24 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 WorkingDirectory=${PANEL_DIR}
 ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
 Restart=always
 RestartSec=5
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
 RestrictSUIDSGID=true
 LockPersonality=true
-UMask=0077
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0007
 
 [Install]
 WantedBy=multi-user.target
@@ -897,7 +912,7 @@ Path(os.environ["PANEL_BUILD_INFO_FILE"]).write_text(
 )
 PY
 
-chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" "${PANEL_DIR}/scripts/admin_helper.py" "${PANEL_DIR}/scripts/provision_panel_runtime.sh" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
 
 if [ "${PATCH_SSR_COMPAT}" = "1" ] && [ -d "${SSR_DIR}" ]; then
     "${PYTHON3_BIN}" "${PANEL_DIR}/scripts/patch_ssr_python_compat.py" "${SSR_DIR}"
@@ -906,6 +921,10 @@ fi
 write_status "deps" "正在安装 Python 依赖"
 ensure_panel_venv
 ensure_python_deps
+if [ "${SSR_ADMIN_SKIP_ROOT_CHECK:-0}" != "1" ]; then
+    SSR_ADMIN_PANEL_DIR="${PANEL_DIR}" SSR_ADMIN_MUDB_FILE="${SSR_DIR}/mudb.json" \
+        bash "${PANEL_DIR}/scripts/provision_panel_runtime.sh"
+fi
 
 write_status "restart" "正在重启服务"
 systemctl daemon-reload

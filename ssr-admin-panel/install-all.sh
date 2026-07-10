@@ -281,7 +281,13 @@ detect_server_pub_addr() {
 }
 
 harden_sensitive_files() {
-    chmod 600 "$PANEL_DIR/config.py" "$MUDB_FILE" "$SSR_INITIAL_PASSWORD_FILE" 2>/dev/null || true
+    if getent group ssr-panel >/dev/null 2>&1; then
+        chown root:ssr-panel "$PANEL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+        chmod 0640 "$PANEL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+    else
+        chmod 0600 "$PANEL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+    fi
+    chmod 0600 "$SSR_INITIAL_PASSWORD_FILE" 2>/dev/null || true
 }
 
 persist_initial_ssr_password() {
@@ -485,7 +491,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 ExecStart=${PYTHON3_BIN} ${PANEL_DIR}/scripts/collect_device_stats.py --mudb ${MUDB_FILE} --output ${DEVICE_STATS_FILE} --interval ${DEVICE_STATS_INTERVAL} --window ${DEVICE_STATS_WINDOW} --watch
 Restart=always
 RestartSec=5
@@ -553,7 +560,7 @@ sync_project_files "$PANEL_DIR"
 printf 'managed\n' > "$PANEL_DIR/.ssr-panel-managed"
 
 cd $PANEL_DIR
-chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/uninstall.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/sync_ssr_firewall.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/uninstall.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/sync_ssr_firewall.py" "$PANEL_DIR/scripts/admin_helper.py" "$PANEL_DIR/scripts/provision_panel_runtime.sh" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION="${SYNC_REVISION:-$(git -C "$PANEL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")}"
 PANEL_BUILD_INFO_FILE="$PANEL_DIR/.panel-build.json"
@@ -802,6 +809,8 @@ with config_path.open("w", encoding="utf-8") as f:
         f.write(f"{key} = {value!r}\n")
 PY
 fi
+SSR_ADMIN_PANEL_DIR="$PANEL_DIR" SSR_ADMIN_MUDB_FILE="$MUDB_FILE" \
+    bash "$PANEL_DIR/scripts/provision_panel_runtime.sh"
 harden_sensitive_files
 
 echo -e "${GREEN}配置系统服务...${NC}"
@@ -815,16 +824,24 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 WorkingDirectory=/opt/ssr-admin-panel
 ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
 Restart=always
 RestartSec=5
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
 RestrictSUIDSGID=true
 LockPersonality=true
-UMask=0077
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0007
 
 [Install]
 WantedBy=multi-user.target

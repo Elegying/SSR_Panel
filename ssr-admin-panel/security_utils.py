@@ -144,11 +144,13 @@ def migrate_config(config_path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="SSR Panel password utilities")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("hash", help="read a password from stdin and print its hash")
     migrate_parser = subparsers.add_parser("migrate-config", help="replace legacy ADMIN_PASS")
     migrate_parser.add_argument("config_path")
     args = parser.parse_args(argv)
+    if not args.command:
+        parser.error("a command is required")
 
     if args.command == "hash":
         password = sys.stdin.read()

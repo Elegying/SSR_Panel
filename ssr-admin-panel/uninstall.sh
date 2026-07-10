@@ -4,6 +4,7 @@ set -Eeuo pipefail
 DEFAULT_PANEL_DIR="/opt/ssr-admin-panel"
 DEFAULT_SSR_DIR="/usr/local/shadowsocksr"
 DEFAULT_DEVICE_STATS_DIR="/var/lib/ssr-admin-panel"
+DEFAULT_PANEL_LOG_DIR="/var/log/ssr-admin-panel"
 DEFAULT_LEGACY_INIT_SCRIPT="/etc/init.d/ssrmu"
 DEFAULT_FIREWALL_HELPER_DIR="/usr/local/libexec/ssr-panel"
 DEFAULT_FIREWALL_CONFIG="/etc/default/ssr-panel-firewall"
@@ -12,10 +13,14 @@ MANAGED_MARKER=".ssr-panel-managed"
 SYSTEMD_DIR="${SSR_ADMIN_SYSTEMD_DIR-/etc/systemd/system}"
 DEFAULT_ADMIN_SERVICE="ssr-admin"
 DEFAULT_DEVICE_STATS_SERVICE="ssr-device-stats"
+DEFAULT_PANEL_USER="ssr-panel"
+DEFAULT_PANEL_GROUP="ssr-panel"
+DEFAULT_PANEL_SUDOERS="/etc/sudoers.d/ssr-panel"
 
 PANEL_DIR="${SSR_ADMIN_PANEL_DIR-$DEFAULT_PANEL_DIR}"
 SSR_DIR="${SSR_ADMIN_SSR_DIR-$DEFAULT_SSR_DIR}"
 DEVICE_STATS_DIR="${SSR_DEVICE_STATS_DIR-$DEFAULT_DEVICE_STATS_DIR}"
+PANEL_LOG_DIR="${SSR_ADMIN_LOG_DIR-$DEFAULT_PANEL_LOG_DIR}"
 ADMIN_SERVICE="${SSR_ADMIN_SERVICE_NAME-$DEFAULT_ADMIN_SERVICE}"
 DEVICE_STATS_SERVICE="${SSR_DEVICE_STATS_SERVICE_NAME-$DEFAULT_DEVICE_STATS_SERVICE}"
 LEGACY_INIT_SCRIPT="$DEFAULT_LEGACY_INIT_SCRIPT"
@@ -23,6 +28,10 @@ FIREWALL_HELPER_DIR="$DEFAULT_FIREWALL_HELPER_DIR"
 FIREWALL_CONFIG="$DEFAULT_FIREWALL_CONFIG"
 FIREWALL_STATE_DIR="$DEFAULT_FIREWALL_STATE_DIR"
 FIREWALL_STATE_FILE="${FIREWALL_STATE_DIR}/managed-ports.json"
+PANEL_USER="$DEFAULT_PANEL_USER"
+PANEL_GROUP="$DEFAULT_PANEL_GROUP"
+PANEL_SUDOERS="${SSR_ADMIN_SUDOERS_PATH-$DEFAULT_PANEL_SUDOERS}"
+ADMIN_HELPER="${FIREWALL_HELPER_DIR}/admin-helper"
 
 CONFIRM=0
 KEEP_DATA=0
@@ -339,9 +348,40 @@ cleanup_managed_firewall_artifacts() {
   fi
 }
 
+cleanup_panel_privileges() {
+  local marker="${FIREWALL_HELPER_DIR}/${MANAGED_MARKER}"
+
+  if [[ -f "$PANEL_SUDOERS" && ! -L "$PANEL_SUDOERS" ]] &&
+    grep -Fqx "# Managed by SSR_Panel" "$PANEL_SUDOERS"; then
+    rm -f "$PANEL_SUDOERS"
+  elif [[ -e "$PANEL_SUDOERS" || -L "$PANEL_SUDOERS" ]]; then
+    log "leaving unrecognized sudoers file intact: $PANEL_SUDOERS"
+  fi
+
+  if [[ -f "$marker" && ! -L "$marker" && ( -e "$ADMIN_HELPER" || -L "$ADMIN_HELPER" ) ]]; then
+    rm -f "$ADMIN_HELPER"
+  elif [[ -e "$ADMIN_HELPER" || -L "$ADMIN_HELPER" ]]; then
+    log "leaving unrecognized admin helper intact: $ADMIN_HELPER"
+  fi
+}
+
+cleanup_panel_identity() {
+  if [[ -d "$SSR_DIR" && ! -L "$SSR_DIR" ]]; then
+    chgrp root "$SSR_DIR" "${SSR_DIR}/mudb.json" "${SSR_DIR}/ssserver.log" 2>/dev/null || true
+    chmod g-s "$SSR_DIR" 2>/dev/null || true
+  fi
+  if id -u "$PANEL_USER" >/dev/null 2>&1 && command -v userdel >/dev/null 2>&1; then
+    userdel "$PANEL_USER" >/dev/null 2>&1 || true
+  fi
+  if getent group "$PANEL_GROUP" >/dev/null 2>&1 && command -v groupdel >/dev/null 2>&1; then
+    groupdel "$PANEL_GROUP" >/dev/null 2>&1 || true
+  fi
+}
+
 log "disabling panel services"
 stop_service "$ADMIN_SERVICE"
 stop_service "$DEVICE_STATS_SERVICE"
+cleanup_panel_privileges
 
 if [[ "$REMOVE_SSR" -eq 1 ]]; then
   log "removing SSR service and directory"
@@ -366,7 +406,8 @@ if [[ "$KEEP_DATA" -eq 1 ]]; then
   log "kept data directories because --keep-data was set"
 else
   log "removing panel files and device stats data"
-  rm -rf "$PANEL_DIR" "$DEVICE_STATS_DIR"
+  rm -rf "$PANEL_DIR" "$DEVICE_STATS_DIR" "$PANEL_LOG_DIR"
+  cleanup_panel_identity
 fi
 
 log "completed"

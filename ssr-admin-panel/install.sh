@@ -403,7 +403,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 ExecStart=${PYTHON3_BIN} ${INSTALL_DIR}/scripts/collect_device_stats.py --mudb ${MUDB_FILE} --output ${DEVICE_STATS_FILE} --interval ${DEVICE_STATS_INTERVAL} --window ${DEVICE_STATS_WINDOW} --watch
 Restart=always
 RestartSec=5
@@ -424,7 +425,12 @@ SERVICE
 }
 
 harden_sensitive_files() {
-    chmod 600 "$INSTALL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+    if getent group ssr-panel >/dev/null 2>&1; then
+        chown root:ssr-panel "$INSTALL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+        chmod 0640 "$INSTALL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+    else
+        chmod 0600 "$INSTALL_DIR/config.py" "$MUDB_FILE" 2>/dev/null || true
+    fi
 }
 
 sync_project_files() {
@@ -571,7 +577,7 @@ echo -e "${GREEN}[1/6] 下载项目文件...${NC}"
 sync_project_files "$INSTALL_DIR"
 printf 'managed\n' > "$INSTALL_DIR/.ssr-panel-managed"
 
-chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/sync_ssr_firewall.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/sync_ssr_firewall.py" "$INSTALL_DIR/scripts/admin_helper.py" "$INSTALL_DIR/scripts/provision_panel_runtime.sh" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION="${SYNC_REVISION:-$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")}"
 PANEL_BUILD_INFO_FILE="$INSTALL_DIR/.panel-build.json"
@@ -652,6 +658,8 @@ PY
 
 echo -e "${GREEN}✓ 配置文件已生成: $INSTALL_DIR/config.py${NC}"
 fi
+SSR_ADMIN_PANEL_DIR="$INSTALL_DIR" SSR_ADMIN_MUDB_FILE="$MUDB_FILE" \
+    bash "$INSTALL_DIR/scripts/provision_panel_runtime.sh"
 harden_sensitive_files
 
 # 创建systemd服务
@@ -666,16 +674,24 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=ssr-panel
+Group=ssr-panel
 WorkingDirectory=/opt/ssr-admin-panel
 ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
 Restart=always
 RestartSec=5
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
 RestrictSUIDSGID=true
 LockPersonality=true
-UMask=0077
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0007
 
 [Install]
 WantedBy=multi-user.target
