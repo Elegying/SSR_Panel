@@ -799,7 +799,7 @@ Set_config_enable(){
 	elif [[ "${enable}" == "0" ]]; then
 		echo -e "端口 [${ssr_port}] 的账号状态为：${Green_font_prefix}禁用${Font_color_suffix} , 是否切换为 ${Red_font_prefix}启用${Font_color_suffix} ?[Y/n]"
 		read -e -p "(默认: Y):" ssr_enable_yn
-		[[ -z "${ssr_enable_yn}" ]] && ssr_enable_yn = "y"
+		[[ -z "${ssr_enable_yn}" ]] && ssr_enable_yn="y"
 		if [[ "${ssr_enable_yn}" == [Yy] ]]; then
 			ssr_enable="1"
 		else

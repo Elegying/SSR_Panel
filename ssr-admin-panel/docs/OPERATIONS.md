@@ -4,28 +4,40 @@
 
 ## 支持环境
 
-- Ubuntu 18.04 / 20.04 / 22.04 / 24.04 / 26.04
-- Debian 10 / 11 / 12
-- CentOS Stream / RHEL 系 8 / 9 / 10
-- Python 3.6+（推荐 3.8+；Python 3.6/3.7 会自动使用兼容依赖）
-- systemd
+- CI 验证：Ubuntu 22.04、Debian 12、Rocky Linux 9
+- 安装识别：Debian/Ubuntu 与 RHEL/Rocky/Alma/CentOS Stream 系的 `apt-get`、`dnf`、`yum`
+- CI 验证 Python 3.9 / 3.11 / 3.12；Python 3.6/3.7 仅保留尽力兼容依赖
+- systemd 必须作为 PID 1；Docker、未启用 systemd 的 WSL 和 chroot 不支持自动部署
+- x86_64 与 aarch64/ARM64 均使用发行版提供的 Python 和 `jq`
 
-CentOS/RHEL 系脚本使用 `dnf/yum` 分支安装基础依赖；极简系统需保证软件源可用。
+安装脚本会先刷新包索引，再一次性安装并验证 CA、`sudo`、`curl`、`wget`、`socat`、Git、Python/venv、systemd、iproute、jq 和防火墙兼容包。未知系统会在复制项目文件之前退出。
 
 ## 部署方式
+
+极简 Debian/Ubuntu 如果尚无下载器，先以 root 执行：
+
+```bash
+apt-get update && apt-get install -y ca-certificates sudo curl wget
+```
+
+Rocky/RHEL 系对应执行：
+
+```bash
+dnf install -y ca-certificates sudo curl wget
+```
 
 完整安装 SSR + 面板：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh -o install-all.sh
-bash install-all.sh
+sudo bash install-all.sh
 ```
 
 仅安装管理面板：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install.sh -o install.sh
-bash install.sh
+sudo bash install.sh
 ```
 
 非交互安装可通过环境变量传入管理员账号：
@@ -91,13 +103,29 @@ SSR_ADMIN_REPO_SUBDIR="ssr-admin-panel" \
 bash /opt/ssr-admin-panel/update.sh
 ```
 
-更新脚本会保留 `config.py`，并在启动失败时尝试回滚到自动备份。
+更新脚本使用 `flock` 防止并发执行，保留 `config.py` 和本地文件，并备份应用文件、完整 venv 及相关 systemd unit。任何同步后步骤失败都会触发回滚；重启成功后还必须通过本机 HTTP 健康检查。
 
-如果服务器存在 `/usr/local/shadowsocksr`，更新脚本也会重新应用 SSR 服务端优化。临时跳过：
+为避免面板更新意外修改 SSR 数据、网络规则或内核参数，更新默认不重新应用服务端优化，也不修补 SSR 源码。需要时显式启用：
 
 ```bash
-SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=0 bash /opt/ssr-admin-panel/update.sh
+SSR_ADMIN_PATCH_SSR_COMPAT=1 \
+SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=1 \
+bash /opt/ssr-admin-panel/update.sh
 ```
+
+可通过 `SSR_ADMIN_HEALTH_URL` 覆盖默认健康检查地址 `http://127.0.0.1:5000/login`。
+
+## SSR 来源与可复现性
+
+完整安装默认从 `ToyoDAdoubiBackup/shadowsocksr` 的固定提交 `c4507b7af1fe20a5a6adbb5e3b5a86da9d3a35e8` 获取源码，并把实际 revision 写入 `/usr/local/shadowsocksr/.ssr-upstream-revision`。如需自定义上游，`SSR_UPSTREAM_REF` 仍必须是完整 40 位提交哈希：
+
+```bash
+SSR_UPSTREAM_REPO="https://github.com/your-name/shadowsocksr.git" \
+SSR_UPSTREAM_REF="0123456789abcdef0123456789abcdef01234567" \
+bash /opt/ssr-admin-panel/ssrmu.sh
+```
+
+`ssrmu.sh` 的旧版 BBR、ServerSpeeder、LotServer、BT/PT/SPAM 和源码编译入口会下载未经本项目校验的 root 脚本，默认拒绝执行。只有完成独立审计后，才可临时设置 `SSR_ALLOW_UNVERIFIED_DOWNLOADS=1`；生产环境不建议开启。
 
 ## 卸载
 
@@ -119,12 +147,15 @@ bash /opt/ssr-admin-panel/uninstall.sh --yes --keep-data
 bash /opt/ssr-admin-panel/uninstall.sh --yes --remove-ssr
 ```
 
+默认路径保持向后兼容；通过环境变量使用自定义目录时，卸载器只接受包含 `.ssr-panel-managed` 标记且不穿越符号链接的目录。安装和更新脚本会自动创建该标记。
+
 ## 发布前检查
 
 ```bash
 python3 -m pip install -r requirements.txt
 python3 -m unittest discover -s tests -q
 bash -n install.sh install-all.sh update.sh scripts/optimize_server.sh ssrmu.sh uninstall.sh
+shellcheck --severity=error install.sh install-all.sh update.sh scripts/optimize_server.sh ssrmu.sh uninstall.sh
 ```
 
 GitHub Actions 会在 push 和 pull request 时自动运行这些检查。

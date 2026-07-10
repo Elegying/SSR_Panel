@@ -270,8 +270,8 @@ setup_ssr_ipv6_quic_guard() {
         # 只改 mudb.json（per-user），不改 user-config.json。
         # SSR shell.py 的 _decode_dict 把 JSON 字符串转成 bytes，
         # IPNetwork 收到 bytes 会崩溃（'int' object has no attribute 'split'）。
-        for json_file in "$MUDB_FILE"; do
-            [ -f "$json_file" ] || continue
+        local json_file="$MUDB_FILE"
+        if [ -f "$json_file" ]; then
             backup_file "$json_file"
             JSON_FILE="$json_file" python3 <<'PY'
 import json
@@ -312,7 +312,7 @@ if changed:
     )
 PY
             patched_any=1
-        done
+        fi
 
         if [ "$patched_any" -eq 1 ]; then
             log_ok "已禁止 SSR 代理 IPv6 目标（避免无 IPv6 出口时反复超时）"

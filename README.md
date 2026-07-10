@@ -17,11 +17,23 @@ AnyTLS/多协议节点管理面板已拆分到 [Elegying/AnyTLS_Panel](https://g
 
 ## 快速部署
 
+安装脚本会在复制项目或创建 Python 环境前，自动刷新软件源并安装 `sudo`、`curl`、`wget`、`socat`、CA 证书、Python/venv、systemd 等依赖。服务器如果连下载器都没有，先以 root 执行：
+
+```bash
+# Debian / Ubuntu
+apt-get update && apt-get install -y ca-certificates sudo curl wget
+
+# Rocky / AlmaLinux / RHEL / CentOS Stream
+dnf install -y ca-certificates sudo curl wget
+```
+
+安装器要求真正由 systemd 作为 PID 1 管理；Docker、未启用 systemd 的 WSL 和 chroot 会在写入系统前停止并说明原因。
+
 ### SSR + 管理面板完整部署
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh -o install-all.sh
-bash install-all.sh
+sudo bash install-all.sh
 ```
 
 ### 仅部署 SSR 管理面板
@@ -30,20 +42,34 @@ bash install-all.sh
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install.sh -o install.sh
-bash install.sh
+sudo bash install.sh
 ```
 
 ### 优化老版 SSR 服务器
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh -o optimize-ssr.sh
+sudo bash optimize-ssr.sh --check
+sudo bash optimize-ssr.sh
 ```
 
-正式执行前可先预检：
+如果没有 `curl` 但已有 `wget`，可将下载命令替换为：
 
 ```bash
-bash ssr-server-optimizer/optimize-ssr.sh --check
+wget -O install-all.sh https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh
 ```
+
+## 支持与验证矩阵
+
+| 范围 | 状态 |
+| --- | --- |
+| Ubuntu 22.04、Debian 12、Rocky Linux 9 | CI 容器持续验证 |
+| Debian/Ubuntu 与 RHEL/Rocky/Alma/CentOS Stream 系 | 安装器按 `apt-get`、`dnf`、`yum` 自动识别 |
+| Python 3.9、3.11、3.12 | CI 持续验证 |
+| x86_64、aarch64/ARM64 | 使用系统 Python 与系统 `jq`，不再选择 x86 专用二进制 |
+| Python 3.6/3.7 | 保留兼容依赖分支，但已 EOL，属于尽力兼容 |
+
+未知发行版不会再默认当作 Debian 执行。OpenRC、SysV-only 和非 systemd 容器不在自动部署范围内。
 
 ## 目录结构
 
@@ -83,6 +109,7 @@ python -m unittest discover -s ssr-server-optimizer/tests -q
 ```
 
 GitHub Actions 会在 push 和 pull request 时自动运行 CI。
+根工作流还会执行 ShellCheck、Python 依赖审计，以及 Ubuntu/Debian/Rocky 的容器冒烟测试。
 
 ## 运维文档
 
@@ -98,6 +125,7 @@ GitHub Actions 会在 push 和 pull request 时自动运行 CI。
 - Web 管理端口应通过防火墙限制访问来源。
 - 定期备份数据库、配置文件和 SSR 用户文件。
 - 不要在 Issue、日志、截图或命令历史中泄露订阅 URL、密码、服务器 IP、token 或面板凭据。
+- 完整安装默认使用固定 SSR 上游提交；`ssrmu.sh` 中未经校验的远程 root 脚本默认禁用。
 
 ## 许可证
 
