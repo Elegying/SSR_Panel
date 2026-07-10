@@ -21,6 +21,16 @@ def validate_source_directory(source):
             validate_source_directory(source_item)
 
 
+def reject_symlink_components(path):
+    if not path.is_absolute():
+        raise SystemExit(f"target directory must be absolute: {path}")
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise SystemExit(f"refusing target symlink component: {current}")
+
+
 def copy_directory(source, target):
     target.mkdir(parents=True, exist_ok=True)
     for source_item in source.iterdir():
@@ -48,8 +58,7 @@ def main(argv):
     target = Path(argv[2])
     if not source.is_dir() or source.is_symlink():
         raise SystemExit(f"invalid source directory: {source}")
-    if target.is_symlink():
-        raise SystemExit(f"refusing symlink target directory: {target}")
+    reject_symlink_components(target)
 
     validate_source_directory(source)
     copy_directory(source, target)

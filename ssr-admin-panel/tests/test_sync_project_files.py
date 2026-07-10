@@ -12,7 +12,7 @@ SYNC_SCRIPT = PANEL_ROOT / "scripts" / "sync_project_files.py"
 class SyncProjectFilesTests(unittest.TestCase):
     def test_overlay_preserves_local_files_without_following_target_symlinks(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
+            base = Path(tmp).resolve()
             source = base / "source"
             target = base / "target"
             outside = base / "outside"
@@ -40,7 +40,7 @@ class SyncProjectFilesTests(unittest.TestCase):
 
     def test_rejects_a_symlink_as_the_target_root(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
+            base = Path(tmp).resolve()
             source = base / "source"
             outside = base / "outside"
             source.mkdir()
@@ -59,9 +59,35 @@ class SyncProjectFilesTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((outside / "app.py").exists())
 
+    def test_rejects_target_path_through_parent_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            source = base / "source"
+            real_parent = base / "real-parent"
+            linked_parent = base / "linked-parent"
+            source.mkdir()
+            real_parent.mkdir()
+            linked_parent.symlink_to(real_parent, target_is_directory=True)
+            (source / "app.py").write_text("# app\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SYNC_SCRIPT),
+                    str(source),
+                    str(linked_parent / "target"),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((real_parent / "target" / "app.py").exists())
+
     def test_rejects_source_symlinks_instead_of_copying_them(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
+            base = Path(tmp).resolve()
             source = base / "source"
             target = base / "target"
             outside = base / "outside"

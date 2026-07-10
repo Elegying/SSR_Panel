@@ -5,6 +5,7 @@
 ### Security
 - SSR 安装源码固定到提交 `c4507b7af1fe20a5a6adbb5e3b5a86da9d3a35e8` 并核对实际 Git revision；服务脚本改为仓库内模板，不再下载远程 init 脚本。
 - 未经校验的 BBR、ServerSpeeder、LotServer、BT/PT/SPAM 和源码编译脚本默认禁用；卸载器会在任何副作用前校验服务名、删除路径、符号链接和托管标记。
+- 安装和更新拒绝越界项目子目录及目标路径任一层的符号链接，避免 root 文件同步逃逸到部署范围外。
 - `mudb.json` 写操作增加进程锁和原子替换；JSON 损坏时拒绝覆盖，避免并发添加用户或异常写入造成数据丢失。
 
 ### Added
@@ -13,8 +14,9 @@
 - CI 增加 Python 3.9/3.11/3.12、Ubuntu 22.04、Debian 12、Rocky Linux 9、ShellCheck 与依赖安全审计。
 
 ### Fixed
-- 修复两个优化器错误使用 `/usr/local/shadowsocksr/server.py`，统一为实际入口 `/usr/local/shadowsocksr/shadowsocks/server.py`。
+- 修复两个优化器误启用单端口底层入口，统一以 `/usr/local/shadowsocksr/server.py m` 启动读取 `mudb.json` 的多用户服务。
 - systemd 接管 SSR 时禁用旧 SysV 自启动，面板也只调用唯一的 systemd 管理入口，避免重复进程。
+- 完整卸载 SSR 时同步移除托管的旧 SysV 脚本和 `mudb.json` 对应的 IPv4/IPv6 防火墙端口规则。
 - ARM64 等非 x86_64 系统不再误用 `jq-linux32`，统一链接发行版提供的 `jq`。
 - 安装器不再强制覆盖服务器时区；firewalld 和 iptables/nft 兼容层均可配置幂等端口规则。
 - 安装和更新覆盖源码时保留本地文件；完整安装会验证 SSR 入口、配置和 `mudb.json`，不再只凭目录存在判断成功。

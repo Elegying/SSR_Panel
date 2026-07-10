@@ -191,22 +191,37 @@ validate_update_paths() {
         return 1
     fi
 
-    "${PYTHON3_BIN}" - "${PANEL_DIR}" "${VENV_DIR}" "${SYSTEMD_DIR}" <<'PY'
+    "${PYTHON3_BIN}" - "${PANEL_DIR}" "${VENV_DIR}" "${SYSTEMD_DIR}" "${REPO_SUBDIR}" <<'PY'
 import sys
 from pathlib import Path
 
 panel_input = Path(sys.argv[1])
 venv_input = Path(sys.argv[2])
 systemd_input = Path(sys.argv[3])
+repo_subdir = Path(sys.argv[4]) if sys.argv[4] else None
+
+
+def reject_symlink_components(label, path):
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise SystemExit(f"unsafe {label} symlink component: {current}")
+
+
 for label, path in (("panel", panel_input), ("venv", venv_input), ("systemd", systemd_input)):
-    if path.is_symlink():
-        raise SystemExit(f"unsafe {label} symlink: {path}")
+    if not path.is_absolute():
+        raise SystemExit(f"unsafe relative {label} path: {path}")
+    reject_symlink_components(label, path)
+
+if repo_subdir is not None and (repo_subdir.is_absolute() or ".." in repo_subdir.parts):
+    raise SystemExit(f"unsafe repo subdir: {repo_subdir}")
 
 panel = panel_input.resolve()
 venv = venv_input.resolve()
 systemd = systemd_input.resolve()
 
-if panel == Path("/") or not panel.is_absolute():
+if panel == Path("/"):
     raise SystemExit("unsafe panel directory")
 if venv == panel or panel not in venv.parents:
     raise SystemExit("SSR_ADMIN_VENV_DIR must be inside SSR_ADMIN_PANEL_DIR")

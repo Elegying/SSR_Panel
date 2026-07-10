@@ -27,6 +27,7 @@ class OptimizerScriptTests(unittest.TestCase):
         )
         (ssr_dir / "shadowsocks").mkdir()
         (ssr_dir / "shadowsocks" / "server.py").write_text("# server\n", encoding="utf-8")
+        (ssr_dir / "server.py").write_text("# multi-user server\n", encoding="utf-8")
 
         bin_dir = base / "bin"
         bin_dir.mkdir()
@@ -40,6 +41,13 @@ class OptimizerScriptTests(unittest.TestCase):
         )
         self.write_executable(bin_dir / "sysctl", "#!/bin/sh\nexit 0\n")
         self.write_executable(bin_dir / "ss", "#!/bin/sh\nexit 0\n")
+        legacy_init = base / "ssrmu"
+        self.write_executable(
+            legacy_init,
+            "#!/bin/sh\n"
+            "echo \"legacy $@\" >> \"$SYSTEMCTL_LOG\"\n"
+            "exit 0\n",
+        )
 
         return {
             **os.environ,
@@ -51,6 +59,7 @@ class OptimizerScriptTests(unittest.TestCase):
             "SYSCTL_CONF": str(base / "sysctl.conf"),
             "PANEL_DIR": str(base / "panel"),
             "SYSTEMCTL_LOG": str(base / "systemctl.log"),
+            "SSR_LEGACY_INIT": str(legacy_init),
         }, ssr_dir
 
     def write_executable(self, path: Path, content: str):
@@ -118,9 +127,11 @@ class OptimizerScriptTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             unit = (base / "systemd" / "ssr.service").read_text(encoding="utf-8")
-            self.assertIn(f"WorkingDirectory={ssr_dir / 'shadowsocks'}", unit)
-            self.assertIn(f"{ssr_dir / 'shadowsocks' / 'server.py'} a", unit)
-            self.assertIn("disable ssrmu.service", (base / "systemctl.log").read_text(encoding="utf-8"))
+            self.assertIn(f"WorkingDirectory={ssr_dir}", unit)
+            self.assertIn(f"{ssr_dir / 'server.py'} m", unit)
+            actions = (base / "systemctl.log").read_text(encoding="utf-8")
+            self.assertIn("legacy stop", actions)
+            self.assertIn("disable ssrmu.service", actions)
 
 
 if __name__ == "__main__":

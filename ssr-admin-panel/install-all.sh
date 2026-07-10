@@ -421,6 +421,7 @@ apply_ssr_python_compatibility_fix() {
 validate_ssr_installation() {
     local required
     for required in \
+        "${SSR_DIR}/server.py" \
         "${SSR_DIR}/shadowsocks/server.py" \
         "${SSR_DIR}/mujson_mgr.py" \
         "${SSR_DIR}/userapiconfig.py" \
@@ -483,6 +484,13 @@ SERVICE
 sync_project_files() {
     local target_dir="$1"
     local tmp_clone_dir source_dir
+
+    case "$REPO_SUBDIR" in
+        /*|..|../*|*/..|*/../*)
+            echo -e "${RED}非法项目子目录: ${REPO_SUBDIR}${NC}" >&2
+            exit 1
+            ;;
+    esac
 
     tmp_clone_dir=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
     git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$tmp_clone_dir" -q

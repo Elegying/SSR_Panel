@@ -31,6 +31,9 @@ class UninstallSafetyTests(unittest.TestCase):
         self.default_ssr_dir = self.root / "default-ssr"
         self.default_stats_dir = self.root / "default-stats"
         self.systemd_dir = self.root / "systemd"
+        self.legacy_init = self.root / "ssrmu"
+        self.firewall_state = self.root / "firewall-state"
+        self.firewall_state.mkdir()
         self.systemd_dir.mkdir()
         for path in (self.default_panel_dir, self.default_ssr_dir, self.default_stats_dir):
             path.mkdir()
@@ -47,6 +50,7 @@ class UninstallSafetyTests(unittest.TestCase):
             ('DEFAULT_PANEL_DIR="/opt/ssr-admin-panel"', f'DEFAULT_PANEL_DIR="{self.default_panel_dir}"'),
             ('DEFAULT_SSR_DIR="/usr/local/shadowsocksr"', f'DEFAULT_SSR_DIR="{self.default_ssr_dir}"'),
             ('DEFAULT_DEVICE_STATS_DIR="/var/lib/ssr-admin-panel"', f'DEFAULT_DEVICE_STATS_DIR="{self.default_stats_dir}"'),
+            ('DEFAULT_LEGACY_INIT_SCRIPT="/etc/init.d/ssrmu"', f'DEFAULT_LEGACY_INIT_SCRIPT="{self.legacy_init}"'),
         ):
             self.assertEqual(harness_source.count(original), 1)
             harness_source = harness_source.replace(original, replacement)
@@ -54,6 +58,40 @@ class UninstallSafetyTests(unittest.TestCase):
         self.harness.write_text(harness_source, encoding="utf-8")
 
         for command in ("systemctl", "rm"):
+            stub = self.bin_dir / command
+            stub.write_text(
+                "#!/bin/sh\n"
+                "printf '%s' \"${0##*/}\" >> \"$ACTION_LOG\"\n"
+                "for arg in \"$@\"; do printf '\\t%s' \"$arg\" >> \"$ACTION_LOG\"; done\n"
+                "printf '\\n' >> \"$ACTION_LOG\"\n",
+                encoding="utf-8",
+            )
+            stub.chmod(0o755)
+
+        firewall_stub = (
+            "#!/bin/sh\n"
+            "printf '%s' \"${0##*/}\" >> \"$ACTION_LOG\"\n"
+            "for arg in \"$@\"; do printf '\\t%s' \"$arg\" >> \"$ACTION_LOG\"; done\n"
+            "printf '\\n' >> \"$ACTION_LOG\"\n"
+            "protocol=unknown; port=unknown; previous=\n"
+            "for arg in \"$@\"; do\n"
+            "  [ \"$previous\" = -p ] && protocol=$arg\n"
+            "  [ \"$previous\" = --dport ] && port=$arg\n"
+            "  previous=$arg\n"
+            "done\n"
+            "marker=\"$FIREWALL_STATE/${0##*/}-${protocol}-${port}\"\n"
+            "if [ \"${1:-}\" = -C ]; then\n"
+            "  [ -e \"$marker\" ] && [ ! -e \"$marker.removed\" ]\n"
+            "elif [ \"${1:-}\" = -D ]; then\n"
+            "  : > \"$marker.removed\"\n"
+            "fi\n"
+        )
+        for command in ("iptables", "ip6tables"):
+            stub = self.bin_dir / command
+            stub.write_text(firewall_stub, encoding="utf-8")
+            stub.chmod(0o755)
+
+        for command in ("netfilter-persistent", "update-rc.d"):
             stub = self.bin_dir / command
             stub.write_text(
                 "#!/bin/sh\n"
@@ -89,6 +127,7 @@ class UninstallSafetyTests(unittest.TestCase):
         env.update(
             {
                 "ACTION_LOG": str(self.action_log),
+                "FIREWALL_STATE": str(self.firewall_state),
                 "PATH": f"{self.bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
                 "SSR_ADMIN_SYSTEMD_DIR": str(self.systemd_dir),
             }
@@ -328,6 +367,46 @@ class UninstallSafetyTests(unittest.TestCase):
                 f"rm\t-rf\t{panel_dir}\t{stats_dir}",
             ],
         )
+
+    def test_remove_ssr_cleans_managed_legacy_init_and_user_firewall_rules(self):
+        source = UNINSTALL_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn(
+            'log "python3 is unavailable; skipping firewall cleanup" >&2',
+            source,
+        )
+        (self.default_ssr_dir / "mudb.json").write_text(
+            '[{"port": 2333}, {"port": "24444"}, {"port": 0}, {"port": "bad"}]',
+            encoding="utf-8",
+        )
+        self.legacy_init.write_text(
+            "#!/bin/sh\n"
+            "# Managed by SSR_Panel\n"
+            "# Provides:          ssrmu\n"
+            "# Short-Description: ShadowsocksR manyuser service\n"
+            "printf 'legacy-init\\t%s\\n' \"${1:-}\" >> \"$ACTION_LOG\"\n",
+            encoding="utf-8",
+        )
+        self.legacy_init.chmod(0o755)
+        for command in ("iptables", "ip6tables"):
+            for protocol in ("tcp", "udp"):
+                for port in (2333, 24444):
+                    (self.firewall_state / f"{command}-{protocol}-{port}").touch()
+
+        result, actions = self.run_uninstall("--yes", "--remove-ssr")
+
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertIn("legacy-init\tstop", actions)
+        self.assertIn("update-rc.d\t-f\tssrmu\tremove", actions)
+        self.assertIn(f"rm\t-f\t{self.legacy_init}", actions)
+        for command in ("iptables", "ip6tables"):
+            for protocol in ("tcp", "udp"):
+                for port in (2333, 24444):
+                    self.assertIn(
+                        f"{command}\t-D\tINPUT\t-m\tconntrack\t--ctstate\tNEW"
+                        f"\t-p\t{protocol}\t--dport\t{port}\t-j\tACCEPT",
+                        actions,
+                    )
+        self.assertIn("netfilter-persistent\tsave", actions)
 
 
 if __name__ == "__main__":

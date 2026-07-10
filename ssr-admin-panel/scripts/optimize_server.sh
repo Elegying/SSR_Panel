@@ -13,8 +13,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 SSR_DIR="/usr/local/shadowsocksr"
-SSR_WORKDIR="${SSR_DIR}/shadowsocks"
-SSR_SERVER="${SSR_DIR}/shadowsocks/server.py"
+SSR_WORKDIR="${SSR_DIR}"
+SSR_SERVER="${SSR_DIR}/server.py"
+SSR_LEGACY_INIT="${SSR_LEGACY_INIT:-/etc/init.d/ssrmu}"
 SSR_CONFIG="${SSR_DIR}/user-config.json"
 MUDB_FILE="${SSR_DIR}/mudb.json"
 SYSCTL_CONF="/etc/sysctl.d/99-ssr-optimize.conf"
@@ -132,7 +133,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=${SSR_WORKDIR}
-ExecStart=${PYTHON_BIN} ${SSR_DIR}/shadowsocks/server.py a
+ExecStart=${PYTHON_BIN} ${SSR_DIR}/server.py m
 Restart=always
 RestartSec=3
 LimitNOFILE=512000
@@ -143,6 +144,9 @@ WantedBy=multi-user.target
 SERVICE
 
     systemctl daemon-reload
+    if [ -x "${SSR_LEGACY_INIT}" ]; then
+        "${SSR_LEGACY_INIT}" stop >/dev/null 2>&1 || true
+    fi
     systemctl stop ssrmu.service 2>/dev/null || true
     systemctl disable ssrmu.service 2>/dev/null || true
     if command -v update-rc.d >/dev/null 2>&1; then

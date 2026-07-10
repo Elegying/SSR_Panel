@@ -4,6 +4,7 @@ set -Eeuo pipefail
 DEFAULT_PANEL_DIR="/opt/ssr-admin-panel"
 DEFAULT_SSR_DIR="/usr/local/shadowsocksr"
 DEFAULT_DEVICE_STATS_DIR="/var/lib/ssr-admin-panel"
+DEFAULT_LEGACY_INIT_SCRIPT="/etc/init.d/ssrmu"
 MANAGED_MARKER=".ssr-panel-managed"
 SYSTEMD_DIR="${SSR_ADMIN_SYSTEMD_DIR-/etc/systemd/system}"
 DEFAULT_ADMIN_SERVICE="ssr-admin"
@@ -14,6 +15,7 @@ SSR_DIR="${SSR_ADMIN_SSR_DIR-$DEFAULT_SSR_DIR}"
 DEVICE_STATS_DIR="${SSR_DEVICE_STATS_DIR-$DEFAULT_DEVICE_STATS_DIR}"
 ADMIN_SERVICE="${SSR_ADMIN_SERVICE_NAME-$DEFAULT_ADMIN_SERVICE}"
 DEVICE_STATS_SERVICE="${SSR_DEVICE_STATS_SERVICE_NAME-$DEFAULT_DEVICE_STATS_SERVICE}"
+LEGACY_INIT_SCRIPT="$DEFAULT_LEGACY_INIT_SCRIPT"
 
 CONFIRM=0
 KEEP_DATA=0
@@ -182,14 +184,138 @@ stop_service() {
   rm -f "${SYSTEMD_DIR}/${service}.service"
 }
 
+collect_ssr_ports() {
+  local database="${SSR_DIR}/mudb.json"
+
+  [[ -f "$database" && ! -L "$database" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || {
+    log "python3 is unavailable; skipping firewall cleanup" >&2
+    return 0
+  }
+
+  python3 - "$database" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    users = json.load(handle)
+
+ports = set()
+for user in users if isinstance(users, list) else []:
+    value = user.get("port") if isinstance(user, dict) else None
+    if isinstance(value, bool):
+        continue
+    if isinstance(value, int):
+        port = value
+    elif isinstance(value, str) and value.isdigit():
+        port = int(value)
+    else:
+        continue
+    if 1 <= port <= 65535:
+        ports.add(port)
+
+for port in sorted(ports):
+    print(port)
+PY
+}
+
+persist_firewall_rules() {
+  if command -v netfilter-persistent >/dev/null 2>&1; then
+    netfilter-persistent save >/dev/null 2>&1 || log "warning: failed to persist firewall cleanup"
+    return
+  fi
+
+  if [[ -f /etc/sysconfig/iptables ]] && command -v iptables-save >/dev/null 2>&1; then
+    iptables-save > /etc/sysconfig/iptables || log "warning: failed to persist IPv4 firewall cleanup"
+    if [[ -f /etc/sysconfig/ip6tables ]] && command -v ip6tables-save >/dev/null 2>&1; then
+      ip6tables-save > /etc/sysconfig/ip6tables || log "warning: failed to persist IPv6 firewall cleanup"
+    fi
+    return
+  fi
+
+  if [[ -f /etc/iptables.up.rules || -f "${SYSTEMD_DIR}/ssr-iptables-restore.service" ]]; then
+    if command -v iptables-save >/dev/null 2>&1; then
+      iptables-save > /etc/iptables.up.rules || log "warning: failed to persist IPv4 firewall cleanup"
+    fi
+    if command -v ip6tables-save >/dev/null 2>&1; then
+      ip6tables-save > /etc/ip6tables.up.rules || log "warning: failed to persist IPv6 firewall cleanup"
+    fi
+  fi
+}
+
+cleanup_firewall_ports() {
+  local ports="$1" port protocol changed=0
+
+  [[ -n "$ports" ]] || return 0
+  if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    for port in $ports; do
+      for protocol in tcp udp; do
+        firewall-cmd --permanent --remove-port="${port}/${protocol}" >/dev/null 2>&1 || true
+      done
+    done
+    firewall-cmd --reload >/dev/null 2>&1 || log "warning: failed to reload firewalld"
+    return
+  fi
+
+  for port in $ports; do
+    for protocol in tcp udp; do
+      if command -v iptables >/dev/null 2>&1; then
+        while iptables -C INPUT -m conntrack --ctstate NEW -p "$protocol" --dport "$port" -j ACCEPT 2>/dev/null; do
+          iptables -D INPUT -m conntrack --ctstate NEW -p "$protocol" --dport "$port" -j ACCEPT || break
+          changed=1
+        done
+      fi
+      if command -v ip6tables >/dev/null 2>&1; then
+        while ip6tables -C INPUT -m conntrack --ctstate NEW -p "$protocol" --dport "$port" -j ACCEPT 2>/dev/null; do
+          ip6tables -D INPUT -m conntrack --ctstate NEW -p "$protocol" --dport "$port" -j ACCEPT || break
+          changed=1
+        done
+      fi
+    done
+  done
+
+  [[ "$changed" -eq 0 ]] || persist_firewall_rules
+}
+
+is_managed_legacy_init() {
+  [[ -f "$LEGACY_INIT_SCRIPT" && ! -L "$LEGACY_INIT_SCRIPT" ]] || return 1
+  grep -Fqx "# Managed by SSR_Panel" "$LEGACY_INIT_SCRIPT" && return 0
+  grep -Fq "# Provides:          ssrmu" "$LEGACY_INIT_SCRIPT" &&
+    grep -Fq "# Short-Description: ShadowsocksR manyuser service" "$LEGACY_INIT_SCRIPT"
+}
+
+cleanup_legacy_init() {
+  [[ -e "$LEGACY_INIT_SCRIPT" || -L "$LEGACY_INIT_SCRIPT" ]] || return 0
+  if ! is_managed_legacy_init; then
+    log "leaving unrecognized legacy init script intact: $LEGACY_INIT_SCRIPT"
+    return 0
+  fi
+
+  [[ ! -x "$LEGACY_INIT_SCRIPT" ]] || "$LEGACY_INIT_SCRIPT" stop >/dev/null 2>&1 || true
+  if command -v update-rc.d >/dev/null 2>&1; then
+    update-rc.d -f ssrmu remove >/dev/null 2>&1 || true
+  elif command -v chkconfig >/dev/null 2>&1; then
+    chkconfig --del ssrmu >/dev/null 2>&1 || true
+  fi
+  rm -f "$LEGACY_INIT_SCRIPT"
+}
+
 log "disabling panel services"
 stop_service "$ADMIN_SERVICE"
 stop_service "$DEVICE_STATS_SERVICE"
 
 if [[ "$REMOVE_SSR" -eq 1 ]]; then
   log "removing SSR service and directory"
+  SSR_PORTS="$(collect_ssr_ports)" || {
+    log "warning: failed to read SSR user ports; skipping firewall cleanup"
+    SSR_PORTS=""
+  }
   stop_service "ssr"
-  [[ "$KEEP_DATA" -eq 1 ]] || rm -rf "$SSR_DIR"
+  if [[ "$KEEP_DATA" -ne 1 ]]; then
+    cleanup_legacy_init
+    cleanup_firewall_ports "$SSR_PORTS"
+    rm -rf "$SSR_DIR"
+  fi
 else
   log "leaving SSR server files intact; pass --remove-ssr to remove them"
 fi

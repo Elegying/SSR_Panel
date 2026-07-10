@@ -111,6 +111,7 @@ Create_local_ssr_init_script(){
 	[[ -z "${python_bin}" ]] && echo -e "${Error} 未找到可用的 Python 解释器，无法生成启动脚本 !" && exit 1
 	cat > /etc/init.d/ssrmu <<EOF
 #!/bin/sh
+# Managed by SSR_Panel
 ### BEGIN INIT INFO
 # Provides:          ssrmu
 # Required-Start:    \$remote_fs \$syslog
@@ -1034,6 +1035,7 @@ Validate_SSR_layout(){
 		"${ssr_folder}/mysql.json" \
 		"${ssr_folder}/apiconfig.py" \
 		"${ssr_folder}/mujson_mgr.py" \
+		"${ssr_folder}/server.py" \
 		"${ssr_folder}/shadowsocks/server.py"
 	do
 		if [[ ! -f "${required}" ]]; then

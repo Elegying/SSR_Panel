@@ -38,6 +38,7 @@ class UpdateTransactionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
     def make_fixture(self, base: Path, *, fail_restart: bool):
+        base = base.resolve()
         panel = base / "panel"
         panel.mkdir()
         (panel / "app.py").write_text("OLD_APP = True\n", encoding="utf-8")
@@ -355,6 +356,63 @@ class UpdateTransactionTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(
                 (real_panel / "app.py").read_text(encoding="utf-8"),
+                "OLD_APP = True\n",
+            )
+
+    def test_rejects_panel_path_through_parent_symlink_before_sync(self):
+        if not shutil.which("bash") or not shutil.which("git"):
+            self.skipTest("bash and git are required")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real_base = root / "real-base"
+            real_base.mkdir()
+            panel, _marker, _status_file, env = self.make_fixture(
+                real_base, fail_restart=False
+            )
+            linked_base = root / "linked-base"
+            linked_base.symlink_to(real_base, target_is_directory=True)
+            env["SSR_ADMIN_PANEL_DIR"] = str(linked_base / "panel")
+            env["SSR_ADMIN_VENV_DIR"] = str(linked_base / "panel" / "venv")
+
+            result = subprocess.run(
+                ["bash", str(UPDATE_SCRIPT), "main"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsafe panel symlink component", result.stderr)
+            self.assertEqual(
+                (panel / "app.py").read_text(encoding="utf-8"),
+                "OLD_APP = True\n",
+            )
+
+    def test_rejects_repo_subdir_traversal_before_sync(self):
+        if not shutil.which("bash") or not shutil.which("git"):
+            self.skipTest("bash and git are required")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            panel, _marker, _status_file, env = self.make_fixture(
+                base, fail_restart=False
+            )
+            env["SSR_ADMIN_REPO_SUBDIR"] = "../outside-panel"
+
+            result = subprocess.run(
+                ["bash", str(UPDATE_SCRIPT), "main"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsafe repo subdir", result.stderr)
+            self.assertEqual(
+                (panel / "app.py").read_text(encoding="utf-8"),
                 "OLD_APP = True\n",
             )
 

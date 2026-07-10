@@ -127,7 +127,7 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("net.ipv4.ip_local_port_range = 10000 65535", content)
 
     def test_optimizers_use_the_real_ssr_server_entrypoint(self):
-        expected = "${SSR_DIR}/shadowsocks/server.py"
+        expected = "${SSR_DIR}/server.py"
         embedded = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
         standalone = (REPO_ROOT.parent / "ssr-server-optimizer" / "optimize-ssr.sh").read_text(
             encoding="utf-8"
@@ -135,8 +135,13 @@ class InstallerRegressionTests(unittest.TestCase):
 
         for content in (embedded, standalone):
             self.assertIn(expected, content)
-            self.assertNotIn("ExecStart=${PYTHON_BIN} ${SSR_DIR}/server.py a", content)
-            self.assertNotIn("ExecStart=$pybin $SSR_DIR/server.py a", content)
+            self.assertIn('SSR_WORKDIR="${SSR_DIR}"', content)
+            self.assertNotIn("${SSR_DIR}/shadowsocks/server.py a", content)
+
+        self.assertIn("ExecStart=${PYTHON_BIN} ${SSR_DIR}/server.py m", embedded)
+        self.assertIn("ExecStart=$pybin ${SSR_DIR}/server.py m", standalone)
+        self.assertIn('"${SSR_LEGACY_INIT}" stop', embedded)
+        self.assertIn('"$SSR_LEGACY_INIT" stop', standalone)
 
         self.assertIn("systemctl disable ssrmu.service", embedded)
         self.assertIn("systemctl disable ssrmu.service", standalone)
@@ -390,6 +395,12 @@ class InstallerRegressionTests(unittest.TestCase):
 
             self.assertEqual(common_blocks[0], common_blocks[1], msg=marker)
 
+    def test_installers_reject_repo_subdir_traversal(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("非法项目子目录", content)
+            self.assertIn("*/../*", content)
+
     def test_installers_use_centos_package_names_for_runtime_dependencies(self):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
@@ -523,6 +534,7 @@ class InstallerRegressionTests(unittest.TestCase):
         for content in (panel_only, full, update):
             self.assertIn('.ssr-panel-managed', content)
         self.assertIn('validate_ssr_installation', full)
+        self.assertIn('"${SSR_DIR}/server.py"', full)
         self.assertIn('"${SSR_DIR}/shadowsocks/server.py"', full)
         self.assertIn('"${MUDB_FILE}"', full)
 

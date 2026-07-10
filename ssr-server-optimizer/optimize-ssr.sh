@@ -2,8 +2,9 @@
 set -Eeuo pipefail
 
 SSR_DIR="${SSR_DIR:-/usr/local/shadowsocksr}"
-SSR_WORKDIR="${SSR_DIR}/shadowsocks"
-SSR_SERVER="${SSR_DIR}/shadowsocks/server.py"
+SSR_WORKDIR="${SSR_DIR}"
+SSR_SERVER="${SSR_DIR}/server.py"
+SSR_LEGACY_INIT="${SSR_LEGACY_INIT:-/etc/init.d/ssrmu}"
 SSR_CONFIG="${SSR_CONFIG:-$SSR_DIR/user-config.json}"
 MUDB_FILE="${MUDB_FILE:-$SSR_DIR/mudb.json}"
 PANEL_DIR="${PANEL_DIR:-/opt/ssr-admin-panel}"
@@ -177,7 +178,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$SSR_WORKDIR
-ExecStart=$pybin ${SSR_DIR}/shadowsocks/server.py a
+ExecStart=$pybin ${SSR_DIR}/server.py m
 Restart=always
 RestartSec=3
 LimitNOFILE=1048576
@@ -236,6 +237,9 @@ apply_sysctl() {
 restart_ssr() {
   log "reloading systemd"
   systemctl daemon-reload
+  if [[ -x "$SSR_LEGACY_INIT" ]]; then
+    "$SSR_LEGACY_INIT" stop >/dev/null 2>&1 || true
+  fi
   systemctl stop ssrmu.service >/dev/null 2>&1 || true
   systemctl disable ssrmu.service >/dev/null 2>&1 || true
   if command -v update-rc.d >/dev/null 2>&1; then
