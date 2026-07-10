@@ -5,12 +5,15 @@ DEFAULT_PANEL_DIR="/opt/ssr-admin-panel"
 DEFAULT_SSR_DIR="/usr/local/shadowsocksr"
 DEFAULT_DEVICE_STATS_DIR="/var/lib/ssr-admin-panel"
 MANAGED_MARKER=".ssr-panel-managed"
+SYSTEMD_DIR="${SSR_ADMIN_SYSTEMD_DIR-/etc/systemd/system}"
+DEFAULT_ADMIN_SERVICE="ssr-admin"
+DEFAULT_DEVICE_STATS_SERVICE="ssr-device-stats"
 
 PANEL_DIR="${SSR_ADMIN_PANEL_DIR-$DEFAULT_PANEL_DIR}"
 SSR_DIR="${SSR_ADMIN_SSR_DIR-$DEFAULT_SSR_DIR}"
 DEVICE_STATS_DIR="${SSR_DEVICE_STATS_DIR-$DEFAULT_DEVICE_STATS_DIR}"
-ADMIN_SERVICE="${SSR_ADMIN_SERVICE_NAME-ssr-admin}"
-DEVICE_STATS_SERVICE="${SSR_DEVICE_STATS_SERVICE_NAME-ssr-device-stats}"
+ADMIN_SERVICE="${SSR_ADMIN_SERVICE_NAME-$DEFAULT_ADMIN_SERVICE}"
+DEVICE_STATS_SERVICE="${SSR_DEVICE_STATS_SERVICE_NAME-$DEFAULT_DEVICE_STATS_SERVICE}"
 
 CONFIRM=0
 KEEP_DATA=0
@@ -28,7 +31,7 @@ Options:
 
 Environment overrides:
   SSR_ADMIN_PANEL_DIR, SSR_ADMIN_SSR_DIR, SSR_DEVICE_STATS_DIR
-  SSR_ADMIN_SERVICE_NAME, SSR_DEVICE_STATS_SERVICE_NAME
+  SSR_ADMIN_SERVICE_NAME, SSR_DEVICE_STATS_SERVICE_NAME, SSR_ADMIN_SYSTEMD_DIR
 EOF
 }
 
@@ -44,6 +47,15 @@ fail() {
 validate_service_name() {
   local service="$1"
   [[ "$service" =~ ^[A-Za-z0-9_.@-]+$ ]] || fail "invalid service name: $service"
+}
+
+validate_custom_service_unit() {
+  local service="$1" default_service="$2"
+  local unit="${SYSTEMD_DIR}/${service}.service"
+
+  [[ "$service" == "$default_service" ]] && return 0
+  [[ -f "$unit" && ! -L "$unit" ]] || fail "custom service unit is missing or unsafe: $unit"
+  grep -Fqx "# Managed by SSR_Panel" "$unit" || fail "custom service unit is not managed by SSR_Panel: $unit"
 }
 
 normalize_absolute_path() {
@@ -151,6 +163,12 @@ fi
 validate_service_name "$ADMIN_SERVICE"
 validate_service_name "$DEVICE_STATS_SERVICE"
 validate_service_name "ssr"
+[[ "$SYSTEMD_DIR" == /* ]] || fail "systemd directory must be an absolute path"
+[[ "$ADMIN_SERVICE" != "ssr" ]] || fail "panel service name is reserved: ssr"
+[[ "$DEVICE_STATS_SERVICE" != "ssr" ]] || fail "device stats service name is reserved: ssr"
+[[ "$ADMIN_SERVICE" != "$DEVICE_STATS_SERVICE" ]] || fail "panel and device stats services must be different"
+validate_custom_service_unit "$ADMIN_SERVICE" "$DEFAULT_ADMIN_SERVICE"
+validate_custom_service_unit "$DEVICE_STATS_SERVICE" "$DEFAULT_DEVICE_STATS_SERVICE"
 
 PANEL_DIR="$(validate_delete_dir "panel directory" "$PANEL_DIR" "$DEFAULT_PANEL_DIR")"
 DEVICE_STATS_DIR="$(validate_delete_dir "device stats directory" "$DEVICE_STATS_DIR" "$DEFAULT_DEVICE_STATS_DIR")"
@@ -161,7 +179,7 @@ fi
 stop_service() {
   local service="$1"
   systemctl disable --now -- "$service" >/dev/null 2>&1 || true
-  rm -f "/etc/systemd/system/${service}.service"
+  rm -f "${SYSTEMD_DIR}/${service}.service"
 }
 
 log "disabling panel services"

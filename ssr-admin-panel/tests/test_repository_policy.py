@@ -19,6 +19,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("shellcheck", workflow)
         self.assertIn("compileall", workflow)
         self.assertIn("pip-audit", workflow)
+        self.assertIn("actionlint", workflow)
         self.assertIn("cd ssr-admin-panel", workflow)
         self.assertIn("cd ssr-server-optimizer", workflow)
 
@@ -38,6 +39,30 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("SSR_ADMIN_PATCH_SSR_COMPAT=1", operations)
         self.assertIn("HTTP 健康检查", operations)
         self.assertNotIn("更新脚本也会重新应用 SSR 服务端优化", operations)
+
+    def test_download_examples_save_the_optimizer_before_running_it(self):
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        guide = (REPO_ROOT / "USER_GUIDE.md").read_text(encoding="utf-8")
+
+        optimizer_url = (
+            "https://raw.githubusercontent.com/Elegying/SSR_Panel/main/"
+            "ssr-server-optimizer/optimize-ssr.sh"
+        )
+        self.assertIn(f"wget -O optimize-ssr.sh {optimizer_url}", readme)
+        self.assertIn(f"curl -fsSL {optimizer_url} -o optimize-ssr.sh", guide)
+        self.assertNotIn(f"curl -fsSL {optimizer_url} | bash", guide)
+
+    def test_docs_describe_distro_jobs_as_x86_64_container_smoke(self):
+        documents = (
+            REPO_ROOT / "README.md",
+            PANEL_ROOT / "README.md",
+            PANEL_ROOT / "docs" / "OPERATIONS.md",
+        )
+        for document in documents:
+            with self.subTest(document=document.name):
+                content = document.read_text(encoding="utf-8")
+                self.assertIn("x86_64 容器冒烟", content)
+                self.assertIn("ARM64 未在 CI 实机验证", content)
 
 
 if __name__ == "__main__":

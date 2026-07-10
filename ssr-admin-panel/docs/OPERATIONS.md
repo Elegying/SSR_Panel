@@ -4,11 +4,11 @@
 
 ## 支持环境
 
-- CI 验证：Ubuntu 22.04、Debian 12、Rocky Linux 9
+- x86_64 容器冒烟：Ubuntu 22.04、Debian 12、Rocky Linux 9，仅覆盖依赖安装、测试套件和 Shell 语法，不包含真实 systemd 部署
 - 安装识别：Debian/Ubuntu 与 RHEL/Rocky/Alma/CentOS Stream 系的 `apt-get`、`dnf`、`yum`
 - CI 验证 Python 3.9 / 3.11 / 3.12；Python 3.6/3.7 仅保留尽力兼容依赖
 - systemd 必须作为 PID 1；Docker、未启用 systemd 的 WSL 和 chroot 不支持自动部署
-- x86_64 与 aarch64/ARM64 均使用发行版提供的 Python 和 `jq`
+- x86_64 与 aarch64/ARM64 均使用发行版提供的 Python 和 `jq`；ARM64 未在 CI 实机验证
 
 安装脚本会先刷新包索引，再一次性安装并验证 CA、`sudo`、`curl`、`wget`、`socat`、Git、Python/venv、systemd、iproute、jq 和防火墙兼容包。未知系统会在复制项目文件之前退出。
 

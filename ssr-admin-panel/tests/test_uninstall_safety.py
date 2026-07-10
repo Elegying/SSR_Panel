@@ -16,6 +16,7 @@ OVERRIDE_NAMES = (
     "SSR_DEVICE_STATS_DIR",
     "SSR_ADMIN_SERVICE_NAME",
     "SSR_DEVICE_STATS_SERVICE_NAME",
+    "SSR_ADMIN_SYSTEMD_DIR",
 )
 
 
@@ -29,6 +30,8 @@ class UninstallSafetyTests(unittest.TestCase):
         self.default_panel_dir = self.root / "default-panel"
         self.default_ssr_dir = self.root / "default-ssr"
         self.default_stats_dir = self.root / "default-stats"
+        self.systemd_dir = self.root / "systemd"
+        self.systemd_dir.mkdir()
         for path in (self.default_panel_dir, self.default_ssr_dir, self.default_stats_dir):
             path.mkdir()
 
@@ -87,6 +90,7 @@ class UninstallSafetyTests(unittest.TestCase):
             {
                 "ACTION_LOG": str(self.action_log),
                 "PATH": f"{self.bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+                "SSR_ADMIN_SYSTEMD_DIR": str(self.systemd_dir),
             }
         )
         env.update(overrides or {})
@@ -130,6 +134,60 @@ class UninstallSafetyTests(unittest.TestCase):
                 )
 
                 self.assert_rejected_without_actions(result, actions)
+
+    def test_rejects_reserved_and_colliding_service_names_before_side_effects(self):
+        cases = (
+            {"SSR_ADMIN_SERVICE_NAME": "ssr"},
+            {"SSR_DEVICE_STATS_SERVICE_NAME": "ssr"},
+            {
+                "SSR_ADMIN_SERVICE_NAME": "same-service",
+                "SSR_DEVICE_STATS_SERVICE_NAME": "same-service",
+            },
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                if self.action_log.exists():
+                    self.action_log.unlink()
+                result, actions = self.run_uninstall("--yes", overrides=overrides)
+                self.assert_rejected_without_actions(result, actions)
+
+    def test_rejects_unmarked_custom_service_unit_before_side_effects(self):
+        (self.systemd_dir / "custom-panel.service").write_text(
+            "[Service]\nExecStart=/bin/true\n",
+            encoding="utf-8",
+        )
+
+        result, actions = self.run_uninstall(
+            "--yes",
+            overrides={"SSR_ADMIN_SERVICE_NAME": "custom-panel"},
+        )
+
+        self.assert_rejected_without_actions(result, actions)
+
+    def test_allows_marked_custom_service_units(self):
+        for service in ("custom-panel", "custom-stats"):
+            (self.systemd_dir / f"{service}.service").write_text(
+                "# Managed by SSR_Panel\n[Service]\nExecStart=/bin/true\n",
+                encoding="utf-8",
+            )
+
+        result, actions = self.run_uninstall(
+            "--yes",
+            overrides={
+                "SSR_ADMIN_SERVICE_NAME": "custom-panel",
+                "SSR_DEVICE_STATS_SERVICE_NAME": "custom-stats",
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assert_rm_actions(
+            actions,
+            [
+                f"rm\t-f\t{self.systemd_dir}/custom-panel.service",
+                f"rm\t-f\t{self.systemd_dir}/custom-stats.service",
+                f"rm\t-rf\t{self.default_panel_dir}\t{self.default_stats_dir}",
+            ],
+        )
 
     def test_rejects_empty_relative_and_unmarked_custom_paths(self):
         unmarked = self.root / "unmarked"
@@ -236,9 +294,9 @@ class UninstallSafetyTests(unittest.TestCase):
         self.assert_rm_actions(
             actions,
             [
-                "rm\t-f\t/etc/systemd/system/ssr-admin.service",
-                "rm\t-f\t/etc/systemd/system/ssr-device-stats.service",
-                "rm\t-f\t/etc/systemd/system/ssr.service",
+                f"rm\t-f\t{self.systemd_dir}/ssr-admin.service",
+                f"rm\t-f\t{self.systemd_dir}/ssr-device-stats.service",
+                f"rm\t-f\t{self.systemd_dir}/ssr.service",
                 f"rm\t-rf\t{self.default_ssr_dir}",
                 f"rm\t-rf\t{self.default_panel_dir}\t{self.default_stats_dir}",
             ],
@@ -263,9 +321,9 @@ class UninstallSafetyTests(unittest.TestCase):
         self.assert_rm_actions(
             actions,
             [
-                "rm\t-f\t/etc/systemd/system/ssr-admin.service",
-                "rm\t-f\t/etc/systemd/system/ssr-device-stats.service",
-                "rm\t-f\t/etc/systemd/system/ssr.service",
+                f"rm\t-f\t{self.systemd_dir}/ssr-admin.service",
+                f"rm\t-f\t{self.systemd_dir}/ssr-device-stats.service",
+                f"rm\t-f\t{self.systemd_dir}/ssr.service",
                 f"rm\t-rf\t{ssr_dir}",
                 f"rm\t-rf\t{panel_dir}\t{stats_dir}",
             ],

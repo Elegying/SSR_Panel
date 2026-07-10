@@ -347,6 +347,8 @@ def save_users(users):
     with lock_path.open("a+", encoding="utf-8") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
+            if path.exists():
+                _read_users_unlocked(path)
             _write_users_unlocked(path, users)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
@@ -807,6 +809,28 @@ def start_panel_update():
         PANEL_SERVICE_NAME,
     ]
 
+    status = {
+        "in_progress": True,
+        "started_at": datetime.now().isoformat(),
+        "finished_at": None,
+        "message": f"正在从 {PANEL_GIT_REMOTE}/{PANEL_GIT_BRANCH} 更新到 {info['latest_version']}",
+        "current_version": info["current_version"],
+        "latest_version": info["latest_version"],
+        "last_exit_code": None,
+        "phase": "queued",
+        "backup_dir": "",
+        "rollback_attempted": False,
+        "rollback_success": False,
+    }
+    try:
+        PANEL_UPDATE_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PANEL_UPDATE_STATUS_FILE.write_text(
+            json.dumps(status, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError as e:
+        return {"success": False, "message": f"无法创建更新状态文件: {e}"}
+
     if shutil.which("systemd-run"):
         launch_result = run_process(command)
     else:
@@ -824,27 +848,26 @@ def start_panel_update():
             launch_result = {"success": False, "output": "", "error": str(e)}
 
     if not launch_result["success"]:
+        status.update(
+            {
+                "in_progress": False,
+                "finished_at": datetime.now().isoformat(),
+                "message": launch_result["error"] or launch_result["output"] or "更新任务启动失败",
+                "last_exit_code": 1,
+                "phase": "failed",
+            }
+        )
+        try:
+            PANEL_UPDATE_STATUS_FILE.write_text(
+                json.dumps(status, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
         return {
             "success": False,
             "message": launch_result["error"] or launch_result["output"] or "更新任务启动失败",
         }
-
-    PANEL_UPDATE_STATUS_FILE.write_text(
-        json.dumps(
-            {
-                "in_progress": True,
-                "started_at": datetime.now().isoformat(),
-                "finished_at": None,
-                "message": f"正在从 {PANEL_GIT_REMOTE}/{PANEL_GIT_BRANCH} 更新到 {info['latest_version']}",
-                "current_version": info["current_version"],
-                "latest_version": info["latest_version"],
-                "last_exit_code": None,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
     return {
         "success": True,
         "message": f"更新任务已启动，目标版本 {info['latest_version']}。面板会在完成后自动重启。",

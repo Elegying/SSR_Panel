@@ -238,20 +238,32 @@ Save_iptables(){
 		netfilter-persistent save
 		return
 	fi
-	if [[ ${release} == "centos" ]] && command -v service >/dev/null 2>&1; then
-		service iptables save || true
-		command -v ip6tables >/dev/null 2>&1 && service ip6tables save || true
+	if [[ ${release} == "centos" ]]; then
+		mkdir -p /etc/sysconfig
+		iptables-save > /etc/sysconfig/iptables || return 1
+		command -v ip6tables-save >/dev/null 2>&1 && ip6tables-save > /etc/sysconfig/ip6tables || true
+		systemctl enable iptables.service >/dev/null 2>&1 || return 1
 		return
 	fi
-	mkdir -p /etc/network/if-pre-up.d
-	iptables-save > /etc/iptables.up.rules
+	iptables-save > /etc/iptables.up.rules || return 1
 	command -v ip6tables-save >/dev/null 2>&1 && ip6tables-save > /etc/ip6tables.up.rules || true
-	cat > /etc/network/if-pre-up.d/iptables <<'EOF'
-#!/bin/sh
-[ ! -f /etc/iptables.up.rules ] || /sbin/iptables-restore < /etc/iptables.up.rules
-[ ! -f /etc/ip6tables.up.rules ] || /sbin/ip6tables-restore < /etc/ip6tables.up.rules
+	cat > /etc/systemd/system/ssr-iptables-restore.service <<'EOF'
+[Unit]
+Description=Restore SSR iptables compatibility rules
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'iptables-restore < /etc/iptables.up.rules'
+ExecStart=/bin/sh -c '[ ! -f /etc/ip6tables.up.rules ] || ip6tables-restore < /etc/ip6tables.up.rules'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
 EOF
-	chmod +x /etc/network/if-pre-up.d/iptables
+	systemctl daemon-reload
+	systemctl enable ssr-iptables-restore.service >/dev/null 2>&1 || return 1
 }
 Set_iptables(){
 	Save_iptables
@@ -1100,8 +1112,9 @@ Service_SSR(){
 # 安装 JQ解析器
 JQ_install(){
 	command -v jq >/dev/null 2>&1 || { echo -e "${Error} 未找到系统 jq !"; exit 1; }
-	rm -f "${jq_file}"
-	ln -sf "$(command -v jq)" "${jq_file}"
+	rm -f "${jq_file}" || exit 1
+	ln -sf "$(command -v jq)" "${jq_file}" || exit 1
+	[[ -x "${jq_file}" ]] || { echo -e "${Error} 系统 jq 链接不可执行 !"; exit 1; }
 	echo -e "${Info} JQ解析器 已链接到系统 jq（兼容当前架构）"
 }
 # 安装 依赖
@@ -1112,7 +1125,7 @@ Installation_dependency(){
 		Debian_apt || exit 1
 	fi
 	local dependency
-	for dependency in sudo curl wget socat git tar gzip unzip crontab ss jq python3; do
+	for dependency in sudo curl wget socat git tar gzip unzip crontab ss jq iptables python3; do
 		if ! command -v "${dependency}" >/dev/null 2>&1; then
 			echo -e "${Error} 依赖安装后仍缺少 ${dependency}，请修复软件包源后重试 !"
 			exit 1
@@ -1147,11 +1160,11 @@ Install_SSR(){
 	echo -e "${Info} 开始添加初始用户..."
 	Add_port_user "install"
 	echo -e "${Info} 开始设置 iptables防火墙..."
-	Set_iptables
+	Set_iptables || exit 1
 	echo -e "${Info} 开始添加 iptables防火墙规则..."
-	Add_iptables
+	Add_iptables || exit 1
 	echo -e "${Info} 开始保存 iptables防火墙规则..."
-	Save_iptables
+	Save_iptables || exit 1
 	echo -e "${Info} 所有步骤 安装完毕，开始启动 ShadowsocksR服务端..."
 	Start_SSR
 	Get_User_info "${ssr_port}"

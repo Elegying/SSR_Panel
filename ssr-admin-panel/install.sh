@@ -270,7 +270,7 @@ require_systemd() {
 
 verify_base_runtime() {
     local cmd
-    local required_commands="sudo curl wget socat git tar gzip unzip crontab ss jq python3 systemctl"
+    local required_commands="sudo curl wget socat git tar gzip unzip crontab ss jq iptables python3 systemctl"
 
     for cmd in $required_commands; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -372,6 +372,7 @@ install_device_stats_service() {
     chmod +x "$INSTALL_DIR/scripts/collect_device_stats.py" 2>/dev/null || true
 
     cat > /etc/systemd/system/ssr-device-stats.service <<SERVICE
+# Managed by SSR_Panel
 [Unit]
 Description=SSR Device Stats Collector
 After=network.target
@@ -420,7 +421,7 @@ sync_project_files() {
     fi
 
     mkdir -p "$target_dir"
-    cp -R "$source_dir"/. "$target_dir"/
+    "$PYTHON3_BIN" "$source_dir/scripts/sync_project_files.py" "$source_dir" "$target_dir"
     SYNC_REVISION=$(git -C "$tmp_clone_dir" rev-parse --short HEAD 2>/dev/null || echo "")
     rm -rf "$tmp_clone_dir"
 }
@@ -624,6 +625,7 @@ echo -e "${GREEN}[4/6] 配置系统服务...${NC}"
 install_device_stats_service
 
 cat > /etc/systemd/system/ssr-admin.service <<SERVICE
+# Managed by SSR_Panel
 [Unit]
 Description=SSR Admin Panel
 After=network.target

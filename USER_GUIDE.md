@@ -47,13 +47,9 @@ sudo bash install.sh
 ### 仅执行 SSR 优化
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh | bash
-```
-
-正式执行前可先预检：
-
-```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh -o optimize-ssr.sh
 bash optimize-ssr.sh --check
+sudo bash optimize-ssr.sh
 ```
 
 ## 默认账户和密码

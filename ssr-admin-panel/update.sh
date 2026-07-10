@@ -98,6 +98,10 @@ ensure_update_runtime() {
     ensure_command "git" "git"
     ensure_command "systemctl" "systemd"
     ensure_command "flock" "util-linux"
+    if ! systemctl show-environment >/dev/null 2>&1; then
+        echo -e "${RED}当前环境没有正在运行的 systemd manager${NC}" >&2
+        return 1
+    fi
     if ! [ -x "${PYTHON3_BIN}" ]; then
         ensure_command "python3" "python3"
         PYTHON3_BIN="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"
@@ -178,14 +182,29 @@ validate_update_paths() {
             return 1
             ;;
     esac
+    if [ "${SERVICE_NAME}" = "ssr" ] || [ "${DEVICE_STATS_SERVICE_NAME}" = "ssr" ]; then
+        echo -e "${RED}服务名 ssr 已保留给 ShadowsocksR 主服务${NC}" >&2
+        return 1
+    fi
+    if [ "${SERVICE_NAME}" = "${DEVICE_STATS_SERVICE_NAME}" ]; then
+        echo -e "${RED}面板服务与设备统计服务不能同名${NC}" >&2
+        return 1
+    fi
 
     "${PYTHON3_BIN}" - "${PANEL_DIR}" "${VENV_DIR}" "${SYSTEMD_DIR}" <<'PY'
 import sys
 from pathlib import Path
 
-panel = Path(sys.argv[1]).resolve()
-venv = Path(sys.argv[2]).resolve()
-systemd = Path(sys.argv[3]).resolve()
+panel_input = Path(sys.argv[1])
+venv_input = Path(sys.argv[2])
+systemd_input = Path(sys.argv[3])
+for label, path in (("panel", panel_input), ("venv", venv_input), ("systemd", systemd_input)):
+    if path.is_symlink():
+        raise SystemExit(f"unsafe {label} symlink: {path}")
+
+panel = panel_input.resolve()
+venv = venv_input.resolve()
+systemd = systemd_input.resolve()
 
 if panel == Path("/") or not panel.is_absolute():
     raise SystemExit("unsafe panel directory")
@@ -260,12 +279,27 @@ exclude = {"backups", "__pycache__", "venv", ".initial_ssr_password", "ssr-insta
 if mode == "sync" and not (source / "config.py").exists():
     exclude.add("config.py")
 
+if not source.is_dir() or source.is_symlink():
+    raise SystemExit(f"invalid copy source: {source}")
+if target.is_symlink():
+    raise SystemExit(f"refusing symlink copy target: {target}")
+
 
 def remove_path(path: Path) -> None:
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path)
     else:
         path.unlink()
+
+
+def validate_source_directory(src: Path) -> None:
+    for item in src.iterdir():
+        if item.name in exclude:
+            continue
+        if item.is_symlink():
+            raise SystemExit(f"refusing source symlink: {item}")
+        if item.is_dir():
+            validate_source_directory(item)
 
 
 def copy_dir(src: Path, dst: Path) -> None:
@@ -281,6 +315,8 @@ def copy_dir(src: Path, dst: Path) -> None:
 
     for name, src_item in source_items.items():
         dst_item = dst / name
+        if dst_item.is_symlink():
+            remove_path(dst_item)
         if src_item.is_dir() and not src_item.is_symlink():
             if dst_item.exists() and not dst_item.is_dir():
                 remove_path(dst_item)
@@ -292,6 +328,8 @@ def copy_dir(src: Path, dst: Path) -> None:
             shutil.copy2(src_item, dst_item, follow_symlinks=False)
 
 
+if mode == "sync":
+    validate_source_directory(source)
 copy_dir(source, target)
 PY
 }
@@ -308,13 +346,24 @@ create_full_backup() {
     fi
 
     mkdir -p "${BACKUP_DIR}/systemd"
-    local unit unit_name
-    for unit in "${SYSTEMD_DIR}/${SERVICE_NAME}.service" "${SYSTEMD_DIR}/${DEVICE_STATS_SERVICE_NAME}.service"; do
-        unit_name="$(basename "${unit}")"
+    local service unit unit_name
+    for service in "${SERVICE_NAME}" "${DEVICE_STATS_SERVICE_NAME}"; do
+        unit="${SYSTEMD_DIR}/${service}.service"
+        unit_name="${service}.service"
         if [ -f "${unit}" ]; then
             cp -a "${unit}" "${BACKUP_DIR}/systemd/${unit_name}"
         else
             : > "${BACKUP_DIR}/systemd/${unit_name}.absent"
+        fi
+        if systemctl is-enabled --quiet "${service}" 2>/dev/null; then
+            printf '1\n' > "${BACKUP_DIR}/systemd/${unit_name}.enabled"
+        else
+            printf '0\n' > "${BACKUP_DIR}/systemd/${unit_name}.enabled"
+        fi
+        if systemctl is-active --quiet "${service}" 2>/dev/null; then
+            printf '1\n' > "${BACKUP_DIR}/systemd/${unit_name}.active"
+        else
+            printf '0\n' > "${BACKUP_DIR}/systemd/${unit_name}.active"
         fi
     done
 }
@@ -346,6 +395,39 @@ restore_service_units() {
     done
 }
 
+restore_service_states() {
+    local service unit_name expected_enabled expected_active result=0
+    for service in "${SERVICE_NAME}" "${DEVICE_STATS_SERVICE_NAME}"; do
+        unit_name="${service}.service"
+        expected_enabled="$(cat "${BACKUP_DIR}/systemd/${unit_name}.enabled" 2>/dev/null || echo 0)"
+        expected_active="$(cat "${BACKUP_DIR}/systemd/${unit_name}.active" 2>/dev/null || echo 0)"
+
+        if [ "${expected_enabled}" = "1" ]; then
+            systemctl enable "${service}" >/dev/null 2>&1 || result=1
+        else
+            systemctl disable "${service}" >/dev/null 2>&1 || true
+        fi
+
+        if [ "${expected_active}" = "1" ]; then
+            systemctl restart "${service}" || result=1
+        else
+            systemctl stop "${service}" >/dev/null 2>&1 || true
+        fi
+
+        if [ "${expected_enabled}" = "1" ]; then
+            systemctl is-enabled --quiet "${service}" 2>/dev/null || result=1
+        elif systemctl is-enabled --quiet "${service}" 2>/dev/null; then
+            result=1
+        fi
+        if [ "${expected_active}" = "1" ]; then
+            systemctl is-active --quiet "${service}" 2>/dev/null || result=1
+        elif systemctl is-active --quiet "${service}" 2>/dev/null; then
+            result=1
+        fi
+    done
+    return "${result}"
+}
+
 restore_backup() {
     if [ -z "${BACKUP_DIR}" ] || [ ! -d "${BACKUP_DIR}/app" ]; then
         return 1
@@ -360,7 +442,10 @@ restore_backup() {
     harden_sensitive_files
     chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" 2>/dev/null || true
     systemctl daemon-reload || true
-    if systemctl restart "${SERVICE_NAME}" && verify_panel_health; then
+    if restore_service_states; then
+        if [ "$(cat "${BACKUP_DIR}/systemd/${SERVICE_NAME}.service.active" 2>/dev/null || echo 0)" = "1" ]; then
+            verify_panel_health || return 1
+        fi
         ROLLBACK_SUCCESS=1
         echo -e "${GREEN}已恢复上一版并重启服务${NC}"
         return 0
@@ -374,7 +459,7 @@ handle_update_error() {
     local exit_code="${1:-1}"
     local line="${2:-unknown}"
 
-    trap - ERR
+    trap - ERR INT TERM HUP
     set +e
     echo -e "${RED}更新在第 ${line} 行失败（退出码 ${exit_code}）${NC}" >&2
     if [ "${TRANSACTION_ACTIVE}" -eq 1 ] && [ "${ROLLBACK_IN_PROGRESS}" -eq 0 ]; then
@@ -382,6 +467,22 @@ handle_update_error() {
         restore_backup
     fi
     write_status "failed" "更新失败，已尝试回滚" "${exit_code}"
+    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager 2>/dev/null || true
+    exit "${exit_code}"
+}
+
+handle_update_signal() {
+    local exit_code="$1"
+    local signal_name="$2"
+
+    trap - ERR INT TERM HUP
+    set +e
+    echo -e "${RED}更新被 ${signal_name} 中止${NC}" >&2
+    if [ "${TRANSACTION_ACTIVE}" -eq 1 ] && [ "${ROLLBACK_IN_PROGRESS}" -eq 0 ]; then
+        ROLLBACK_IN_PROGRESS=1
+        restore_backup
+    fi
+    write_status "failed" "更新被 ${signal_name} 中止，已尝试回滚" "${exit_code}"
     journalctl -u "${SERVICE_NAME}" -n 50 --no-pager 2>/dev/null || true
     exit "${exit_code}"
 }
@@ -521,6 +622,7 @@ install_or_restart_device_stats_service() {
     mkdir -p "$(dirname "${DEVICE_STATS_FILE}")"
     mkdir -p "${SYSTEMD_DIR}"
     cat > "${SYSTEMD_DIR}/${DEVICE_STATS_SERVICE_NAME}.service" <<SERVICE
+# Managed by SSR_Panel
 [Unit]
 Description=SSR Device Stats Collector
 After=network.target
@@ -543,6 +645,7 @@ SERVICE
 install_or_update_panel_service() {
     mkdir -p "${SYSTEMD_DIR}"
     cat > "${SYSTEMD_DIR}/${SERVICE_NAME}.service" <<SERVICE
+# Managed by SSR_Panel
 [Unit]
 Description=SSR Admin Panel
 After=network.target
@@ -614,6 +717,9 @@ if [ "${1:-}" = "--version" ]; then
 fi
 
 trap 'handle_update_error $? $LINENO' ERR
+trap 'handle_update_signal 130 SIGINT' INT
+trap 'handle_update_signal 143 SIGTERM' TERM
+trap 'handle_update_signal 129 SIGHUP' HUP
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}      SSR Admin Panel 更新脚本${NC}"

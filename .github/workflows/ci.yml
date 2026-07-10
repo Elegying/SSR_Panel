@@ -52,6 +52,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+
       - name: Install ShellCheck
         run: |
           sudo apt-get update -qq
@@ -62,6 +67,11 @@ jobs:
           bash -n ssr-admin-panel/*.sh ssr-admin-panel/scripts/*.sh ssr-server-optimizer/*.sh
           shellcheck --severity=error \
             ssr-admin-panel/*.sh ssr-admin-panel/scripts/*.sh ssr-server-optimizer/*.sh
+
+      - name: Validate GitHub Actions workflow
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint"
 
   dependency-audit:
     runs-on: ubuntu-latest

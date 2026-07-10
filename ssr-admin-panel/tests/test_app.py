@@ -378,6 +378,39 @@ class AppSecurityTests(unittest.TestCase):
         self.assertIn("--repo-subdir", command)
         self.assertIn("ssr-admin-panel", command)
 
+    def test_start_panel_update_writes_queued_status_before_launch(self):
+        runner_path = self.base_path / "run_panel_update.py"
+        runner_path.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+        def assert_status_exists_before_launch(_command):
+            status = json.loads(panel_app.PANEL_UPDATE_STATUS_FILE.read_text(encoding="utf-8"))
+            self.assertTrue(status["in_progress"])
+            self.assertEqual(status["phase"], "queued")
+            return {"success": True, "output": "detached", "error": ""}
+
+        with mock.patch.object(panel_app, "PANEL_UPDATE_RUNNER", runner_path), mock.patch.object(
+            panel_app, "read_panel_update_status", return_value={"in_progress": False}
+        ), mock.patch.object(
+            panel_app,
+            "collect_panel_update_info",
+            return_value={
+                "success": True,
+                "current_version": "1.1.0",
+                "latest_version": "1.2.0",
+                "update_available": True,
+                "message": "发现新版本 1.2.0",
+            },
+        ), mock.patch.object(
+            panel_app, "get_panel_repo_url", return_value="https://github.com/Elegying/SSR_Panel.git"
+        ), mock.patch.object(
+            panel_app.shutil, "which", return_value="/bin/systemd-run"
+        ), mock.patch.object(
+            panel_app, "run_process", side_effect=assert_status_exists_before_launch
+        ):
+            result = panel_app.start_panel_update()
+
+        self.assertTrue(result["success"])
+
     def test_ssr_log_rejects_injected_lines_argument(self):
         response = self.client.get("/api/ssr/log?lines=1;echo%20INJECTED")
         payload = response.get_json()
@@ -426,6 +459,15 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(self.read_users(), original)
         self.assertFalse(list(self.mudb_path.parent.glob(".mudb.json.*.tmp")))
 
+    def test_save_users_refuses_to_overwrite_corrupt_database(self):
+        original = b"{broken-json\n"
+        self.mudb_path.write_bytes(original)
+
+        with self.assertRaises(panel_app.UserDatabaseError):
+            panel_app.save_users([{"user": "new", "passwd": "pw", "port": 9090}])
+
+        self.assertEqual(self.mudb_path.read_bytes(), original)
+
     def test_add_user_refuses_to_overwrite_corrupt_database(self):
         original = b"{broken-json\n"
         self.mudb_path.write_bytes(original)
@@ -446,15 +488,14 @@ class AppSecurityTests(unittest.TestCase):
 
     def test_concurrent_adds_preserve_both_users(self):
         self.write_users([])
-        load_barrier = threading.Barrier(2)
-        original_load = panel_app.load_users
+        mutation_barrier = threading.Barrier(2)
+        original_mutate = panel_app.mutate_users
         responses = {}
         errors = []
 
-        def synchronized_load():
-            users = original_load()
-            load_barrier.wait(timeout=2)
-            return users
+        def synchronized_mutate(mutator):
+            mutation_barrier.wait(timeout=2)
+            return original_mutate(mutator)
 
         def add_user(name, port):
             try:
@@ -470,7 +511,7 @@ class AppSecurityTests(unittest.TestCase):
             except Exception as exc:  # pragma: no cover - asserted below
                 errors.append(exc)
 
-        with mock.patch.object(panel_app, "load_users", side_effect=synchronized_load):
+        with mock.patch.object(panel_app, "mutate_users", side_effect=synchronized_mutate):
             first = threading.Thread(target=add_user, args=("first", 9001))
             second = threading.Thread(target=add_user, args=("second", 9002))
             first.start()

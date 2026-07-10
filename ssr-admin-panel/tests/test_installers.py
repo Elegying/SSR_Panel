@@ -352,7 +352,7 @@ class InstallerRegressionTests(unittest.TestCase):
             "iproute jq iptables-services python3 python3-pip systemd"
         )
         verified_commands = (
-            "sudo curl wget socat git tar gzip unzip crontab ss jq python3 systemctl"
+            "sudo curl wget socat git tar gzip unzip crontab ss jq iptables python3 systemctl"
         )
 
         for script in ("install.sh", "install-all.sh"):
@@ -426,7 +426,7 @@ class InstallerRegressionTests(unittest.TestCase):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertNotIn('find "$target_dir" -mindepth 1', content)
-            self.assertIn('cp -R "$source_dir"/. "$target_dir"/', content)
+            self.assertIn('scripts/sync_project_files.py', content)
             self.assertIn('sync_project_files "$', content)
             self.assertLess(content.index("    ensure_panel_venv\n"), content.index('\nsync_project_files "$'))
 
@@ -535,6 +535,24 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn('iptables -C INPUT', content)
         self.assertIn('command -v ip6tables', content)
         self.assertIn('netfilter-persistent save', content)
+        self.assertIn('/etc/sysconfig/iptables', content)
+        self.assertNotIn('service iptables save || true', content)
+        self.assertIn('Set_iptables || exit 1', content)
+        self.assertIn('Add_iptables || exit 1', content)
+        self.assertIn('Save_iptables || exit 1', content)
+
+    def test_update_requires_a_running_systemd_manager_before_sync(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+
+        runtime = content[content.index('ensure_update_runtime()') : content.index('\n}\n\nacquire_update_lock')]
+        self.assertIn('systemctl show-environment', runtime)
+
+    def test_ssrmu_verifies_the_system_jq_link(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+        jq_install = content[content.index('JQ_install(){') : content.index('\n}\n# 安装 依赖')]
+
+        self.assertIn('ln -sf "$(command -v jq)" "${jq_file}" || exit 1', jq_install)
+        self.assertIn('[[ -x "${jq_file}" ]]', jq_install)
 
     def test_ssrmu_blocks_unverified_remote_root_scripts_by_default(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")

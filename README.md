@@ -56,17 +56,19 @@ sudo bash optimize-ssr.sh
 如果没有 `curl` 但已有 `wget`，可将下载命令替换为：
 
 ```bash
-wget -O install-all.sh https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh
+wget -O optimize-ssr.sh https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh
+sudo bash optimize-ssr.sh --check
+sudo bash optimize-ssr.sh
 ```
 
 ## 支持与验证矩阵
 
 | 范围 | 状态 |
 | --- | --- |
-| Ubuntu 22.04、Debian 12、Rocky Linux 9 | CI 容器持续验证 |
+| Ubuntu 22.04、Debian 12、Rocky Linux 9 | x86_64 容器冒烟：测试套件、依赖安装与 Shell 语法，不包含真实 systemd 部署 |
 | Debian/Ubuntu 与 RHEL/Rocky/Alma/CentOS Stream 系 | 安装器按 `apt-get`、`dnf`、`yum` 自动识别 |
 | Python 3.9、3.11、3.12 | CI 持续验证 |
-| x86_64、aarch64/ARM64 | 使用系统 Python 与系统 `jq`，不再选择 x86 专用二进制 |
+| x86_64、aarch64/ARM64 | 使用系统 Python 与系统 `jq`，不再选择 x86 专用二进制；ARM64 未在 CI 实机验证 |
 | Python 3.6/3.7 | 保留兼容依赖分支，但已 EOL，属于尽力兼容 |
 
 未知发行版不会再默认当作 Debian 执行。OpenRC、SysV-only 和非 systemd 容器不在自动部署范围内。
