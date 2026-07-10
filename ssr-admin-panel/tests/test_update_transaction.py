@@ -232,6 +232,12 @@ class UpdateTransactionTests(unittest.TestCase):
             }
             self.assertEqual(assignments["SECRET"], "keep")
             self.assertTrue(verify_password("keep-password", assignments["ADMIN_PASSWORD_HASH"]))
+            backup_configs = list((panel / "backups").glob("update_*/app/config.py"))
+            self.assertEqual(len(backup_configs), 1)
+            self.assertNotIn(
+                "ADMIN_PASS =",
+                backup_configs[0].read_text(encoding="utf-8"),
+            )
             self.assertEqual(
                 (panel / "local-note.txt").read_text(encoding="utf-8"), "keep me\n"
             )

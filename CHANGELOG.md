@@ -5,7 +5,7 @@
 ### Security
 - 管理面板和设备统计服务改用无登录权限的 `ssr-panel` 专用账户；root 操作只能通过 `/usr/local/libexec/ssr-panel/admin-helper` 的六个固定动作执行，sudoers 不接受任意命令或参数。
 - 面板修改 `mudb.json` 时先写入固定暂存文件，由 root helper 限制大小、校验 JSON/端口并原子提交；SSR 源码目录保持不可写。
-- 管理员密码改为带随机盐的 PBKDF2-SHA256 哈希；更新器自动迁移旧 `ADMIN_PASS`，登录限流依赖缺失时服务直接失败，不再静默关闭防护。
+- 管理员密码改为带随机盐的 PBKDF2-SHA256 哈希；更新器在新服务通过健康检查后同步清理历史备份中的旧明文配置，登录限流依赖缺失时服务直接失败，不再静默关闭防护。
 
 ### Changed
 - 面板运行时状态、日志和手工数据备份移至 `/var/lib/ssr-admin-panel`，审计日志保留在 `/var/log/ssr-admin-panel`；源码与配置继续由 root 持有。

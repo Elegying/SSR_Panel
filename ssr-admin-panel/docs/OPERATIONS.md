@@ -171,12 +171,12 @@ bash /opt/ssr-admin-panel/update.sh
 
 ### 使用正式发布包回滚
 
-GitHub Release 提供 `SSR_Panel-v1.3.1-rollback.tar.gz` 和 `SHA256SUMS`。把两个文件放在同一目录，先校验再解压执行：
+GitHub Release 提供 `SSR_Panel-v1.4.0-rollback.tar.gz` 和 `SHA256SUMS`。把两个文件放在同一目录，先校验再解压执行：
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf SSR_Panel-v1.3.1-rollback.tar.gz
-bash SSR_Panel-v1.3.1/ssr-admin-panel/rollback.sh --yes
+tar -xzf SSR_Panel-v1.4.0-rollback.tar.gz
+bash SSR_Panel-v1.4.0/ssr-admin-panel/rollback.sh --yes
 ```
 
 回滚入口使用归档内的本地源码，不执行 Git clone；它仍复用更新器的互斥锁、完整备份、失败自动恢复、服务状态验证和 HTTP 健康检查。`config.py`、`mudb.json`、venv 与本地文件不会被归档内容直接覆盖。脚本会输出本次备份目录，便于继续人工恢复。

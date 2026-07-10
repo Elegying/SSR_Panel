@@ -1,6 +1,8 @@
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
+from unittest import mock
 
 from scripts import admin_helper
 
@@ -64,6 +66,16 @@ class AdminHelperTests(unittest.TestCase):
     def test_mudb_target_rejects_world_writable_parent(self):
         with self.assertRaises(ValueError):
             admin_helper.validate_mudb_target("/tmp/mudb.json")
+
+    def test_pending_mudb_rejects_group_or_world_writable_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pending = Path(temp_dir) / "mudb.pending.json"
+            pending.write_text('[{"port": 18899}]', encoding="utf-8")
+            pending.chmod(0o666)
+            owner = SimpleNamespace(pw_uid=pending.stat().st_uid)
+            with mock.patch.object(admin_helper.pwd, "getpwnam", return_value=owner):
+                with self.assertRaises(ValueError):
+                    admin_helper._read_pending_payload(pending)
 
 
 if __name__ == "__main__":

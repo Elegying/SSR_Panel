@@ -141,6 +141,8 @@ def _read_pending_payload(path=PENDING_MUDB_FILE):
         panel_uid = pwd.getpwnam("ssr-panel").pw_uid
         if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_nlink != 1:
             raise ValueError("pending mudb must be a regular file")
+        if file_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise ValueError("pending mudb must not be group/world writable")
         if file_stat.st_uid != panel_uid or file_stat.st_size > 16 * 1024 * 1024:
             raise ValueError("pending mudb has unsafe ownership or size")
         with os.fdopen(fd, "r", encoding="utf-8-sig") as handle:

@@ -38,7 +38,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=1", operations)
         self.assertIn("SSR_ADMIN_PATCH_SSR_COMPAT=1", operations)
         self.assertIn("HTTP 健康检查", operations)
-        self.assertIn("SSR_Panel-v1.3.1-rollback.tar.gz", operations)
+        self.assertIn("SSR_Panel-v1.4.0-rollback.tar.gz", operations)
         self.assertIn("sha256sum -c SHA256SUMS", operations)
         self.assertIn("rollback.sh --yes", operations)
         self.assertNotIn("更新脚本也会重新应用 SSR 服务端优化", operations)

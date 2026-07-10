@@ -472,6 +472,23 @@ harden_sensitive_files() {
     chmod 0600 "${PANEL_DIR}/.initial_ssr_password" "${PANEL_DIR}/ssr-install.log" 2>/dev/null || true
 }
 
+scrub_legacy_password_backups() {
+    local backup_config failed=0
+    [ -d "${PANEL_DIR}/backups" ] || return 0
+    while IFS= read -r -d '' backup_config; do
+        [ ! -L "${backup_config}" ] || continue
+        if grep -Eq '^ADMIN_PASS[[:space:]]*=' "${backup_config}"; then
+            if ! "${PYTHON3_BIN}" "${PANEL_DIR}/security_utils.py" migrate-config "${backup_config}" >/dev/null; then
+                echo -e "${YELLOW}无法清理备份中的旧密码: ${backup_config}${NC}" >&2
+                failed=1
+                continue
+            fi
+        fi
+        chmod 0600 "${backup_config}" 2>/dev/null || failed=1
+    done < <(find "${PANEL_DIR}/backups" -type f -path '*/app/config.py' -print0)
+    return "${failed}"
+}
+
 restore_virtualenv() {
     if [ -d "${BACKUP_DIR}/venv" ]; then
         rm -rf "${VENV_DIR}"
@@ -936,6 +953,9 @@ systemctl restart "${SERVICE_NAME}"
 verify_panel_health
 
 TRANSACTION_ACTIVE=0
+if ! scrub_legacy_password_backups; then
+    echo -e "${YELLOW}部分历史备份仍含旧配置，请仅以 root 检查 ${PANEL_DIR}/backups${NC}" >&2
+fi
 echo -e "${GREEN}更新完成${NC}"
 echo -e "${CYAN}新版本:${NC} ${YELLOW}${NEW_VERSION}${NC}"
 echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
