@@ -310,9 +310,9 @@ ensure_panel_venv() {
 # runtime-common:start
 base_dependency_packages() {
     if [ "$SYS" = "centos" ]; then
-        echo "ca-certificates sudo curl wget socat git tar gzip unzip cronie iproute jq python3 python3-pip systemd"
+        echo "ca-certificates sudo curl wget socat git tar gzip unzip cronie iproute jq iptables-services python3 python3-pip systemd"
     else
-        echo "ca-certificates sudo curl wget socat git tar gzip unzip cron iproute2 jq python3 python3-venv python3-pip systemd"
+        echo "ca-certificates sudo curl wget socat git tar gzip unzip cron iproute2 jq iptables python3 python3-venv python3-pip systemd"
     fi
 }
 
@@ -382,28 +382,20 @@ install_flask_runtime() {
         install_python_runtime_with_pip "${req_file}" 2>/dev/null || true
     fi
 
-    # pip 失败或不可用时，回退到系统包
+    # 面板运行在独立 venv 中，依赖必须安装到该 venv，系统 Python 包不可见。
     if ! "$PYTHON3_BIN" -c "import flask" &>/dev/null; then
-        echo -e "${YELLOW}pip 安装 Flask 失败，尝试系统包...${NC}"
-        if [ "$SYS" = "debian" ] || [ "$SYS" = "ubuntu" ]; then
-            install_packages python3-flask || \
-            install_single_python_package Flask
-        else
-            install_single_python_package Flask || \
-            install_packages python3-flask
-        fi
+        echo -e "${YELLOW}批量安装 Flask 失败，尝试在 venv 中单独安装...${NC}"
+        install_single_python_package Flask
     fi
 
     if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试系统包...${NC}"
-        install_single_python_package flask-limiter 2>/dev/null || \
-        install_packages python3-flask-limiter 2>/dev/null || true
+        install_single_python_package flask-limiter 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
-        install_single_python_package waitress 2>/dev/null || \
-        install_packages python3-waitress 2>/dev/null || true
+        install_single_python_package waitress
     fi
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
@@ -426,12 +418,38 @@ apply_ssr_python_compatibility_fix() {
     "$PYTHON3_BIN" "$PANEL_DIR/scripts/patch_ssr_python_compat.py" "$SSR_DIR"
 }
 
+validate_ssr_installation() {
+    local required
+    for required in \
+        "${SSR_DIR}/shadowsocks/server.py" \
+        "${SSR_DIR}/mujson_mgr.py" \
+        "${SSR_DIR}/userapiconfig.py" \
+        "${MUDB_FILE}"
+    do
+        if [ ! -f "${required}" ]; then
+            echo -e "${RED}SSR 安装不完整，缺少: ${required}${NC}" >&2
+            return 1
+        fi
+    done
+
+    "${PYTHON3_BIN}" - "${MUDB_FILE}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
+if not isinstance(data, list):
+    raise SystemExit("mudb.json root must be a list")
+PY
+}
+
 install_device_stats_service() {
     echo -e "${GREEN}配置设备统计服务...${NC}"
     local _ss_pkg="iproute2"
     [ "$SYS" = "centos" ] && _ss_pkg="iproute"
     ensure_minimal_command "ss" "$_ss_pkg"
     mkdir -p "$(dirname "$DEVICE_STATS_FILE")"
+    printf 'managed\n' > "$(dirname "$DEVICE_STATS_FILE")/.ssr-panel-managed"
     chmod +x "$PANEL_DIR/scripts/collect_device_stats.py" 2>/dev/null || true
 
     cat > /etc/systemd/system/ssr-device-stats.service <<SERVICE
@@ -479,7 +497,6 @@ sync_project_files() {
     fi
 
     mkdir -p "$target_dir"
-    find "$target_dir" -mindepth 1 -maxdepth 1 ! -name config.py ! -name backups ! -name venv -exec rm -rf {} +
     cp -R "$source_dir"/. "$target_dir"/
     SYNC_REVISION=$(git -C "$tmp_clone_dir" rev-parse --short HEAD 2>/dev/null || echo "")
     rm -rf "$tmp_clone_dir"
@@ -499,6 +516,7 @@ echo
 echo -e "${CYAN}[ 1/6 ] 下载项目文件...${NC}"
 
 sync_project_files "$PANEL_DIR"
+printf 'managed\n' > "$PANEL_DIR/.ssr-panel-managed"
 
 cd $PANEL_DIR
 chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/uninstall.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
@@ -651,8 +669,11 @@ echo
 echo -e "${CYAN}[ 3/6 ] 安装 ShadowsocksR${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
 
-if [ -d "$SSR_DIR" ]; then
+if [ -d "$SSR_DIR" ] && validate_ssr_installation; then
     echo -e "${GREEN}检测到已安装SSR，跳过安装...${NC}"
+elif [ -d "$SSR_DIR" ]; then
+    echo -e "${RED}检测到不完整的 SSR 目录，请备份后清理再重试: ${SSR_DIR}${NC}" >&2
+    exit 1
 else
     echo -e "${GREEN}开始自动安装 SSR...${NC}"
     SSR_INSTALLED_BY_SCRIPT=1
@@ -684,10 +705,12 @@ else
     chmod 600 "$SSR_INSTALL_LOG" 2>/dev/null || true
     echo -e "${GREEN}SSR 安装日志: ${SSR_INSTALL_LOG}${NC}"
 
-    if [ -d "$SSR_DIR" ]; then
+    if validate_ssr_installation; then
+        printf 'managed\n' > "$SSR_DIR/.ssr-panel-managed"
         echo -e "${GREEN}✓ SSR安装完成${NC}"
     else
-        echo -e "${RED}SSR安装可能失败，请检查${NC}"
+        echo -e "${RED}SSR安装不完整，请检查日志: ${SSR_INSTALL_LOG}${NC}"
+        exit 1
     fi
 fi
 
@@ -787,6 +810,11 @@ fi
 # ── SSR 服务器性能优化 ──
 echo -e "${CYAN}[ 5/6 ] SSR 服务器性能优化...${NC}"
 bash "$PANEL_DIR/scripts/optimize_server.sh"
+if ! systemctl is-active --quiet ssr.service; then
+    echo -e "${RED}SSR systemd 服务未启动，部署中止${NC}" >&2
+    journalctl -u ssr.service -n 50 --no-pager || true
+    exit 1
+fi
 
 APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null || echo "unknown")
 

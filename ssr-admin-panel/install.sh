@@ -250,9 +250,9 @@ ensure_panel_venv() {
 # runtime-common:start
 base_dependency_packages() {
     if [ "$SYS" = "centos" ]; then
-        echo "ca-certificates sudo curl wget socat git tar gzip unzip cronie iproute jq python3 python3-pip systemd"
+        echo "ca-certificates sudo curl wget socat git tar gzip unzip cronie iproute jq iptables-services python3 python3-pip systemd"
     else
-        echo "ca-certificates sudo curl wget socat git tar gzip unzip cron iproute2 jq python3 python3-venv python3-pip systemd"
+        echo "ca-certificates sudo curl wget socat git tar gzip unzip cron iproute2 jq iptables python3 python3-venv python3-pip systemd"
     fi
 }
 
@@ -321,23 +321,20 @@ install_flask_runtime() {
         install_python_runtime_with_pip "${req_file}" 2>/dev/null || true
     fi
 
-    # pip 失败或不可用时，回退到系统包
+    # 面板运行在独立 venv 中，依赖必须安装到该 venv，系统 Python 包不可见。
     if ! "$PYTHON3_BIN" -c "import flask" &>/dev/null; then
-        echo -e "${YELLOW}pip 安装 Flask 失败，尝试系统包...${NC}"
-        install_packages python3-flask || \
+        echo -e "${YELLOW}批量安装 Flask 失败，尝试在 venv 中单独安装...${NC}"
         install_single_python_package Flask
     fi
 
     if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试系统包...${NC}"
-        install_single_python_package flask-limiter 2>/dev/null || \
-        install_packages python3-flask-limiter 2>/dev/null || true
+        install_single_python_package flask-limiter 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
-        install_single_python_package waitress 2>/dev/null || \
-        install_packages python3-waitress 2>/dev/null || true
+        install_single_python_package waitress
     fi
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
@@ -371,6 +368,7 @@ install_device_stats_service() {
     [ "$SYS" = "centos" ] && _ss_pkg="iproute"
     ensure_command "ss" "$_ss_pkg"
     mkdir -p "$(dirname "$DEVICE_STATS_FILE")"
+    printf 'managed\n' > "$(dirname "$DEVICE_STATS_FILE")/.ssr-panel-managed"
     chmod +x "$INSTALL_DIR/scripts/collect_device_stats.py" 2>/dev/null || true
 
     cat > /etc/systemd/system/ssr-device-stats.service <<SERVICE
@@ -422,7 +420,6 @@ sync_project_files() {
     fi
 
     mkdir -p "$target_dir"
-    find "$target_dir" -mindepth 1 -maxdepth 1 ! -name config.py ! -name backups ! -name venv -exec rm -rf {} +
     cp -R "$source_dir"/. "$target_dir"/
     SYNC_REVISION=$(git -C "$tmp_clone_dir" rev-parse --short HEAD 2>/dev/null || echo "")
     rm -rf "$tmp_clone_dir"
@@ -539,6 +536,7 @@ fi
 # 下载项目文件
 echo -e "${GREEN}[1/6] 下载项目文件...${NC}" 
 sync_project_files "$INSTALL_DIR"
+printf 'managed\n' > "$INSTALL_DIR/.ssr-panel-managed"
 
 chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')

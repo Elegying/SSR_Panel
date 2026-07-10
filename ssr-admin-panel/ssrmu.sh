@@ -25,6 +25,10 @@ Server_Speeder_file="/serverspeeder/bin/serverSpeeder.sh"
 LotServer_file="/appex/bin/serverSpeeder.sh"
 BBR_file="${file}/bbr.sh"
 jq_file="${ssr_folder}/jq"
+SSR_UPSTREAM_REPO="${SSR_UPSTREAM_REPO:-https://github.com/ToyoDAdoubiBackup/shadowsocksr.git}"
+SSR_UPSTREAM_REF="${SSR_UPSTREAM_REF:-c4507b7af1fe20a5a6adbb5e3b5a86da9d3a35e8}"
+SSR_UPSTREAM_ARCHIVE_BASE="${SSR_UPSTREAM_ARCHIVE_BASE:-https://github.com/ToyoDAdoubiBackup/shadowsocksr/archive}"
+SSR_ALLOW_UNVERIFIED_DOWNLOADS="${SSR_ALLOW_UNVERIFIED_DOWNLOADS:-0}"
 
 Green_font_prefix="\033[32m" && Red_font_prefix="\033[31m" && Green_background_prefix="\033[42;37m" && Red_background_prefix="\033[41;37m" && Font_color_suffix="\033[0m"
 Info="${Green_font_prefix}[信息]${Font_color_suffix}"
@@ -154,6 +158,14 @@ EOF
 	fi
 	echo -e "${Info} 已生成本地 ShadowsocksR 服务脚本 /etc/init.d/ssrmu"
 }
+Require_unverified_download_opt_in(){
+	local feature="${1:-此功能}"
+	if [[ "${SSR_ALLOW_UNVERIFIED_DOWNLOADS}" != "1" ]]; then
+		echo -e "${Error} ${feature} 依赖未经校验的远程 root 脚本，默认已禁用。"
+		echo -e "${Tip} 如已自行审计风险，可临时设置 SSR_ALLOW_UNVERIFIED_DOWNLOADS=1。"
+		exit 1
+	fi
+}
 Server_Speeder_installation_status(){
 	[[ ! -e ${Server_Speeder_file} ]] && echo -e "${Error} 没有安装 锐速(Server Speeder)，请检查 !" && exit 1
 }
@@ -162,6 +174,7 @@ LotServer_installation_status(){
 }
 BBR_installation_status(){
 	if [[ ! -e ${BBR_file} ]]; then
+		Require_unverified_download_opt_in "BBR"
 		echo -e "${Error} 没有发现 BBR脚本，开始下载..."
 		cd "${file}"
 		if ! wget -N https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/bbr.sh; then
@@ -172,44 +185,76 @@ BBR_installation_status(){
 		fi
 	fi
 }
-# 设置 防火墙规则
+# 设置防火墙规则：优先使用正在运行的 firewalld，否则使用 iptables/nft 兼容层。
+Firewall_uses_firewalld(){
+	command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1
+}
 Add_iptables(){
-	if [[ ! -z "${ssr_port}" ]]; then
-		iptables -I INPUT -m state --state NEW -m tcp -p tcp --dport ${ssr_port} -j ACCEPT
-		iptables -I INPUT -m state --state NEW -m udp -p udp --dport ${ssr_port} -j ACCEPT
-		ip6tables -I INPUT -m state --state NEW -m tcp -p tcp --dport ${ssr_port} -j ACCEPT
-		ip6tables -I INPUT -m state --state NEW -m udp -p udp --dport ${ssr_port} -j ACCEPT
+	[[ -z "${ssr_port:-}" ]] && return 0
+	local protocol
+	if Firewall_uses_firewalld; then
+		for protocol in tcp udp; do
+			firewall-cmd --permanent --add-port="${ssr_port}/${protocol}" || return 1
+		done
+		firewall-cmd --reload
+		return
 	fi
+
+	command -v iptables >/dev/null 2>&1 || { echo -e "${Error} 未找到可用防火墙后端 !"; return 1; }
+	for protocol in tcp udp; do
+		iptables -C INPUT -m conntrack --ctstate NEW -p "${protocol}" --dport "${ssr_port}" -j ACCEPT 2>/dev/null || \
+			iptables -I INPUT -m conntrack --ctstate NEW -p "${protocol}" --dport "${ssr_port}" -j ACCEPT
+		if command -v ip6tables >/dev/null 2>&1; then
+			ip6tables -C INPUT -m conntrack --ctstate NEW -p "${protocol}" --dport "${ssr_port}" -j ACCEPT 2>/dev/null || \
+				ip6tables -I INPUT -m conntrack --ctstate NEW -p "${protocol}" --dport "${ssr_port}" -j ACCEPT 2>/dev/null || true
+		fi
+	done
 }
 Del_iptables(){
-	if [[ ! -z "${port}" ]]; then
-		iptables -D INPUT -m state --state NEW -m tcp -p tcp --dport ${port} -j ACCEPT
-		iptables -D INPUT -m state --state NEW -m udp -p udp --dport ${port} -j ACCEPT
-		ip6tables -D INPUT -m state --state NEW -m tcp -p tcp --dport ${port} -j ACCEPT
-		ip6tables -D INPUT -m state --state NEW -m udp -p udp --dport ${port} -j ACCEPT
+	[[ -z "${port:-}" ]] && return 0
+	local protocol
+	if Firewall_uses_firewalld; then
+		for protocol in tcp udp; do
+			firewall-cmd --permanent --remove-port="${port}/${protocol}" || true
+		done
+		firewall-cmd --reload || true
+		return
 	fi
+
+	for protocol in tcp udp; do
+		if command -v iptables >/dev/null 2>&1; then
+			iptables -C INPUT -m conntrack --ctstate NEW -p "${protocol}" --dport "${port}" -j ACCEPT 2>/dev/null && \
+				iptables -D INPUT -m conntrack --ctstate NEW -p "${protocol}" --dport "${port}" -j ACCEPT || true
+		fi
+		if command -v ip6tables >/dev/null 2>&1; then
+			ip6tables -C INPUT -m conntrack --ctstate NEW -p "${protocol}" --dport "${port}" -j ACCEPT 2>/dev/null && \
+				ip6tables -D INPUT -m conntrack --ctstate NEW -p "${protocol}" --dport "${port}" -j ACCEPT || true
+		fi
+	done
 }
 Save_iptables(){
-	if [[ ${release} == "centos" ]]; then
-		service iptables save
-		service ip6tables save
-	else
-		iptables-save > /etc/iptables.up.rules
-		ip6tables-save > /etc/ip6tables.up.rules
+	Firewall_uses_firewalld && return 0
+	if command -v netfilter-persistent >/dev/null 2>&1; then
+		netfilter-persistent save
+		return
 	fi
+	if [[ ${release} == "centos" ]] && command -v service >/dev/null 2>&1; then
+		service iptables save || true
+		command -v ip6tables >/dev/null 2>&1 && service ip6tables save || true
+		return
+	fi
+	mkdir -p /etc/network/if-pre-up.d
+	iptables-save > /etc/iptables.up.rules
+	command -v ip6tables-save >/dev/null 2>&1 && ip6tables-save > /etc/ip6tables.up.rules || true
+	cat > /etc/network/if-pre-up.d/iptables <<'EOF'
+#!/bin/sh
+[ ! -f /etc/iptables.up.rules ] || /sbin/iptables-restore < /etc/iptables.up.rules
+[ ! -f /etc/ip6tables.up.rules ] || /sbin/ip6tables-restore < /etc/ip6tables.up.rules
+EOF
+	chmod +x /etc/network/if-pre-up.d/iptables
 }
 Set_iptables(){
-	if [[ ${release} == "centos" ]]; then
-		service iptables save
-		service ip6tables save
-		chkconfig --level 2345 iptables on
-		chkconfig --level 2345 ip6tables on
-	else
-		iptables-save > /etc/iptables.up.rules
-		ip6tables-save > /etc/ip6tables.up.rules
-		echo -e '#!/bin/bash\n/sbin/iptables-restore < /etc/iptables.up.rules\n/sbin/ip6tables-restore < /etc/ip6tables.up.rules' > /etc/network/if-pre-up.d/iptables
-		chmod +x /etc/network/if-pre-up.d/iptables
-	fi
+	Save_iptables
 }
 # 读取 配置信息
 Get_IP(){
@@ -950,7 +995,7 @@ Centos_yum(){
 		echo -e "${Error} ${_yum} 软件源刷新失败 !"
 		return 1
 	}
-	Run_with_retries "${_yum}" install -y ca-certificates sudo curl wget socat git tar gzip unzip cronie iproute jq python3 python3-pip systemd || {
+	Run_with_retries "${_yum}" install -y ca-certificates sudo curl wget socat git tar gzip unzip cronie iproute jq iptables-services python3 python3-pip systemd || {
 		echo -e "${Error} ${_yum} 依赖安装失败 !"
 		return 1
 	}
@@ -964,38 +1009,78 @@ Debian_apt(){
 		echo -e "${Error} apt 软件源刷新失败 !"
 		return 1
 	}
-	Run_with_retries apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 install -y -qq ca-certificates sudo curl wget socat git tar gzip unzip cron iproute2 jq python3 python3-venv python3-pip systemd || {
+	Run_with_retries apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 install -y -qq ca-certificates sudo curl wget socat git tar gzip unzip cron iproute2 jq iptables python3 python3-venv python3-pip systemd || {
 		echo -e "${Error} apt 依赖安装失败 !"
 		return 1
 	}
 }
 # 下载 ShadowsocksR
+Validate_SSR_layout(){
+	local required
+	for required in \
+		"${ssr_folder}/config.json" \
+		"${ssr_folder}/mysql.json" \
+		"${ssr_folder}/apiconfig.py" \
+		"${ssr_folder}/mujson_mgr.py" \
+		"${ssr_folder}/shadowsocks/server.py"
+	do
+		if [[ ! -f "${required}" ]]; then
+			echo -e "${Error} ShadowsocksR 源码缺少必要文件: ${required}"
+			return 1
+		fi
+	done
+}
 Download_SSR(){
+	local extracted_dir="/usr/local/shadowsocksr-${SSR_UPSTREAM_REF}"
+	local actual_revision=""
+	if [[ ! "${SSR_UPSTREAM_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+		echo -e "${Error} SSR_UPSTREAM_REF 必须是完整的 40 位 Git 提交哈希 !"
+		exit 1
+	fi
 	cd "/usr/local"
-	rm -rf "/usr/local/shadowsocksr-manyuser/" "/usr/local/manyuser.zip" "/usr/local/manyuser.tar.gz"
+	rm -rf "${extracted_dir}" "/usr/local/manyuser.zip" "/usr/local/manyuser.tar.gz"
 
 	if command -v git >/dev/null 2>&1; then
-		git clone --depth 1 --branch manyuser https://github.com/ToyoDAdoubiBackup/shadowsocksr.git "${ssr_folder}" 2>/dev/null || true
+		mkdir -p "${ssr_folder}"
+		if git -C "${ssr_folder}" init -q \
+			&& git -C "${ssr_folder}" remote add origin "${SSR_UPSTREAM_REPO}" \
+			&& git -C "${ssr_folder}" fetch --depth 1 origin "${SSR_UPSTREAM_REF}" \
+			&& git -C "${ssr_folder}" checkout --detach -q FETCH_HEAD; then
+			actual_revision=$(git -C "${ssr_folder}" rev-parse HEAD)
+			if [[ "${SSR_UPSTREAM_REF}" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "${actual_revision}" != "${SSR_UPSTREAM_REF}" ]]; then
+				echo -e "${Error} ShadowsocksR 提交校验失败: ${actual_revision}"
+				rm -rf "${ssr_folder}"
+			fi
+		else
+			rm -rf "${ssr_folder}"
+		fi
 	fi
 
 	if [[ ! -e "${ssr_folder}" ]] && command -v tar >/dev/null 2>&1; then
-		wget -O "manyuser.tar.gz" "https://github.com/ToyoDAdoubiBackup/shadowsocksr/archive/refs/heads/manyuser.tar.gz" 2>/dev/null || true
-		if [[ -s "manyuser.tar.gz" ]]; then
-			tar -xzf "manyuser.tar.gz" 2>/dev/null || true
-			[[ -e "/usr/local/shadowsocksr-manyuser/" ]] && mv "/usr/local/shadowsocksr-manyuser/" "${ssr_folder}"
+		if wget -O "manyuser.tar.gz" "${SSR_UPSTREAM_ARCHIVE_BASE}/${SSR_UPSTREAM_REF}.tar.gz" \
+			&& [[ -s "manyuser.tar.gz" ]] \
+			&& tar -xzf "manyuser.tar.gz"; then
+			[[ -d "${extracted_dir}" ]] && mv "${extracted_dir}" "${ssr_folder}"
 		fi
 	fi
 
 	if [[ ! -e "${ssr_folder}" ]] && command -v unzip >/dev/null 2>&1; then
-		wget -O "manyuser.zip" "https://github.com/ToyoDAdoubiBackup/shadowsocksr/archive/manyuser.zip" 2>/dev/null || true
-		if [[ -s "manyuser.zip" ]]; then
-			unzip -q "manyuser.zip" 2>/dev/null || true
-			[[ -e "/usr/local/shadowsocksr-manyuser/" ]] && mv "/usr/local/shadowsocksr-manyuser/" "${ssr_folder}"
+		if wget -O "manyuser.zip" "${SSR_UPSTREAM_ARCHIVE_BASE}/${SSR_UPSTREAM_REF}.zip" \
+			&& [[ -s "manyuser.zip" ]] \
+			&& unzip -q "manyuser.zip"; then
+			[[ -d "${extracted_dir}" ]] && mv "${extracted_dir}" "${ssr_folder}"
 		fi
 	fi
 
-	[[ ! -e "${ssr_folder}" ]] && echo -e "${Error} ShadowsocksR 服务端下载或解压失败，请检查网络、GitHub 访问或系统包源 !" && rm -rf manyuser.zip manyuser.tar.gz "/usr/local/shadowsocksr-manyuser/" && exit 1
-	rm -rf manyuser.zip manyuser.tar.gz "/usr/local/shadowsocksr-manyuser/"
+	if [[ ! -d "${ssr_folder}" ]] || ! Validate_SSR_layout; then
+		echo -e "${Error} ShadowsocksR 服务端下载、校验或解压失败，请检查网络和 GitHub 访问 !"
+		rm -rf "${ssr_folder}" manyuser.zip manyuser.tar.gz "${extracted_dir}"
+		exit 1
+	fi
+	[[ -n "${actual_revision}" ]] || actual_revision="${SSR_UPSTREAM_REF}"
+	printf '%s\n' "${actual_revision}" > "${ssr_folder}/.ssr-upstream-revision"
+	printf 'managed\n' > "${ssr_folder}/.ssr-panel-managed"
+	rm -rf manyuser.zip manyuser.tar.gz "${extracted_dir}"
 	cd "shadowsocksr"
 	cp "${ssr_folder}/config.json" "${config_user_file}"
 	cp "${ssr_folder}/mysql.json" "${ssr_folder}/usermysql.json"
@@ -1009,43 +1094,15 @@ Download_SSR(){
 	echo -e "${Info} ShadowsocksR服务端 下载完成 !"
 }
 Service_SSR(){
-	if [[ ${release} = "centos" ]]; then
-		if ! wget https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/service/ssrmu_centos -O /etc/init.d/ssrmu; then
-			echo -e "${Error} ShadowsocksR服务 管理脚本下载失败，改用本地兼容脚本..."
-			Create_local_ssr_init_script
-			return 0
-		fi
-		chmod +x /etc/init.d/ssrmu
-		chkconfig --add ssrmu
-		chkconfig ssrmu on
-	else
-		if ! wget https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/service/ssrmu_debian -O /etc/init.d/ssrmu; then
-			echo -e "${Error} ShadowsocksR服务 管理脚本下载失败，改用本地兼容脚本..."
-			Create_local_ssr_init_script
-			return 0
-		fi
-		chmod +x /etc/init.d/ssrmu
-		update-rc.d -f ssrmu defaults
-	fi
-	echo -e "${Info} ShadowsocksR服务 管理脚本下载完成 !"
+	Create_local_ssr_init_script
+	echo -e "${Info} ShadowsocksR服务 本地管理脚本安装完成 !"
 }
 # 安装 JQ解析器
 JQ_install(){
-	if [[ ! -e ${jq_file} ]]; then
-		cd "${ssr_folder}"
-		if [[ ${bit} = "x86_64" ]]; then
-			mv "jq-linux64" "jq"
-			#wget "https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64" -O ${jq_file}
-		else
-			mv "jq-linux32" "jq"
-			#wget "https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux32" -O ${jq_file}
-		fi
-		[[ ! -e ${jq_file} ]] && echo -e "${Error} JQ解析器 重命名失败，请检查 !" && exit 1
-		chmod +x ${jq_file}
-		echo -e "${Info} JQ解析器 安装完成，继续..." 
-	else
-		echo -e "${Info} JQ解析器 已安装，继续..."
-	fi
+	command -v jq >/dev/null 2>&1 || { echo -e "${Error} 未找到系统 jq !"; exit 1; }
+	rm -f "${jq_file}"
+	ln -sf "$(command -v jq)" "${jq_file}"
+	echo -e "${Info} JQ解析器 已链接到系统 jq（兼容当前架构）"
 }
 # 安装 依赖
 Installation_dependency(){
@@ -1064,7 +1121,7 @@ Installation_dependency(){
 	Check_python || exit 1
 	#echo "nameserver 8.8.8.8" > /etc/resolv.conf
 	#echo "nameserver 8.8.4.4" >> /etc/resolv.conf
-	\cp -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+	echo -e "${Info} 保留系统当前时区（如需修改请使用 timedatectl）"
 	if [[ ${release} == "centos" ]]; then
 		/etc/init.d/crond restart
 	else
@@ -1147,6 +1204,7 @@ Check_Libsodium_ver(){
 	echo -e "${Info} libsodium 最新版本为 ${Green_font_prefix}${Libsodiumr_ver}${Font_color_suffix} !"
 }
 Install_Libsodium(){
+	Require_unverified_download_opt_in "libsodium 源码编译"
 	if [[ -e ${Libsodiumr_file} ]]; then
 		echo -e "${Error} libsodium 已安装 , 是否覆盖安装(更新)？[y/N]"
 		read -e -p "(默认: n):" yn
@@ -1657,6 +1715,7 @@ Configure_Server_Speeder(){
 	fi
 }
 Install_ServerSpeeder(){
+	Require_unverified_download_opt_in "ServerSpeeder"
 	[[ -e ${Server_Speeder_file} ]] && echo -e "${Error} 锐速(Server Speeder) 已安装 !" && exit 1
 	#借用91yun.rog的开心版锐速
 	wget -qO /tmp/serverspeeder.sh https://raw.githubusercontent.com/91yun/serverspeeder/master/serverspeeder.sh
@@ -1721,6 +1780,7 @@ Configure_LotServer(){
 	fi
 }
 Install_LotServer(){
+	Require_unverified_download_opt_in "LotServer"
 	[[ -e ${LotServer_file} ]] && echo -e "${Error} LotServer 已安装 !" && exit 1
 	#Github: https://github.com/0oVicero0/serverSpeeder_Install
 	wget -qO /tmp/appex.sh "https://raw.githubusercontent.com/0oVicero0/serverSpeeder_Install/master/appex.sh"
@@ -1739,6 +1799,7 @@ Uninstall_LotServer(){
 	read -e -p "(默认: n):" unyn
 	[[ -z ${unyn} ]] && echo && echo "已取消..." && exit 1
 	if [[ ${unyn} == [Yy] ]]; then
+		Require_unverified_download_opt_in "LotServer 卸载器"
 		wget -qO /tmp/appex.sh "https://raw.githubusercontent.com/0oVicero0/serverSpeeder_Install/master/appex.sh" && bash /tmp/appex.sh 'uninstall'
 		echo && echo "LotServer 卸载完成 !" && echo
 	fi
@@ -1771,19 +1832,23 @@ echo -e "${Green_font_prefix} [安装前 请注意] ${Font_color_suffix}
 	fi
 }
 Install_BBR(){
+	Require_unverified_download_opt_in "BBR"
 	[[ ${release} = "centos" ]] && echo -e "${Error} 本脚本不支持 CentOS系统安装 BBR !" && exit 1
 	BBR_installation_status
 	bash "${BBR_file}"
 }
 Start_BBR(){
+	Require_unverified_download_opt_in "BBR"
 	BBR_installation_status
 	bash "${BBR_file}" start
 }
 Stop_BBR(){
+	Require_unverified_download_opt_in "BBR"
 	BBR_installation_status
 	bash "${BBR_file}" stop
 }
 Status_BBR(){
+	Require_unverified_download_opt_in "BBR"
 	BBR_installation_status
 	bash "${BBR_file}" status
 }
@@ -1826,11 +1891,13 @@ Other_functions(){
 }
 # 封禁 BT PT SPAM
 BanBTPTSPAM(){
+	Require_unverified_download_opt_in "BT/PT/SPAM 封禁脚本"
 	wget -N https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/ban_iptables.sh && chmod +x ban_iptables.sh && bash ban_iptables.sh banall
 	rm -rf ban_iptables.sh
 }
 # 解封 BT PT SPAM
 UnBanBTPTSPAM(){
+	Require_unverified_download_opt_in "BT/PT/SPAM 解封脚本"
 	wget -N https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/ban_iptables.sh && chmod +x ban_iptables.sh && bash ban_iptables.sh unbanall
 	rm -rf ban_iptables.sh
 }
@@ -1932,15 +1999,9 @@ crontab_monitor_ssr_cron_stop(){
 	fi
 }
 Update_Shell(){
-	sh_new_ver=$(wget -qO- -t1 -T3 "https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/ssrmu.sh"|grep 'sh_ver="'|awk -F "=" '{print $NF}'|sed 's/\"//g'|head -1) && sh_new_type="github"
-	[[ -z ${sh_new_ver} ]] && echo -e "${Error} 无法链接到 Github !" && exit 0
-	if [[ -e "/etc/init.d/ssrmu" ]]; then
-		rm -rf /etc/init.d/ssrmu
-		Service_SSR
-	fi
-	cd "${file}"
-	wget -N "https://raw.githubusercontent.com/ToyoDAdoubiBackup/doubi/master/ssrmu.sh" && chmod +x ssrmu.sh
-	echo -e "脚本已更新为最新版本[ ${sh_new_ver} ] !(注意：因为更新方式为直接覆盖当前运行的脚本，所以可能下面会提示一些报错，无视即可)" && exit 0
+	echo -e "${Tip} 已禁用上游脚本自覆盖更新，以避免执行未经审计的远程代码。"
+	echo -e "${Info} 请使用: bash /opt/ssr-admin-panel/update.sh"
+	exit 1
 }
 # 显示 菜单状态
 menu_status(){

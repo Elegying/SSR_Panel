@@ -660,6 +660,7 @@ echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
 
 write_status "sync" "正在同步新版本"
 copy_tree "${SOURCE_DIR}" "${PANEL_DIR}" "sync"
+printf 'managed\n' > "${PANEL_DIR}/.ssr-panel-managed"
 harden_sensitive_files
 
 PANEL_BUILD_INFO_FILE="${PANEL_DIR}/.panel-build.json"

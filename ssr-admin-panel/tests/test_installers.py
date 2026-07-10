@@ -295,7 +295,7 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("DPkg::Lock::Timeout=60", content)
             self.assertIn(
                 "ca-certificates sudo curl wget socat git tar gzip unzip cron "
-                "iproute2 jq python3 python3-venv python3-pip systemd",
+                "iproute2 jq iptables python3 python3-venv python3-pip systemd",
                 content,
             )
             self.assertIn('"$SYSTEM_PYTHON3_BIN" -m pip --version', content)
@@ -345,11 +345,11 @@ class InstallerRegressionTests(unittest.TestCase):
     def test_installers_install_and_verify_base_dependencies(self):
         debian_packages = (
             "ca-certificates sudo curl wget socat git tar gzip unzip cron "
-            "iproute2 jq python3 python3-venv python3-pip systemd"
+            "iproute2 jq iptables python3 python3-venv python3-pip systemd"
         )
         rpm_packages = (
             "ca-certificates sudo curl wget socat git tar gzip unzip cronie "
-            "iproute jq python3 python3-pip systemd"
+            "iproute jq iptables-services python3 python3-pip systemd"
         )
         verified_commands = (
             "sudo curl wget socat git tar gzip unzip crontab ss jq python3 systemctl"
@@ -397,7 +397,7 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn('retry_command "$PACKAGE_MANAGER" makecache -q', content)
             self.assertIn(
                 "ca-certificates sudo curl wget socat git tar gzip unzip cronie "
-                "iproute jq python3 python3-pip systemd",
+                "iproute jq iptables-services python3 python3-pip systemd",
                 content,
             )
             self.assertIn('"$SYSTEM_PYTHON3_BIN" -m venv --help', content)
@@ -425,14 +425,19 @@ class InstallerRegressionTests(unittest.TestCase):
     def test_project_sync_preserves_panel_virtualenv(self):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
-            self.assertIn("! -name venv", content)
+            self.assertNotIn('find "$target_dir" -mindepth 1', content)
+            self.assertIn('cp -R "$source_dir"/. "$target_dir"/', content)
             self.assertIn('sync_project_files "$', content)
             self.assertLess(content.index("    ensure_panel_venv\n"), content.index('\nsync_project_files "$'))
 
     def test_installers_do_not_require_flask_limiter_to_start_panel(self):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
-            self.assertIn("install_packages python3-waitress", content)
+            self.assertNotIn("install_packages python3-waitress", content)
+            self.assertNotIn("install_packages python3-flask", content)
+            self.assertNotIn("install_packages python3-flask-limiter", content)
+            self.assertIn("install_single_python_package Flask", content)
+            self.assertIn("install_single_python_package waitress", content)
             self.assertIn("import flask\nimport waitress", content)
             self.assertNotIn("import flask\nimport flask_limiter\nimport waitress", content)
 
@@ -470,7 +475,7 @@ class InstallerRegressionTests(unittest.TestCase):
     def test_ssrmu_does_not_require_unzip_when_git_or_tar_is_available(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
 
-        self.assertIn("git clone --depth 1 --branch manyuser", content)
+        self.assertIn('fetch --depth 1 origin "${SSR_UPSTREAM_REF}"', content)
         self.assertIn("manyuser.tar.gz", content)
         self.assertIn("command -v git", content)
         self.assertIn("command -v tar", content)
@@ -482,6 +487,64 @@ class InstallerRegressionTests(unittest.TestCase):
 
         self.assertIn("wget socat", content)
         self.assertGreaterEqual(content.count("socat"), 2)
+
+    def test_ssrmu_pins_and_verifies_the_upstream_ssr_source(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'SSR_UPSTREAM_REF="${SSR_UPSTREAM_REF:-c4507b7af1fe20a5a6adbb5e3b5a86da9d3a35e8}"',
+            content,
+        )
+        self.assertIn('fetch --depth 1 origin "${SSR_UPSTREAM_REF}"', content)
+        self.assertIn('rev-parse HEAD', content)
+        self.assertIn('^[0-9a-fA-F]{40}$', content)
+        self.assertIn('${SSR_UPSTREAM_ARCHIVE_BASE}/${SSR_UPSTREAM_REF}.tar.gz', content)
+        self.assertIn('Validate_SSR_layout', content)
+        self.assertIn('.ssr-upstream-revision', content)
+        self.assertNotIn('archive/refs/heads/manyuser.tar.gz', content)
+        self.assertNotIn('archive/manyuser.zip', content)
+
+    def test_ssrmu_uses_vendored_service_template_and_system_jq(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+
+        self.assertNotIn('/service/ssrmu_centos', content)
+        self.assertNotIn('/service/ssrmu_debian', content)
+        self.assertIn('Service_SSR(){\n\tCreate_local_ssr_init_script', content)
+        self.assertIn('ln -sf "$(command -v jq)" "${jq_file}"', content)
+        self.assertNotIn('mv "jq-linux32" "jq"', content)
+        self.assertNotIn('/usr/share/zoneinfo/Asia/Shanghai', content)
+
+    def test_installers_mark_managed_paths_and_validate_full_ssr_layout(self):
+        panel_only = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
+        full = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
+
+        update = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+
+        for content in (panel_only, full, update):
+            self.assertIn('.ssr-panel-managed', content)
+        self.assertIn('validate_ssr_installation', full)
+        self.assertIn('"${SSR_DIR}/shadowsocks/server.py"', full)
+        self.assertIn('"${MUDB_FILE}"', full)
+
+    def test_ssrmu_firewall_supports_modern_backends_and_idempotent_rules(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+
+        self.assertIn('Firewall_uses_firewalld', content)
+        self.assertIn('firewall-cmd --permanent --add-port', content)
+        self.assertIn('firewall-cmd --permanent --remove-port', content)
+        self.assertIn('iptables -C INPUT', content)
+        self.assertIn('command -v ip6tables', content)
+        self.assertIn('netfilter-persistent save', content)
+
+    def test_ssrmu_blocks_unverified_remote_root_scripts_by_default(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+
+        self.assertIn('SSR_ALLOW_UNVERIFIED_DOWNLOADS:-0', content)
+        self.assertIn('Require_unverified_download_opt_in', content)
+        self.assertGreaterEqual(content.count('Require_unverified_download_opt_in '), 7)
+        update_shell = content[content.index('Update_Shell(){') : content.index('\n}\n# 显示 菜单状态')]
+        self.assertNotIn('wget', update_shell)
+        self.assertIn('/opt/ssr-admin-panel/update.sh', update_shell)
 
     def test_optimizer_sysctl_failure_does_not_abort_full_deploy(self):
         content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
