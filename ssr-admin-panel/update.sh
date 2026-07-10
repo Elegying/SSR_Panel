@@ -2,6 +2,20 @@
 
 set -Eeuo pipefail
 
+# The update overlays update.sh itself. Execute from a private immutable path so
+# Bash never continues parsing a file that has been replaced mid-transaction.
+UPDATE_STABLE_COPY=""
+if [ "${SSR_ADMIN_UPDATE_STABLE_COPY:-0}" != "1" ]; then
+    UPDATE_STABLE_COPY="$(mktemp /tmp/ssr-admin-panel-update-run.XXXXXX)"
+    cp "$0" "${UPDATE_STABLE_COPY}"
+    chmod 700 "${UPDATE_STABLE_COPY}"
+    export SSR_ADMIN_UPDATE_STABLE_COPY=1
+    exec bash "${UPDATE_STABLE_COPY}" "$@"
+fi
+case "$0" in
+    /tmp/ssr-admin-panel-update-run.*) UPDATE_STABLE_COPY="$0" ;;
+esac
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -120,6 +134,9 @@ acquire_update_lock() {
 cleanup() {
     if [ -n "${TMP_CLONE_DIR}" ] && [ -d "${TMP_CLONE_DIR}" ]; then
         rm -rf "${TMP_CLONE_DIR}"
+    fi
+    if [ -n "${UPDATE_STABLE_COPY}" ]; then
+        rm -f "${UPDATE_STABLE_COPY}"
     fi
 }
 

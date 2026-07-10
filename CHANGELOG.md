@@ -17,6 +17,7 @@
 - 修复两个优化器误启用单端口底层入口，统一以 `/usr/local/shadowsocksr/server.py m` 启动读取 `mudb.json` 的多用户服务。
 - systemd 接管 SSR 时禁用旧 SysV 自启动，面板也只调用唯一的 systemd 管理入口，避免重复进程。
 - 完整卸载 SSR 时同步移除托管的旧 SysV 脚本和 `mudb.json` 对应的 IPv4/IPv6 防火墙端口规则。
+- 更新器先切换到受控临时副本执行，避免同步覆盖 `update.sh` 自身后 Bash 从新文件中段继续解析。
 - ARM64 等非 x86_64 系统不再误用 `jq-linux32`，统一链接发行版提供的 `jq`。
 - 安装器不再强制覆盖服务器时区；firewalld 和 iptables/nft 兼容层均可配置幂等端口规则。
 - 安装和更新覆盖源码时保留本地文件；完整安装会验证 SSR 入口、配置和 `mudb.json`，不再只凭目录存在判断成功。

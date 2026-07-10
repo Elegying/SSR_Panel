@@ -232,6 +232,59 @@ class UpdateTransactionTests(unittest.TestCase):
             self.assertEqual(status["phase"], "done")
             self.assertFalse(status["rollback_attempted"])
 
+    def test_update_runs_from_stable_copy_when_replacing_itself(self):
+        if not shutil.which("bash") or not shutil.which("git"):
+            self.skipTest("bash and git are required")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            panel, _marker, status_file, env = self.make_fixture(
+                base, fail_restart=False
+            )
+            installed_updater = panel / "update.sh"
+            installed_updater.write_text(
+                UPDATE_SCRIPT.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            installed_updater.chmod(0o755)
+
+            source_repo = Path(env["SSR_ADMIN_REPO_URL"])
+            replacement = source_repo / "ssr-admin-panel" / "update.sh"
+            replacement.write_text(
+                "#!/bin/bash\nprintf 'replacement updater\\n'\n",
+                encoding="utf-8",
+            )
+            replacement.chmod(0o755)
+            self.run_git("add", ".", cwd=source_repo)
+            self.run_git("commit", "-m", "replace updater", cwd=source_repo)
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), HealthyHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            env["SSR_ADMIN_HEALTH_URL"] = (
+                f"http://127.0.0.1:{server.server_port}/login"
+            )
+            try:
+                result = subprocess.run(
+                    ["bash", str(installed_updater), "main"],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            status = json.loads(status_file.read_text(encoding="utf-8"))
+            self.assertEqual(status["phase"], "done")
+            self.assertEqual(
+                installed_updater.read_text(encoding="utf-8"),
+                "#!/bin/bash\nprintf 'replacement updater\\n'\n",
+            )
+
     def test_sigterm_after_sync_restores_backup_and_records_failure(self):
         if not shutil.which("bash") or not shutil.which("git"):
             self.skipTest("bash and git are required")
