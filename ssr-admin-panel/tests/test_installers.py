@@ -19,7 +19,13 @@ class InstallerRegressionTests(unittest.TestCase):
     def test_install_scripts_have_valid_bash_syntax(self):
         if not shutil.which("bash"):
             self.skipTest("bash is not available")
-        for script in ("install.sh", "install-all.sh", "update.sh", "uninstall.sh"):
+        for script in (
+            "install.sh",
+            "install-all.sh",
+            "update.sh",
+            "rollback.sh",
+            "uninstall.sh",
+        ):
             result = subprocess.run(
                 ["bash", "-n", str(REPO_ROOT / script)],
                 capture_output=True,

@@ -27,6 +27,8 @@ SSR_DIR="${SSR_ADMIN_SSR_DIR:-/usr/local/shadowsocksr}"
 REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/SSR_Panel.git}"
 TARGET_REF="${1:-${SSR_ADMIN_UPDATE_REF:-main}}"
 REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
+UPDATE_SOURCE_DIR="${SSR_ADMIN_UPDATE_SOURCE_DIR:-}"
+UPDATE_REVISION="${SSR_ADMIN_UPDATE_REVISION:-}"
 SERVICE_NAME="${SSR_ADMIN_SERVICE_NAME:-ssr-admin}"
 DEVICE_STATS_SERVICE_NAME="${SSR_DEVICE_STATS_SERVICE_NAME:-ssr-device-stats}"
 DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
@@ -156,7 +158,9 @@ ensure_command() {
 
 ensure_update_runtime() {
     validate_package_settings
-    ensure_command "git" "git"
+    if [ -z "${UPDATE_SOURCE_DIR}" ]; then
+        ensure_command "git" "git"
+    fi
     ensure_command "systemctl" "systemd"
     ensure_command "flock" "util-linux"
     if ! systemctl show-environment >/dev/null 2>&1; then
@@ -255,7 +259,7 @@ validate_update_paths() {
         return 1
     fi
 
-    "${PYTHON3_BIN}" - "${PANEL_DIR}" "${VENV_DIR}" "${SYSTEMD_DIR}" "${REPO_SUBDIR}" <<'PY'
+    "${PYTHON3_BIN}" - "${PANEL_DIR}" "${VENV_DIR}" "${SYSTEMD_DIR}" "${REPO_SUBDIR}" "${UPDATE_SOURCE_DIR}" <<'PY'
 import sys
 from pathlib import Path
 
@@ -263,6 +267,7 @@ panel_input = Path(sys.argv[1])
 venv_input = Path(sys.argv[2])
 systemd_input = Path(sys.argv[3])
 repo_subdir = Path(sys.argv[4]) if sys.argv[4] else None
+source_input = Path(sys.argv[5]) if sys.argv[5] else None
 
 
 def reject_symlink_components(label, path):
@@ -281,9 +286,17 @@ for label, path in (("panel", panel_input), ("venv", venv_input), ("systemd", sy
 if repo_subdir is not None and (repo_subdir.is_absolute() or ".." in repo_subdir.parts):
     raise SystemExit(f"unsafe repo subdir: {repo_subdir}")
 
+if source_input is not None:
+    if not source_input.is_absolute():
+        raise SystemExit(f"unsafe relative update source path: {source_input}")
+    reject_symlink_components("update source", source_input)
+    if not source_input.is_dir():
+        raise SystemExit(f"update source directory not found: {source_input}")
+
 panel = panel_input.resolve()
 venv = venv_input.resolve()
 systemd = systemd_input.resolve()
+source = source_input.resolve() if source_input is not None else None
 
 if panel == Path("/"):
     raise SystemExit("unsafe panel directory")
@@ -291,6 +304,8 @@ if venv == panel or panel not in venv.parents:
     raise SystemExit("SSR_ADMIN_VENV_DIR must be inside SSR_ADMIN_PANEL_DIR")
 if systemd == Path("/") or not systemd.is_absolute():
     raise SystemExit("unsafe systemd directory")
+if source is not None and (source == panel or panel in source.parents):
+    raise SystemExit("update source must be outside SSR_ADMIN_PANEL_DIR")
 PY
 }
 
@@ -824,19 +839,33 @@ fi
 
 CURRENT_VERSION="$(read_version "${PANEL_DIR}")"
 echo -e "${CYAN}当前版本:${NC} ${YELLOW}${CURRENT_VERSION}${NC}"
-echo -e "${CYAN}更新来源:${NC} ${YELLOW}${REPO_URL} (${TARGET_REF})${NC}"
+if [ -n "${UPDATE_SOURCE_DIR}" ]; then
+    echo -e "${CYAN}更新来源:${NC} ${YELLOW}${UPDATE_SOURCE_DIR} (本地发布包)${NC}"
+else
+    echo -e "${CYAN}更新来源:${NC} ${YELLOW}${REPO_URL} (${TARGET_REF})${NC}"
+fi
 
 TMP_CLONE_DIR="$(mktemp -d /tmp/ssr-admin-panel-update.XXXXXX)"
-write_status "clone" "正在下载新版本"
-git clone --depth 1 --branch "${TARGET_REF}" "${REPO_URL}" "${TMP_CLONE_DIR}" -q
-SOURCE_DIR="$(repo_source_dir "${TMP_CLONE_DIR}")"
+if [ -n "${UPDATE_SOURCE_DIR}" ]; then
+    write_status "stage" "正在暂存本地发布包"
+    SOURCE_DIR="${TMP_CLONE_DIR}/source"
+    copy_tree "${UPDATE_SOURCE_DIR}" "${SOURCE_DIR}" "sync"
+else
+    write_status "clone" "正在下载新版本"
+    git clone --depth 1 --branch "${TARGET_REF}" "${REPO_URL}" "${TMP_CLONE_DIR}" -q
+    SOURCE_DIR="$(repo_source_dir "${TMP_CLONE_DIR}")"
+fi
 if [ ! -f "${SOURCE_DIR}/app.py" ]; then
     echo -e "${RED}Project files not found: ${SOURCE_DIR}${NC}"
     false
 fi
 
 NEW_VERSION="$(read_version "${SOURCE_DIR}")"
-NEW_REVISION="$(git -C "${TMP_CLONE_DIR}" rev-parse --short HEAD 2>/dev/null || echo "")"
+if [ -n "${UPDATE_SOURCE_DIR}" ]; then
+    NEW_REVISION="${UPDATE_REVISION:-v${NEW_VERSION}}"
+else
+    NEW_REVISION="$(git -C "${TMP_CLONE_DIR}" rev-parse --short HEAD 2>/dev/null || echo "")"
+fi
 harden_sensitive_files
 write_status "backup" "正在备份当前版本"
 create_full_backup

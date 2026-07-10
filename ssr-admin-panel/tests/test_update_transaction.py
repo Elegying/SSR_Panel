@@ -14,6 +14,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 UPDATE_SCRIPT = REPO_ROOT / "update.sh"
+ROLLBACK_SCRIPT = REPO_ROOT / "rollback.sh"
 
 
 class HealthyHandler(BaseHTTPRequestHandler):
@@ -231,6 +232,120 @@ class UpdateTransactionTests(unittest.TestCase):
             status = json.loads(status_file.read_text(encoding="utf-8"))
             self.assertEqual(status["phase"], "done")
             self.assertFalse(status["rollback_attempted"])
+
+    def test_success_uses_staged_local_release_source_without_git_clone(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is required")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            panel, _marker, status_file, env = self.make_fixture(
+                base, fail_restart=False
+            )
+            env["SSR_ADMIN_UPDATE_SOURCE_DIR"] = str(
+                (base / "source" / "ssr-admin-panel").resolve()
+            )
+            env["SSR_ADMIN_UPDATE_REVISION"] = "v2.0.0-test"
+            env["SSR_ADMIN_REPO_URL"] = str(base / "missing-repository")
+            server = ThreadingHTTPServer(("127.0.0.1", 0), HealthyHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            env["SSR_ADMIN_HEALTH_URL"] = (
+                f"http://127.0.0.1:{server.server_port}/login"
+            )
+            try:
+                result = subprocess.run(
+                    ["bash", str(UPDATE_SCRIPT), "v2.0.0"],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertEqual(
+                (panel / "app.py").read_text(encoding="utf-8"),
+                "NEW_APP = True\n",
+            )
+            build = json.loads(
+                (panel / ".panel-build.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(build["version"], "2.0.0")
+            self.assertEqual(build["revision"], "v2.0.0-test")
+            status = json.loads(status_file.read_text(encoding="utf-8"))
+            self.assertEqual(status["phase"], "done")
+
+    def test_rejects_local_release_source_symlink_before_backup(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is required")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            panel, _marker, _status_file, env = self.make_fixture(
+                base, fail_restart=False
+            )
+            source_link = base / "release-link"
+            source_link.symlink_to(
+                base / "source" / "ssr-admin-panel", target_is_directory=True
+            )
+            env["SSR_ADMIN_UPDATE_SOURCE_DIR"] = str(source_link)
+
+            result = subprocess.run(
+                ["bash", str(UPDATE_SCRIPT), "v2.0.0"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsafe update source symlink component", result.stderr)
+            self.assertEqual(
+                (panel / "app.py").read_text(encoding="utf-8"),
+                "OLD_APP = True\n",
+            )
+            self.assertFalse((panel / "backups").exists())
+
+    def test_release_rollback_entry_uses_local_source_and_tag_revision(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is required")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            package_panel = base / "ssr-admin-panel"
+            package_panel.mkdir()
+            shutil.copy2(ROLLBACK_SCRIPT, package_panel / "rollback.sh")
+            (package_panel / "VERSION").write_text("1.3.1\n", encoding="utf-8")
+            record = base / "record.txt"
+            self.write_executable(
+                package_panel / "update.sh",
+                "#!/bin/bash\n"
+                "printf '%s|%s|%s\\n' \"$SSR_ADMIN_UPDATE_SOURCE_DIR\" "
+                "\"$SSR_ADMIN_UPDATE_REVISION\" \"${1:-}\" > \"$RECORD\"\n",
+            )
+            env = {
+                **os.environ,
+                "RECORD": str(record),
+                "SSR_ADMIN_SKIP_ROOT_CHECK": "1",
+            }
+
+            result = subprocess.run(
+                ["bash", str(package_panel / "rollback.sh"), "--yes"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertEqual(
+                record.read_text(encoding="utf-8"),
+                f"{package_panel.resolve()}|v1.3.1|v1.3.1\n",
+            )
 
     def test_update_runs_from_stable_copy_when_replacing_itself(self):
         if not shutil.which("bash") or not shutil.which("git"):
