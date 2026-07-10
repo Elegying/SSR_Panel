@@ -66,13 +66,11 @@ SSR_installation_status(){
 # 全局 Python 解释器路径（兼容只有 python3 的现代系统）
 PYTHON_BIN=""
 _init_python_bin(){
+	PYTHON_BIN=""
 	if command -v python >/dev/null 2>&1; then
 		PYTHON_BIN="python"
 	elif command -v python3 >/dev/null 2>&1; then
 		PYTHON_BIN="python3"
-	else
-		echo -e "${Error} 未找到 Python 解释器，请安装 python3 !"
-		exit 1
 	fi
 }
 _init_python_bin
@@ -916,25 +914,60 @@ Modify_config_all(){
 	Modify_config_forbid
 }
 Check_python(){
+	_init_python_bin
 	if [[ -z "${PYTHON_BIN}" ]]; then
-		echo -e "${Info} 没有安装Python，开始安装..."
-		if [[ ${release} == "centos" ]]; then
-			yum install -y python3
-		else
-			apt-get install -y python3
-		fi
-		_init_python_bin
+		echo -e "${Error} Python 依赖安装后仍不可用，请检查软件包源 !"
+		return 1
 	fi
 }
+Run_with_retries(){
+	local attempt=1
+	local max_attempts=3
+	while [[ ${attempt} -le ${max_attempts} ]]; do
+		if "$@"; then
+			return 0
+		fi
+		if [[ ${attempt} -eq ${max_attempts} ]]; then
+			break
+		fi
+		echo -e "${Info} 软件包命令失败，正在重试 (${attempt}/${max_attempts})..." >&2
+		sleep "${attempt}"
+		attempt=$((attempt + 1))
+	done
+	return 1
+}
 Centos_yum(){
-	local _yum="yum"
-	if command -v dnf >/dev/null 2>&1; then _yum="dnf"; fi
-	${_yum} makecache -q 2>/dev/null || true
-	${_yum} install -y vim git tar gzip unzip cronie python3 curl wget socat 2>/dev/null || ${_yum} install -y vim git tar gzip crond python3 curl wget socat 2>/dev/null || true
+	local _yum=""
+	if command -v dnf >/dev/null 2>&1; then
+		_yum="dnf"
+	elif command -v yum >/dev/null 2>&1; then
+		_yum="yum"
+	else
+		echo -e "${Error} 未找到 dnf 或 yum !"
+		return 1
+	fi
+	Run_with_retries "${_yum}" makecache -q || {
+		echo -e "${Error} ${_yum} 软件源刷新失败 !"
+		return 1
+	}
+	Run_with_retries "${_yum}" install -y ca-certificates sudo curl wget socat git tar gzip unzip cronie iproute jq python3 python3-pip systemd || {
+		echo -e "${Error} ${_yum} 依赖安装失败 !"
+		return 1
+	}
 }
 Debian_apt(){
-	apt-get update -qq
-	apt-get install -y -qq vim git tar gzip unzip cron python3 curl wget socat 2>/dev/null || apt-get install -y vim git tar gzip cron python3 curl wget socat 2>/dev/null || true
+	if ! command -v apt-get >/dev/null 2>&1; then
+		echo -e "${Error} 未找到 apt-get !"
+		return 1
+	fi
+	Run_with_retries apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 update -qq || {
+		echo -e "${Error} apt 软件源刷新失败 !"
+		return 1
+	}
+	Run_with_retries apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 install -y -qq ca-certificates sudo curl wget socat git tar gzip unzip cron iproute2 jq python3 python3-venv python3-pip systemd || {
+		echo -e "${Error} apt 依赖安装失败 !"
+		return 1
+	}
 }
 # 下载 ShadowsocksR
 Download_SSR(){
@@ -1017,15 +1050,18 @@ JQ_install(){
 # 安装 依赖
 Installation_dependency(){
 	if [[ ${release} == "centos" ]]; then
-		Centos_yum
+		Centos_yum || exit 1
 	else
-		Debian_apt
+		Debian_apt || exit 1
 	fi
-	if ! command -v git >/dev/null 2>&1 && ! command -v tar >/dev/null 2>&1 && ! command -v unzip >/dev/null 2>&1; then
-		echo -e "${Error} 缺少 git/tar/unzip，无法下载或解压 ShadowsocksR 服务端，请先修复软件包源后重试 !"
-		exit 1
-	fi
-	Check_python
+	local dependency
+	for dependency in sudo curl wget socat git tar gzip unzip crontab ss jq python3; do
+		if ! command -v "${dependency}" >/dev/null 2>&1; then
+			echo -e "${Error} 依赖安装后仍缺少 ${dependency}，请修复软件包源后重试 !"
+			exit 1
+		fi
+	done
+	Check_python || exit 1
 	#echo "nameserver 8.8.8.8" > /etc/resolv.conf
 	#echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 	\cp -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime

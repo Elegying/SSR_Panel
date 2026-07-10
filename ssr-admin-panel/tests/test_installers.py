@@ -290,36 +290,117 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertNotIn("reset\", \"--hard", content)
 
     def test_installers_prepare_minimal_debian_runtime(self):
-        required_pairs = (
-            '"systemctl:systemd"',
-            '"curl:curl"',
-            '"wget:wget"',
-            '"git:git"',
-            '"tar:tar"',
-            '"gzip:gzip"',
-            '"unzip:unzip"',
-            '"socat:socat"',
-            '"ss:${_ss_pkg}"',
-            '"crontab:${_cron_pkg}"',
-            '"python3:python3"',
-        )
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
-            self.assertIn("apt-get update -qq", content)
-            self.assertIn('echo "python3-venv python3-pip"', content)
-            self.assertIn("install_packages $(python_venv_packages)", content)
-            self.assertIn("install_packages python3-pip", content)
-            for pair in required_pairs:
-                self.assertIn(pair, content)
+            self.assertIn("DPkg::Lock::Timeout=60", content)
+            self.assertIn(
+                "ca-certificates sudo curl wget socat git tar gzip unzip cron "
+                "iproute2 jq python3 python3-venv python3-pip systemd",
+                content,
+            )
+            self.assertIn('"$SYSTEM_PYTHON3_BIN" -m pip --version', content)
+            self.assertIn('"$SYSTEM_PYTHON3_BIN" -m venv --help', content)
+
+    def test_installers_bootstrap_before_project_or_python_setup(self):
+        runtime_functions = {
+            "install.sh": "ensure_basic_runtime",
+            "install-all.sh": "prepare_minimal_runtime",
+        }
+
+        for script, runtime_function in runtime_functions.items():
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            platform_call = content.index("\ndetect_platform\n")
+            runtime_call = content.index(f"\n{runtime_function}\n")
+            sync_call = content.index('\nsync_project_files "$')
+
+            self.assertLess(platform_call, runtime_call, msg=script)
+            self.assertLess(runtime_call, sync_call, msg=script)
+
+    def test_installers_reject_unknown_platforms_before_mutating(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+
+            self.assertIn("/etc/os-release", content)
+            self.assertIn("command -v apt-get", content)
+            self.assertIn("command -v dnf", content)
+            self.assertIn("command -v yum", content)
+            self.assertIn("不支持的操作系统或软件包管理器", content)
+            self.assertNotIn('else\n    SYS="debian"\nfi', content)
+            self.assertNotIn('SYS="other"\n    PKG_MANAGER="apt-get"', content)
+
+    def test_installer_package_refresh_retries_without_false_success(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            bootstrap = content[
+                content.index("# bootstrap-common:start") : content.index("# bootstrap-common:end")
+            ]
+
+            self.assertIn("PACKAGE_INSTALL_RETRIES=3", content)
+            self.assertIn("DPkg::Lock::Timeout=60", bootstrap)
+            self.assertIn("retry_command", bootstrap)
+            self.assertNotIn("makecache -q 2>/dev/null || true", bootstrap)
+            self.assertLess(bootstrap.index("update -qq"), bootstrap.index("APT_UPDATED=1"))
+            self.assertLess(bootstrap.index("makecache"), bootstrap.index("RPM_UPDATED=1"))
+
+    def test_installers_install_and_verify_base_dependencies(self):
+        debian_packages = (
+            "ca-certificates sudo curl wget socat git tar gzip unzip cron "
+            "iproute2 jq python3 python3-venv python3-pip systemd"
+        )
+        rpm_packages = (
+            "ca-certificates sudo curl wget socat git tar gzip unzip cronie "
+            "iproute jq python3 python3-pip systemd"
+        )
+        verified_commands = (
+            "sudo curl wget socat git tar gzip unzip crontab ss jq python3 systemctl"
+        )
+
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn(debian_packages, content)
+            self.assertIn(rpm_packages, content)
+            self.assertIn(verified_commands, content)
+            self.assertIn("verify_base_runtime", content)
+            self.assertIn('"$SYSTEM_PYTHON3_BIN" -m pip --version', content)
+            self.assertIn('"$SYSTEM_PYTHON3_BIN" -m venv', content)
+
+    def test_installers_verify_pip_inside_the_panel_virtualenv(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn('if ! "${PYTHON3_BIN}" -m pip --version', content)
+            self.assertIn("面板 Python pip 不可用", content)
+
+    def test_installers_require_a_running_systemd_manager(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("require_systemd()", content)
+            self.assertIn("/proc/1/comm", content)
+            self.assertIn("systemctl show-environment", content)
+
+    def test_standalone_installers_share_the_same_bootstrap_core(self):
+        for marker in ("bootstrap-common", "runtime-common"):
+            common_blocks = []
+            for script in ("install.sh", "install-all.sh"):
+                content = (REPO_ROOT / script).read_text(encoding="utf-8")
+                start_marker = f"# {marker}:start"
+                end_marker = f"# {marker}:end"
+                start = content.index(start_marker)
+                end = content.index(end_marker) + len(end_marker)
+                common_blocks.append(content[start:end])
+
+            self.assertEqual(common_blocks[0], common_blocks[1], msg=marker)
 
     def test_installers_use_centos_package_names_for_runtime_dependencies(self):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("RPM_UPDATED=0", content)
-            self.assertIn('"${rpm_cmd}" makecache -q', content)
-            self.assertIn('_ss_pkg="iproute"', content)
-            self.assertIn('_cron_pkg="cronie"', content)
-            self.assertIn('echo "python3-pip python3-virtualenv"', content)
+            self.assertIn('retry_command "$PACKAGE_MANAGER" makecache -q', content)
+            self.assertIn(
+                "ca-certificates sudo curl wget socat git tar gzip unzip cronie "
+                "iproute jq python3 python3-pip systemd",
+                content,
+            )
+            self.assertIn('"$SYSTEM_PYTHON3_BIN" -m venv --help', content)
 
         install_content = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
         full_install_content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
@@ -346,7 +427,7 @@ class InstallerRegressionTests(unittest.TestCase):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("! -name venv", content)
             self.assertIn('sync_project_files "$', content)
-            self.assertIn("ensure_panel_venv\n\n", content)
+            self.assertLess(content.index("    ensure_panel_venv\n"), content.index('\nsync_project_files "$'))
 
     def test_installers_do_not_require_flask_limiter_to_start_panel(self):
         for script in ("install.sh", "install-all.sh"):
@@ -363,8 +444,28 @@ class InstallerRegressionTests(unittest.TestCase):
 
     def test_ssrmu_centos_package_manager_expands_yum_variable(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
-        self.assertIn("${_yum} makecache", content)
+        self.assertIn('Run_with_retries "${_yum}" makecache', content)
         self.assertNotIn("\\${_yum}", content)
+
+    def test_ssrmu_bootstraps_python_and_does_not_hide_package_failures(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
+        python_init = content[
+            content.index("_init_python_bin(){") : content.index("\n}\n_init_python_bin")
+        ]
+        centos_packages = content[
+            content.index("Centos_yum(){") : content.index("\n}\nDebian_apt")
+        ]
+        debian_packages = content[
+            content.index("Debian_apt(){") : content.index("\n}\n# 下载 ShadowsocksR")
+        ]
+
+        self.assertNotIn("exit 1", python_init)
+        self.assertIn("Run_with_retries", centos_packages)
+        self.assertIn("Run_with_retries", debian_packages)
+        self.assertNotIn("|| true", centos_packages)
+        self.assertNotIn("|| true", debian_packages)
+        self.assertIn("Centos_yum || exit 1", content)
+        self.assertIn("Debian_apt || exit 1", content)
 
     def test_ssrmu_does_not_require_unzip_when_git_or_tar_is_available(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")

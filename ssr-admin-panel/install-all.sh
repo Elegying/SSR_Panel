@@ -45,57 +45,110 @@ REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
 REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
 PYTHON3_BIN="/usr/bin/python3"
 SYSTEM_PYTHON3_BIN="/usr/bin/python3"
+SYS=""
+PACKAGE_FAMILY=""
+PACKAGE_MANAGER=""
+PACKAGE_INSTALL_RETRIES=3
 APT_UPDATED=0
 RPM_UPDATED=0
 SYNC_REVISION=""
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
-# 检测系统类型
-if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
-    SYS="debian"
-    PKG_MANAGER="apt-get"
-elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
-    SYS="centos"
-    PKG_MANAGER="yum"
-else
-    SYS="other"
-    PKG_MANAGER="apt-get"
-fi
-
-echo -e "${CYAN}系统检测: ${YELLOW}${SYS}${NC}"
-echo
-
 # ========== 第零步：快速准备 ==========
-echo -e "${CYAN}[ 0/6 ] 快速准备（跳过依赖检测）...${NC}"
+echo -e "${CYAN}[ 0/6 ] 基础环境准备...${NC}"
 echo -e "${YELLOW}----------------------------------------${NC}"
-install_packages() {
-    if [ "$SYS" = "centos" ]; then
-        local rpm_cmd="yum"
-        command -v dnf &>/dev/null && rpm_cmd="dnf"
-        if [ "$RPM_UPDATED" -eq 0 ]; then
-            echo -e "${YELLOW}刷新 yum/dnf 软件源索引...${NC}"
-            "${rpm_cmd}" makecache -q 2>/dev/null || true
-            RPM_UPDATED=1
+# bootstrap-common:start
+detect_platform() {
+    local os_id="" os_like=""
+
+    if [ ! -r /etc/os-release ]; then
+        echo -e "${RED}不支持的操作系统或软件包管理器: 缺少 /etc/os-release${NC}"
+        exit 1
+    fi
+
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    os_id="${ID:-}"
+    os_like="${ID_LIKE:-}"
+
+    case " ${os_id,,} ${os_like,,} " in
+        *debian*|*ubuntu*)
+            if ! command -v apt-get >/dev/null 2>&1; then
+                echo -e "${RED}不支持的操作系统或软件包管理器: 未找到 apt-get${NC}"
+                exit 1
+            fi
+            SYS="debian"
+            PACKAGE_FAMILY="apt"
+            PACKAGE_MANAGER="apt-get"
+            ;;
+        *rhel*|*fedora*|*centos*|*rocky*|*almalinux*)
+            SYS="centos"
+            PACKAGE_FAMILY="rpm"
+            if command -v dnf >/dev/null 2>&1; then
+                PACKAGE_MANAGER="dnf"
+            elif command -v yum >/dev/null 2>&1; then
+                PACKAGE_MANAGER="yum"
+            else
+                echo -e "${RED}不支持的操作系统或软件包管理器: 未找到 dnf/yum${NC}"
+                exit 1
+            fi
+            ;;
+        *)
+            echo -e "${RED}不支持的操作系统或软件包管理器: ${os_id:-unknown}${NC}"
+            exit 1
+            ;;
+    esac
+}
+
+retry_command() {
+    local attempt=1
+
+    while [ "$attempt" -le "$PACKAGE_INSTALL_RETRIES" ]; do
+        if "$@"; then
+            return 0
         fi
-        "${rpm_cmd}" install -y -q "$@" 2>/dev/null
+        if [ "$attempt" -eq "$PACKAGE_INSTALL_RETRIES" ]; then
+            break
+        fi
+        echo -e "${YELLOW}命令失败，正在重试 (${attempt}/${PACKAGE_INSTALL_RETRIES})...${NC}" >&2
+        sleep "$attempt"
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
+install_packages() {
+    if [ "$PACKAGE_FAMILY" = "apt" ]; then
+        if [ "$APT_UPDATED" -eq 0 ]; then
+            echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
+            retry_command apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 update -qq || {
+                echo -e "${RED}apt 软件源刷新失败${NC}" >&2
+                return 1
+            }
+            APT_UPDATED=1
+        fi
+        retry_command apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 install -y -qq "$@"
         return
     fi
 
-    if [ "$APT_UPDATED" -eq 0 ]; then
-        echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
-        apt-get update -qq
-        APT_UPDATED=1
+    if [ "$PACKAGE_FAMILY" = "rpm" ]; then
+        if [ "$RPM_UPDATED" -eq 0 ]; then
+            echo -e "${YELLOW}刷新 yum/dnf 软件源索引...${NC}"
+            retry_command "$PACKAGE_MANAGER" makecache -q || {
+                echo -e "${RED}${PACKAGE_MANAGER} 软件源刷新失败${NC}" >&2
+                return 1
+            }
+            RPM_UPDATED=1
+        fi
+        retry_command "$PACKAGE_MANAGER" install -y -q "$@"
+        return
     fi
-    apt-get install -y -qq "$@"
-}
 
-python_venv_packages() {
-    if [ "$SYS" = "centos" ]; then
-        echo "python3-pip python3-virtualenv"
-    else
-        echo "python3-venv python3-pip"
-    fi
+    echo -e "${RED}尚未识别可用的软件包管理器${NC}" >&2
+    return 1
 }
+# bootstrap-common:end
 
 ensure_minimal_command() {
     local binary=$1
@@ -239,63 +292,81 @@ ensure_panel_venv() {
 
     if [ ! -x "${VENV_DIR}/bin/python" ]; then
         echo -e "${YELLOW}创建面板 Python 虚拟环境...${NC}"
-        "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}" 2>/dev/null || {
-            install_packages $(python_venv_packages) 2>/dev/null || install_packages python3-pip 2>/dev/null || true
-            "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}"
+        "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}" || {
+            echo -e "${RED}面板 Python 虚拟环境创建失败${NC}" >&2
+            exit 1
         }
     fi
 
     PYTHON3_BIN="${VENV_DIR}/bin/python"
     "${PYTHON3_BIN}" -m ensurepip --upgrade >/dev/null 2>&1 || true
+    if ! "${PYTHON3_BIN}" -m pip --version >/dev/null 2>&1; then
+        echo -e "${RED}面板 Python pip 不可用${NC}" >&2
+        exit 1
+    fi
     "${PYTHON3_BIN}" -m pip install --upgrade pip setuptools wheel --no-input --disable-pip-version-check -q 2>/dev/null || true
 }
+
+# runtime-common:start
+base_dependency_packages() {
+    if [ "$SYS" = "centos" ]; then
+        echo "ca-certificates sudo curl wget socat git tar gzip unzip cronie iproute jq python3 python3-pip systemd"
+    else
+        echo "ca-certificates sudo curl wget socat git tar gzip unzip cron iproute2 jq python3 python3-venv python3-pip systemd"
+    fi
+}
+
+require_systemd() {
+    local init_name=""
+
+    if [ -r /proc/1/comm ]; then
+        IFS= read -r init_name < /proc/1/comm
+    fi
+    if [ "$init_name" != "systemd" ] || ! systemctl show-environment >/dev/null 2>&1; then
+        echo -e "${RED}当前环境未运行可用的 systemd（容器、WSL 或 chroot 请改用完整虚拟机）${NC}" >&2
+        return 1
+    fi
+}
+
+verify_base_runtime() {
+    local cmd
+    local required_commands="sudo curl wget socat git tar gzip unzip crontab ss jq python3 systemctl"
+
+    for cmd in $required_commands; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo -e "${RED}系统依赖验证失败: 未找到 ${cmd}${NC}" >&2
+            return 1
+        fi
+    done
+
+    if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && [ ! -s /etc/pki/tls/certs/ca-bundle.crt ]; then
+        echo -e "${RED}系统依赖验证失败: CA 证书包不可用${NC}" >&2
+        return 1
+    fi
+    if ! "$SYSTEM_PYTHON3_BIN" -m pip --version >/dev/null 2>&1; then
+        echo -e "${RED}系统依赖验证失败: Python pip 不可用${NC}" >&2
+        return 1
+    fi
+    if ! "$SYSTEM_PYTHON3_BIN" -m venv --help >/dev/null 2>&1; then
+        echo -e "${RED}系统依赖验证失败: Python venv 不可用${NC}" >&2
+        return 1
+    fi
+    require_systemd
+}
+# runtime-common:end
 
 prepare_minimal_runtime() {
     echo -e "${GREEN}检查并安装最小运行环境...${NC}"
 
-    # 批量安装所有系统依赖（一次 apt-get 调用，比逐个快 3-5 倍）
-    local MISSING=""
-    local _ss_pkg="iproute2"
-    local _cron_pkg="cron"
-    if [ "$SYS" = "centos" ]; then
-        _ss_pkg="iproute"
-        _cron_pkg="cronie"
-    fi
-    for cmd_pkg in \
-        "systemctl:systemd" \
-        "curl:curl" \
-        "wget:wget" \
-        "git:git" \
-        "tar:tar" \
-        "gzip:gzip" \
-        "unzip:unzip" \
-        "socat:socat" \
-        "ss:${_ss_pkg}" \
-        "crontab:${_cron_pkg}" \
-        "python3:python3"; do
-        local cmd="${cmd_pkg%%:*}" pkg="${cmd_pkg##*:}"
-        command -v "$cmd" &>/dev/null || MISSING="$MISSING $pkg"
-    done
-
-    if [ -n "$MISSING" ]; then
-        echo -e "${YELLOW}安装系统依赖:${MISSING}${NC}"
-        install_packages $MISSING || {
-            echo -e "${RED}系统依赖安装失败${NC}"
-            exit 1
-        }
-    fi
-    echo -e "${GREEN}✓ 系统依赖已就绪${NC}"
-
-    # python → python3 兼容入口
-    if ! command -v python &> /dev/null; then
-        echo -e "${YELLOW}创建 python → python3 兼容入口...${NC}"
-        install_packages python-is-python3 2>/dev/null || true
-        if ! command -v python &> /dev/null && command -v python3 &> /dev/null; then
-            ln -sf "$(command -v python3)" /usr/local/bin/python 2>/dev/null || true
-        fi
-    fi
-
+    install_packages $(base_dependency_packages) || {
+        echo -e "${RED}系统依赖安装失败${NC}" >&2
+        exit 1
+    }
+    SYSTEM_PYTHON3_BIN=$(command -v python3 2>/dev/null || true)
+    PYTHON3_BIN="$SYSTEM_PYTHON3_BIN"
+    verify_base_runtime || exit 1
     ensure_panel_venv
+    echo -e "${GREEN}✓ 系统依赖已就绪${NC}"
 }
 
 install_flask_runtime() {
@@ -414,19 +485,20 @@ sync_project_files() {
     rm -rf "$tmp_clone_dir"
 }
 
+detect_platform
+echo -e "${CYAN}系统检测: ${YELLOW}${SYS} (${PACKAGE_MANAGER})${NC}"
 prepare_minimal_runtime
 
 echo
 echo -e "${GREEN}快速模式已启用${NC}"
 echo -e "${CYAN}已跳过:${NC} cymysql 安装 / 自动 Swap 配置"
-echo -e "${CYAN}保留最小依赖:${NC} systemd / curl / git / iproute2 / python3 / pip3 / python 兼容入口"
+echo -e "${CYAN}基础依赖:${NC} 已完成安装并逐项验证"
 echo
 
 # ========== 第一步：下载项目文件 ==========
 echo -e "${CYAN}[ 1/6 ] 下载项目文件...${NC}"
 
 sync_project_files "$PANEL_DIR"
-ensure_panel_venv
 
 cd $PANEL_DIR
 chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/uninstall.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
