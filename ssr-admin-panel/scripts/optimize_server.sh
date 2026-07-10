@@ -13,8 +13,15 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 SSR_DIR="/usr/local/shadowsocksr"
+SSR_WORKDIR="${SSR_DIR}"
+SSR_SERVER="${SSR_DIR}/server.py"
+SSR_LEGACY_INIT="${SSR_LEGACY_INIT:-/etc/init.d/ssrmu}"
 SSR_CONFIG="${SSR_DIR}/user-config.json"
 MUDB_FILE="${SSR_DIR}/mudb.json"
+PANEL_DIR="${PANEL_DIR:-/opt/ssr-admin-panel}"
+SSR_FIREWALL_SOURCE="${SSR_FIREWALL_SOURCE:-${PANEL_DIR}/scripts/sync_ssr_firewall.py}"
+SSR_FIREWALL_HELPER="${SSR_FIREWALL_HELPER:-/usr/local/libexec/ssr-panel/sync-firewall.py}"
+SSR_FIREWALL_CONFIG="${SSR_FIREWALL_CONFIG:-/etc/default/ssr-panel-firewall}"
 SYSCTL_CONF="/etc/sysctl.d/99-ssr-optimize.conf"
 LIMITS_CONF="/etc/security/limits.conf"
 LOGROTATE_CONF="/etc/logrotate.d/ssr"
@@ -24,6 +31,7 @@ NFTABLES_DIR="/etc/nftables.d"
 SSR_FILTER_NFT="${NFTABLES_DIR}/ssr-filter.nft"
 SSR_BLOCK_IPV6_TARGETS="${SSR_BLOCK_IPV6_TARGETS:-1}"
 SSR_BLOCK_UDP_443="${SSR_BLOCK_UDP_443:-0}"
+FIREWALL_SYNC_AVAILABLE=0
 
 log_ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 log_warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
@@ -109,17 +117,49 @@ disable_udp_443_guard() {
     log_ok "已放行服务器出站 UDP/443（保留 QUIC/HTTP3，可避免首次连接回落卡顿）"
 }
 
+install_firewall_sync() {
+    if [ ! -f "$SSR_FIREWALL_SOURCE" ] || [ -L "$SSR_FIREWALL_SOURCE" ]; then
+        log_warn "未找到防火墙同步助手，SSR 服务不会自动同步端口"
+        FIREWALL_SYNC_AVAILABLE=0
+        return
+    fi
+    [ ! -L "$SSR_FIREWALL_HELPER" ] || { log_warn "防火墙助手目标是符号链接: $SSR_FIREWALL_HELPER"; return 1; }
+    [ ! -L "$SSR_FIREWALL_CONFIG" ] || { log_warn "防火墙配置目标是符号链接: $SSR_FIREWALL_CONFIG"; return 1; }
+
+    backup_file "$SSR_FIREWALL_HELPER"
+    backup_file "$SSR_FIREWALL_CONFIG"
+    mkdir -p "$(dirname "$SSR_FIREWALL_HELPER")" "$(dirname "$SSR_FIREWALL_CONFIG")"
+    cp "$SSR_FIREWALL_SOURCE" "$SSR_FIREWALL_HELPER"
+    chmod 0755 "$SSR_FIREWALL_HELPER"
+    printf 'Managed by SSR_Panel\n' > "$(dirname "$SSR_FIREWALL_HELPER")/.ssr-panel-managed"
+    if [ ! -e "$SSR_FIREWALL_CONFIG" ]; then
+        cat > "$SSR_FIREWALL_CONFIG" <<'EOF'
+# Managed by SSR_Panel
+SSR_EXTRA_PORTS=18899
+EOF
+    fi
+    chmod 0600 "$SSR_FIREWALL_CONFIG"
+    FIREWALL_SYNC_AVAILABLE=1
+}
+
 # ── 1. SSR systemd 服务 ──────────────────────────────────────
 setup_ssr_service() {
     echo -e "${GREEN}[优化 1/7] 配置 SSR systemd 服务...${NC}"
 
-    if [ ! -f "${SSR_DIR}/server.py" ]; then
+    if [ ! -f "${SSR_SERVER}" ]; then
         log_warn "SSR 未安装，跳过 SSR 服务配置"
         return
     fi
 
     local PYTHON_BIN
+    local FIREWALL_DIRECTIVES=""
     PYTHON_BIN=$(command -v python 2>/dev/null || command -v python3 2>/dev/null || echo "/usr/bin/python3")
+    install_firewall_sync
+    if [ "$FIREWALL_SYNC_AVAILABLE" -eq 1 ]; then
+        FIREWALL_DIRECTIVES="EnvironmentFile=-${SSR_FIREWALL_CONFIG}
+Environment=SSR_MUDB_FILE=${MUDB_FILE}
+ExecStartPre=${SSR_FIREWALL_HELPER}"
+    fi
 
     cat > /etc/systemd/system/ssr.service <<SERVICE
 [Unit]
@@ -129,8 +169,9 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=${SSR_DIR}
-ExecStart=${PYTHON_BIN} ${SSR_DIR}/server.py a
+WorkingDirectory=${SSR_WORKDIR}
+${FIREWALL_DIRECTIVES}
+ExecStart=${PYTHON_BIN} ${SSR_DIR}/server.py m
 Restart=always
 RestartSec=3
 LimitNOFILE=512000
@@ -141,11 +182,19 @@ WantedBy=multi-user.target
 SERVICE
 
     systemctl daemon-reload
+    if [ -x "${SSR_LEGACY_INIT}" ]; then
+        "${SSR_LEGACY_INIT}" stop >/dev/null 2>&1 || true
+    fi
+    systemctl stop ssrmu.service 2>/dev/null || true
+    systemctl disable ssrmu.service 2>/dev/null || true
+    if command -v update-rc.d >/dev/null 2>&1; then
+        update-rc.d -f ssrmu remove >/dev/null 2>&1 || true
+    fi
     systemctl enable ssr.service 2>/dev/null
 
     # 如果 SSR 正在裸进程运行，迁移到 systemd 管理
     local OLD_PID
-    OLD_PID=$(pgrep -f "${SSR_DIR}/server.py" | head -1 || true)
+    OLD_PID=$(pgrep -f "${SSR_SERVER}" | head -1 || true)
     if [ -n "$OLD_PID" ]; then
         log_info "迁移 SSR 进程 PID=$OLD_PID 到 systemd 管理..."
         kill "$OLD_PID" 2>/dev/null || true
@@ -263,8 +312,8 @@ setup_ssr_ipv6_quic_guard() {
         # 只改 mudb.json（per-user），不改 user-config.json。
         # SSR shell.py 的 _decode_dict 把 JSON 字符串转成 bytes，
         # IPNetwork 收到 bytes 会崩溃（'int' object has no attribute 'split'）。
-        for json_file in "$MUDB_FILE"; do
-            [ -f "$json_file" ] || continue
+        local json_file="$MUDB_FILE"
+        if [ -f "$json_file" ]; then
             backup_file "$json_file"
             JSON_FILE="$json_file" python3 <<'PY'
 import json
@@ -305,7 +354,7 @@ if changed:
     )
 PY
             patched_any=1
-        done
+        fi
 
         if [ "$patched_any" -eq 1 ]; then
             log_ok "已禁止 SSR 代理 IPv6 目标（避免无 IPv6 出口时反复超时）"

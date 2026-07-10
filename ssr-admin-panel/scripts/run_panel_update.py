@@ -56,6 +56,7 @@ def update_from_script(
     branch: str,
     repo_url: str,
     repo_subdir: str,
+    service_name: str,
     status_file: Path,
     log_handle,
 ) -> tuple[bool, str]:
@@ -68,6 +69,7 @@ def update_from_script(
         env["SSR_ADMIN_REPO_URL"] = repo_url
     env["SSR_ADMIN_REPO_SUBDIR"] = repo_subdir
     env["SSR_ADMIN_UPDATE_REF"] = branch
+    env["SSR_ADMIN_SERVICE_NAME"] = service_name
     env["SSR_ADMIN_UPDATE_STATUS_FILE"] = str(status_file)
     result = run_command(["bash", str(update_script), branch], panel_dir, log_handle, env=env)
     if result.returncode != 0:
@@ -120,6 +122,7 @@ def main() -> int:
             args.branch,
             args.repo_url,
             args.repo_subdir,
+            args.service,
             status_file,
             log_handle,
         )

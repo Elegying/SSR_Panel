@@ -3,7 +3,7 @@
 🛡️ 一个美观、现代化的 ShadowsocksR 用户管理面板，支持一键部署 SSR + 管理面板
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.7+-green.svg)
+![Python](https://img.shields.io/badge/Python-3.9+-green.svg)
 ![Flask](https://img.shields.io/badge/Flask-3.0+-orange.svg)
 [GitHub Actions](https://github.com/Elegying/SSR_Panel/actions)
 
@@ -29,6 +29,16 @@
 
 ## 🚀 安装部署
 
+脚本会自动刷新 apt/dnf/yum 索引并安装完整依赖。极简 Debian/Ubuntu 如果没有 `curl`/`wget`，先以 root 执行：
+
+```bash
+apt-get update && apt-get install -y ca-certificates sudo curl wget
+```
+
+部署要求 systemd 是 PID 1；不支持未启用 systemd 的容器、WSL 或 chroot。
+
+刚重装的 Debian/Ubuntu 若有系统自动更新占用 dpkg，安装器会安全等待最多 300 秒并自动重试，不需要也不应手工删除 apt/dpkg 锁。可用 `SSR_ADMIN_APT_LOCK_TIMEOUT=600` 延长等待。
+
 ### 方式一：下载后运行（推荐）
 
 ```bash
@@ -36,13 +46,13 @@
 wget https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh
 
 # 运行安装
-bash install-all.sh
+sudo bash install-all.sh
 ```
 
 ### 方式二：一键命令
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh -o install-all.sh && bash install-all.sh
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh -o install-all.sh && sudo bash install-all.sh
 ```
 
 安装过程中会提示：
@@ -58,15 +68,17 @@ curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-p
 已安装SSR的服务器，只安装管理面板：
 
 ```bash
-wget https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install.sh && bash install.sh
+wget https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install.sh && sudo bash install.sh
 ```
 
 ---
 
 ## 📋 系统要求
 
-- 操作系统: Ubuntu 18.04+ / Debian 10+ / CentOS Stream 或 RHEL 系 8+（需 systemd）
-- Python: 3.6+（推荐 3.8+；Python 3.6/3.7 会自动安装兼容版依赖）
+- x86_64 容器冒烟: Ubuntu 22.04 / Debian 12 / Rocky Linux 9，仅运行依赖安装、测试套件和 Shell 语法，不包含真实 systemd 部署
+- 自动识别: Debian/Ubuntu 与 RHEL/Rocky/Alma/CentOS Stream 系（需 systemd）
+- Python: CI 验证 3.9 / 3.11 / 3.12；3.6/3.7 仅尽力兼容
+- 架构: x86_64 与 aarch64/ARM64 均使用系统 `jq`；ARM64 未在 CI 实机验证
 - 内存: 512MB+
 
 ---
@@ -120,9 +132,12 @@ bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 该脚本默认会：
 
 - 面向统一入口端口（例如 `18899`）的多用户部署，持久化 BBR/fq、TFO、连接队列、端口范围和 systemd 文件句柄/进程数上限，提升单入口承载能力。
+- 默认开放本机 `18899/TCP+UDP`，SSR 启动、面板增删用户时会根据 `mudb.json` 和 `/etc/default/ssr-panel-firewall` 幂等同步 firewalld/iptables；云安全组仍需单独放行。
 - 为 `mudb.json` 的用户配置写入 `forbidden_ip`，禁止代理 IPv6 目标 `::/0`，避免服务器没有 IPv6 出口时 YouTube/Google 连接反复超时。
 - 默认放行服务器出站 `udp/443`，并清理旧版脚本留下的 QUIC 拦截规则，避免浏览器首次连接先失败再回落。
 - 保留已有 nftables/fail2ban 表，避免覆盖现有防火墙规则。
+
+导入自有 `mudb.json` 后执行 `systemctl restart ssr` 即可同步端口。详细步骤和自定义附加端口方式见 [运维手册](docs/OPERATIONS.md#导入-mudbjson-与开放-ssr-端口)。
 
 如需临时关闭 IPv6 目标防护，或强制启用 UDP/443 拦截让 QUIC 回落到 TCP：
 
@@ -144,11 +159,19 @@ bash /opt/ssr-admin-panel/update.sh
 脚本会自动：
 
 - 从 GitHub 拉取最新代码
-- 保留现有 `config.py`
-- 备份完整旧版应用到 `/opt/ssr-admin-panel/backups/`
-- 检测到 SSR 时重新应用服务端优化
-- 重启 `ssr-admin` 服务
-- 如果新版本启动失败，自动恢复上一版应用并重启服务
+- 使用文件锁拒绝并发更新
+- 保留现有 `config.py` 和本地文件
+- 备份旧版应用、完整 venv 和 systemd unit 到 `/opt/ssr-admin-panel/backups/`
+- 重启 `ssr-admin` 并验证本机 HTTP 健康检查
+- 任一同步后步骤失败时自动恢复上一版
+
+更新默认不会修改 SSR 源码或重新执行服务器优化；如确实需要：
+
+```bash
+SSR_ADMIN_PATCH_SSR_COMPAT=1 \
+SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=1 \
+bash /opt/ssr-admin-panel/update.sh
+```
 
 查看当前部署版本：
 
@@ -188,6 +211,12 @@ python3 -m unittest discover -s tests -q
 - `Flask 运行时安装失败`：执行 `python3 -m pip show Flask flask-limiter` 检查依赖。
 - `项目文件更新失败`：执行 `git -C /opt/ssr-admin-panel status --short` 查看是否有本地改动阻止快进。
 - `更新后服务启动失败`：查看 `/opt/ssr-admin-panel/backups/` 中的自动备份和 `journalctl -u ssr-admin -n 50 --no-pager`。
+
+## 🔒 SSR 来源与旧功能安全策略
+
+完整安装固定使用 SSR 上游提交 `c4507b7af1fe20a5a6adbb5e3b5a86da9d3a35e8`，实际 revision 记录在 `/usr/local/shadowsocksr/.ssr-upstream-revision`。init 服务脚本由本仓库模板本地生成，不再在线下载。
+
+旧 `ssrmu.sh` 中会下载未校验 root 脚本的 BBR、ServerSpeeder、LotServer、BT/PT/SPAM 等功能默认禁用；不要在生产机上开启，除非已经独立审计其来源与内容。
 
 ---
 

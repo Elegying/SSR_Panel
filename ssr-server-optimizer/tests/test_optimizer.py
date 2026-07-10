@@ -25,7 +25,14 @@ class OptimizerScriptTests(unittest.TestCase):
             json.dumps({"timeout": 120, "udp_timeout": 60, "fast_open": False}) + "\n",
             encoding="utf-8",
         )
-        (ssr_dir / "server.py").write_text("# server\n", encoding="utf-8")
+        (ssr_dir / "shadowsocks").mkdir()
+        (ssr_dir / "shadowsocks" / "server.py").write_text("# server\n", encoding="utf-8")
+        (ssr_dir / "server.py").write_text("# multi-user server\n", encoding="utf-8")
+
+        panel_dir = base / "panel"
+        (panel_dir / "scripts").mkdir(parents=True)
+        firewall_source = panel_dir / "scripts" / "sync_ssr_firewall.py"
+        firewall_source.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
 
         bin_dir = base / "bin"
         bin_dir.mkdir()
@@ -39,6 +46,13 @@ class OptimizerScriptTests(unittest.TestCase):
         )
         self.write_executable(bin_dir / "sysctl", "#!/bin/sh\nexit 0\n")
         self.write_executable(bin_dir / "ss", "#!/bin/sh\nexit 0\n")
+        legacy_init = base / "ssrmu"
+        self.write_executable(
+            legacy_init,
+            "#!/bin/sh\n"
+            "echo \"legacy $@\" >> \"$SYSTEMCTL_LOG\"\n"
+            "exit 0\n",
+        )
 
         return {
             **os.environ,
@@ -48,8 +62,11 @@ class OptimizerScriptTests(unittest.TestCase):
             "SYSTEMD_DIR": str(base / "systemd"),
             "SYSCTL_DIR": str(base / "sysctl.d"),
             "SYSCTL_CONF": str(base / "sysctl.conf"),
-            "PANEL_DIR": str(base / "panel"),
+            "PANEL_DIR": str(panel_dir),
             "SYSTEMCTL_LOG": str(base / "systemctl.log"),
+            "SSR_LEGACY_INIT": str(legacy_init),
+            "SSR_FIREWALL_HELPER": str(base / "libexec" / "sync-firewall.py"),
+            "SSR_FIREWALL_CONFIG": str(base / "etc" / "ssr-panel-firewall"),
         }, ssr_dir
 
     def write_executable(self, path: Path, content: str):
@@ -99,6 +116,46 @@ class OptimizerScriptTests(unittest.TestCase):
             self.assertFalse((base / "systemd" / "ssr.service").exists())
             self.assertFalse((base / "sysctl.d" / "99-z-ssr-performance.conf").exists())
             self.assertIn("restoring changed files", result.stdout)
+
+    def test_generated_unit_uses_real_ssr_entrypoint_and_disables_sysv_autostart(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            env, ssr_dir = self.make_env(base)
+
+            result = subprocess.run(
+                ["bash", str(SCRIPT)],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            unit = (base / "systemd" / "ssr.service").read_text(encoding="utf-8")
+            self.assertIn(f"WorkingDirectory={ssr_dir}", unit)
+            self.assertIn(f"{ssr_dir / 'server.py'} m", unit)
+            self.assertIn(
+                f"EnvironmentFile=-{base / 'etc' / 'ssr-panel-firewall'}",
+                unit,
+            )
+            self.assertIn(
+                f"ExecStartPre={base / 'libexec' / 'sync-firewall.py'}",
+                unit,
+            )
+            firewall_helper = base / "libexec" / "sync-firewall.py"
+            firewall_config = base / "etc" / "ssr-panel-firewall"
+            self.assertTrue(firewall_helper.is_file())
+            self.assertTrue(firewall_helper.stat().st_mode & stat.S_IXUSR)
+            self.assertEqual(
+                firewall_config.read_text(encoding="utf-8"),
+                "# Managed by SSR_Panel\nSSR_EXTRA_PORTS=18899\n",
+            )
+            self.assertEqual(stat.S_IMODE(firewall_config.stat().st_mode), 0o600)
+            actions = (base / "systemctl.log").read_text(encoding="utf-8")
+            self.assertIn("legacy stop", actions)
+            self.assertIn("disable ssrmu.service", actions)
 
 
 if __name__ == "__main__":

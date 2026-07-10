@@ -9,10 +9,22 @@ AnyTLS/多协议节点管理面板已拆分到独立仓库：[Elegying/AnyTLS_Pa
 
 ## 部署前准备
 
-- 推荐使用 Ubuntu 20.04+ 或 Debian 10+。
-- 服务器需要 `systemd`、`curl`、`bash`、`python3`。
+- 推荐使用 CI 已覆盖的 Ubuntu 22.04、Debian 12 或 Rocky Linux 9；同族的较新发行版也会按包管理器自动识别。
+- 必须由 `systemd` 作为 PID 1。安装器会自动安装并验证 `sudo`、`curl`、`wget`、`socat`、Python/venv 等运行依赖。
 - Web 面板建议放在 Nginx 反向代理和 HTTPS 后面。
 - 执行安装脚本前，先确认服务器已有快照或备份。
+
+极简 Debian/Ubuntu 镜像如果没有下载器，先以 root 执行：
+
+```bash
+apt-get update && apt-get install -y ca-certificates sudo curl wget
+```
+
+RHEL/Rocky/Alma/CentOS Stream 可执行：
+
+```bash
+dnf install -y ca-certificates sudo curl wget
+```
 
 ## 快速部署
 
@@ -22,26 +34,22 @@ AnyTLS/多协议节点管理面板已拆分到独立仓库：[Elegying/AnyTLS_Pa
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh -o install-all.sh
-bash install-all.sh
+sudo bash install-all.sh
 ```
 
 如果服务器已安装 SSR，只增加管理面板：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install.sh -o install.sh
-bash install.sh
+sudo bash install.sh
 ```
 
 ### 仅执行 SSR 优化
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh | bash
-```
-
-正式执行前可先预检：
-
-```bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh -o optimize-ssr.sh
 bash optimize-ssr.sh --check
+sudo bash optimize-ssr.sh
 ```
 
 ## 默认账户和密码
@@ -70,6 +78,14 @@ bash /usr/local/shadowsocksr/shadowsocks/mujson_mgr.sh
 ### 更新 SSR Admin Panel
 
 ```bash
+bash /opt/ssr-admin-panel/update.sh
+```
+
+更新由互斥锁保护，会备份应用、venv 和 systemd unit；新服务必须同时通过 systemd 状态与本机 HTTP 健康检查，否则自动恢复。更新默认不修改 SSR 源码或重新执行服务器优化，需要时显式开启：
+
+```bash
+SSR_ADMIN_PATCH_SSR_COMPAT=1 \
+SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=1 \
 bash /opt/ssr-admin-panel/update.sh
 ```
 
@@ -120,6 +136,7 @@ cp /usr/local/shadowsocksr/mudb.json /var/backups/ssr-panel/
 - 服务器防火墙没有暴露不必要端口。
 - 日志、截图和工单中没有订阅 URL、密码、token、服务器 IP 或面板凭据。
 - 定期执行更新脚本并保留最近一次可恢复备份。
+- 未经校验的 BBR、ServerSpeeder、LotServer 等远程 root 脚本保持默认禁用。
 
 ## 排障入口
 

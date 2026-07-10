@@ -1,8 +1,44 @@
 # Changelog
 
-## Unreleased
+## v1.3.1 (2026-07-10)
+
+### Fixed
+- Debian/Ubuntu 安装与更新统一使用 apt 原生锁等待，默认等待 `apt/dpkg` 最多 300 秒并保留网络重试，避免新装系统的 `apt-daily`、`unattended-upgrades` 或 cloud-init 占锁时立即部署失败。
+- 更新器不再忽略 yum/dnf 仓库刷新失败，所有包管理器入口现在使用一致的重试与错误报告逻辑。
+- 交互式安装现在原样保留管理员密码中的反斜杠，并使用 Bash 数组传递依赖列表，消除意外分词和输入转义问题。
+- `ssrmu.sh` 的端口、设备数、限速和流量输入先执行纯数字校验，再进行范围判断，避免 Bash 算术表达式被当作用户输入求值。
 
 ### Changed
+- 可通过 `SSR_ADMIN_APT_LOCK_TIMEOUT` 调整 apt 锁等待秒数，通过 `SSR_ADMIN_PACKAGE_INSTALL_RETRIES` 调整包安装重试次数；脚本只等待合法锁持有者，绝不删除 dpkg/apt 锁文件。
+
+## v1.3.0 (2026-07-10)
+
+### Security
+- SSR 安装源码固定到提交 `c4507b7af1fe20a5a6adbb5e3b5a86da9d3a35e8` 并核对实际 Git revision；服务脚本改为仓库内模板，不再下载远程 init 脚本。
+- 未经校验的 BBR、ServerSpeeder、LotServer、BT/PT/SPAM 和源码编译脚本默认禁用；卸载器会在任何副作用前校验服务名、删除路径、符号链接和托管标记。
+- 安装和更新拒绝越界项目子目录及目标路径任一层的符号链接，避免 root 文件同步逃逸到部署范围外。
+- `mudb.json` 写操作增加进程锁和原子替换；JSON 损坏时拒绝覆盖，避免并发添加用户或异常写入造成数据丢失。
+
+### Added
+- 安装前自动刷新 apt/dnf/yum 索引，安装并验证 `sudo`、`curl`、`socat`、CA、Python、venv、systemd、iptables 等完整基础环境。
+- 更新流程增加互斥锁、应用/venv/systemd unit 完整备份、全阶段错误捕获、自动回滚和本机 HTTP 健康检查。
+- CI 增加 Python 3.9/3.11/3.12、Ubuntu 22.04、Debian 12、Rocky Linux 9、ShellCheck 与依赖安全审计。
+- 新增 SSR 防火墙同步助手：默认开放单端口多用户入口 `18899/TCP+UDP`，并从 `mudb.json` 与 `SSR_EXTRA_PORTS` 同步 firewalld/iptables 的 IPv4/IPv6 规则。
+
+### Fixed
+- 修复两个优化器误启用单端口底层入口，统一以 `/usr/local/shadowsocksr/server.py m` 启动读取 `mudb.json` 的多用户服务。
+- systemd 接管 SSR 时禁用旧 SysV 自启动，面板也只调用唯一的 systemd 管理入口，避免重复进程。
+- 完整卸载 SSR 时同步移除托管的旧 SysV 脚本和 `mudb.json` 对应的 IPv4/IPv6 防火墙端口规则。
+- 更新器先切换到受控临时副本执行，避免同步覆盖 `update.sh` 自身后 Bash 从新文件中段继续解析。
+- ARM64 等非 x86_64 系统不再误用 `jq-linux32`，统一链接发行版提供的 `jq`。
+- 安装器不再强制覆盖服务器时区；firewalld 和 iptables/nft 兼容层均可配置幂等端口规则。
+- 安装和更新覆盖源码时保留本地文件；完整安装会验证 SSR 入口、配置和 `mudb.json`，不再只凭目录存在判断成功。
+- SSR systemd 启动前、面板增删用户后自动同步端口；完整卸载 SSR 时会清理状态文件记录的 `18899` 等托管规则，仅卸载面板则保留同步助手。
+
+### Changed
+- 面板更新默认不修改 SSR 源码或重新运行服务器优化；需要时分别显式设置 `SSR_ADMIN_PATCH_SSR_COMPAT=1`、`SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=1`。
+- Python 依赖只安装到面板 venv，移除对 venv 不可见的系统 Flask 包回退。
+
 - ssr-admin-panel: `optimize_server.sh` 默认放行服务器出站 UDP/443，并清理旧版部署留下的 QUIC 拦截规则；如需强制 TCP 回落，可显式设置 `SSR_BLOCK_UDP_443=1`。
 - anytls-panel: 拆分到独立仓库 https://github.com/Elegying/AnyTLS_Panel，SSR_Panel 仅保留 SSR 管理面板和服务器优化工具。
 - ssr-admin-panel: 修复更新脚本复制 `venv/lib64` 失败、内置优化脚本 `--check` 误执行、默认 SSR 密码固定、敏感配置权限过宽和优化摘要端口误报问题。

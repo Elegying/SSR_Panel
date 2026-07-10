@@ -35,47 +35,128 @@ REPO_REF="${SSR_ADMIN_UPDATE_REF:-main}"
 REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
 PYTHON3_BIN="/usr/bin/python3"
 SYSTEM_PYTHON3_BIN="/usr/bin/python3"
+SYS=""
+PACKAGE_FAMILY=""
+PACKAGE_MANAGER=""
+PACKAGE_INSTALL_RETRIES="${SSR_ADMIN_PACKAGE_INSTALL_RETRIES:-3}"
+APT_LOCK_TIMEOUT="${SSR_ADMIN_APT_LOCK_TIMEOUT:-300}"
 APT_UPDATED=0
 RPM_UPDATED=0
 SYNC_REVISION=""
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
-if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
-    SYS="debian"
-elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
-    SYS="centos"
-else
-    SYS="debian"
-fi
+# bootstrap-common:start
+detect_platform() {
+    local os_id="" os_like=""
+
+    if [ ! -r /etc/os-release ]; then
+        echo -e "${RED}不支持的操作系统或软件包管理器: 缺少 /etc/os-release${NC}"
+        exit 1
+    fi
+
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    os_id="${ID:-}"
+    os_like="${ID_LIKE:-}"
+
+    case " ${os_id,,} ${os_like,,} " in
+        *debian*|*ubuntu*)
+            if ! command -v apt-get >/dev/null 2>&1; then
+                echo -e "${RED}不支持的操作系统或软件包管理器: 未找到 apt-get${NC}"
+                exit 1
+            fi
+            SYS="debian"
+            PACKAGE_FAMILY="apt"
+            PACKAGE_MANAGER="apt-get"
+            ;;
+        *rhel*|*fedora*|*centos*|*rocky*|*almalinux*)
+            SYS="centos"
+            PACKAGE_FAMILY="rpm"
+            if command -v dnf >/dev/null 2>&1; then
+                PACKAGE_MANAGER="dnf"
+            elif command -v yum >/dev/null 2>&1; then
+                PACKAGE_MANAGER="yum"
+            else
+                echo -e "${RED}不支持的操作系统或软件包管理器: 未找到 dnf/yum${NC}"
+                exit 1
+            fi
+            ;;
+        *)
+            echo -e "${RED}不支持的操作系统或软件包管理器: ${os_id:-unknown}${NC}"
+            exit 1
+            ;;
+    esac
+}
+
+retry_command() {
+    local attempt=1
+
+    while [ "$attempt" -le "$PACKAGE_INSTALL_RETRIES" ]; do
+        if "$@"; then
+            return 0
+        fi
+        if [ "$attempt" -eq "$PACKAGE_INSTALL_RETRIES" ]; then
+            break
+        fi
+        echo -e "${YELLOW}命令失败，正在重试 (${attempt}/${PACKAGE_INSTALL_RETRIES})...${NC}" >&2
+        sleep "$attempt"
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
+validate_package_settings() {
+    case "$PACKAGE_INSTALL_RETRIES" in
+        ''|*[!0-9]*|0)
+            echo -e "${RED}SSR_ADMIN_PACKAGE_INSTALL_RETRIES 必须是正整数${NC}" >&2
+            return 1
+            ;;
+    esac
+    case "$APT_LOCK_TIMEOUT" in
+        ''|*[!0-9]*)
+            echo -e "${RED}SSR_ADMIN_APT_LOCK_TIMEOUT 必须是非负整数${NC}" >&2
+            return 1
+            ;;
+    esac
+}
+
+apt_get() {
+    apt-get -o Acquire::Retries=3 -o "DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}" "$@"
+}
 
 install_packages() {
-    if [ "$SYS" = "centos" ]; then
-        local rpm_cmd="yum"
-        command -v dnf &>/dev/null && rpm_cmd="dnf"
-        if [ "$RPM_UPDATED" -eq 0 ]; then
-            echo -e "${YELLOW}刷新 yum/dnf 软件源索引...${NC}"
-            "${rpm_cmd}" makecache -q 2>/dev/null || true
-            RPM_UPDATED=1
+    if [ "$PACKAGE_FAMILY" = "apt" ]; then
+        if [ "$APT_UPDATED" -eq 0 ]; then
+            echo -e "${YELLOW}如 apt/dpkg 正被系统更新占用，将等待最多 ${APT_LOCK_TIMEOUT} 秒...${NC}"
+            echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
+            retry_command apt_get update -qq || {
+                echo -e "${RED}apt 软件源刷新失败${NC}" >&2
+                return 1
+            }
+            APT_UPDATED=1
         fi
-        "${rpm_cmd}" install -y -q "$@" 2>/dev/null
+        retry_command apt_get install -y -qq "$@"
         return
     fi
 
-    if [ "$APT_UPDATED" -eq 0 ]; then
-        echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
-        apt-get update -qq
-        APT_UPDATED=1
+    if [ "$PACKAGE_FAMILY" = "rpm" ]; then
+        if [ "$RPM_UPDATED" -eq 0 ]; then
+            echo -e "${YELLOW}刷新 yum/dnf 软件源索引...${NC}"
+            retry_command "$PACKAGE_MANAGER" makecache -q || {
+                echo -e "${RED}${PACKAGE_MANAGER} 软件源刷新失败${NC}" >&2
+                return 1
+            }
+            RPM_UPDATED=1
+        fi
+        retry_command "$PACKAGE_MANAGER" install -y -q "$@"
+        return
     fi
-    apt-get install -y -qq "$@"
-}
 
-python_venv_packages() {
-    if [ "$SYS" = "centos" ]; then
-        echo "python3-pip python3-virtualenv"
-    else
-        echo "python3-venv python3-pip"
-    fi
+    echo -e "${RED}尚未识别可用的软件包管理器${NC}" >&2
+    return 1
 }
+# bootstrap-common:end
 
 ensure_command() {
     local binary=$1
@@ -172,61 +253,81 @@ ensure_panel_venv() {
 
     if [ ! -x "${VENV_DIR}/bin/python" ]; then
         echo -e "${YELLOW}创建面板 Python 虚拟环境...${NC}"
-        "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}" 2>/dev/null || {
-            install_packages $(python_venv_packages) 2>/dev/null || install_packages python3-pip 2>/dev/null || true
-            "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}"
+        "${SYSTEM_PYTHON3_BIN}" -m venv "${VENV_DIR}" || {
+            echo -e "${RED}面板 Python 虚拟环境创建失败${NC}" >&2
+            exit 1
         }
     fi
 
     PYTHON3_BIN="${VENV_DIR}/bin/python"
     "${PYTHON3_BIN}" -m ensurepip --upgrade >/dev/null 2>&1 || true
+    if ! "${PYTHON3_BIN}" -m pip --version >/dev/null 2>&1; then
+        echo -e "${RED}面板 Python pip 不可用${NC}" >&2
+        exit 1
+    fi
     "${PYTHON3_BIN}" -m pip install --upgrade pip setuptools wheel --no-input --disable-pip-version-check -q 2>/dev/null || true
 }
 
-ensure_basic_runtime() {
-    PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
-
-    # 批量安装缺失的系统依赖
-    local MISSING=""
-    local _ss_pkg="iproute2"
-    local _cron_pkg="cron"
+# runtime-common:start
+base_dependency_packages() {
     if [ "$SYS" = "centos" ]; then
-        _ss_pkg="iproute"
-        _cron_pkg="cronie"
+        echo "ca-certificates sudo curl wget socat git tar gzip unzip cronie iproute jq iptables-services python3 python3-pip systemd"
+    else
+        echo "ca-certificates sudo curl wget socat git tar gzip unzip cron iproute2 jq iptables python3 python3-venv python3-pip systemd"
     fi
-    for cmd_pkg in \
-        "systemctl:systemd" \
-        "curl:curl" \
-        "wget:wget" \
-        "git:git" \
-        "tar:tar" \
-        "gzip:gzip" \
-        "unzip:unzip" \
-        "socat:socat" \
-        "ss:${_ss_pkg}" \
-        "crontab:${_cron_pkg}" \
-        "python3:python3"; do
-        local cmd="${cmd_pkg%%:*}" pkg="${cmd_pkg##*:}"
-        command -v "$cmd" &>/dev/null || MISSING="$MISSING $pkg"
-    done
-    if [ -n "$MISSING" ]; then
-        echo -e "${YELLOW}安装系统依赖:${MISSING}${NC}"
-        install_packages $MISSING || {
-            echo -e "${RED}系统依赖安装失败${NC}"
-            exit 1
-        }
-        PYTHON3_BIN=$(command -v python3 2>/dev/null || echo "/usr/bin/python3")
-    fi
+}
 
-    # 创建 python → python3 兼容入口（ssrmu.sh 等脚本依赖 python 命令）
-    if ! command -v python &> /dev/null; then
-        echo -e "${YELLOW}未找到 python 命令，正在创建兼容入口...${NC}"
-        install_packages python-is-python3 2>/dev/null || true
-        if ! command -v python &> /dev/null && command -v python3 &> /dev/null; then
-            ln -sf "$(command -v python3)" /usr/local/bin/python 2>/dev/null || true
+require_systemd() {
+    local init_name=""
+
+    if [ -r /proc/1/comm ]; then
+        IFS= read -r init_name < /proc/1/comm
+    fi
+    if [ "$init_name" != "systemd" ] || ! systemctl show-environment >/dev/null 2>&1; then
+        echo -e "${RED}当前环境未运行可用的 systemd（容器、WSL 或 chroot 请改用完整虚拟机）${NC}" >&2
+        return 1
+    fi
+}
+
+verify_base_runtime() {
+    local cmd
+    local required_commands="sudo curl wget socat git tar gzip unzip crontab ss jq iptables python3 systemctl"
+
+    for cmd in $required_commands; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo -e "${RED}系统依赖验证失败: 未找到 ${cmd}${NC}" >&2
+            return 1
         fi
-    fi
+    done
 
+    if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && [ ! -s /etc/pki/tls/certs/ca-bundle.crt ]; then
+        echo -e "${RED}系统依赖验证失败: CA 证书包不可用${NC}" >&2
+        return 1
+    fi
+    if ! "$SYSTEM_PYTHON3_BIN" -m pip --version >/dev/null 2>&1; then
+        echo -e "${RED}系统依赖验证失败: Python pip 不可用${NC}" >&2
+        return 1
+    fi
+    if ! "$SYSTEM_PYTHON3_BIN" -m venv --help >/dev/null 2>&1; then
+        echo -e "${RED}系统依赖验证失败: Python venv 不可用${NC}" >&2
+        return 1
+    fi
+    require_systemd
+}
+# runtime-common:end
+
+ensure_basic_runtime() {
+    local packages
+    echo -e "${YELLOW}安装并验证基础系统依赖...${NC}"
+    read -r -a packages <<< "$(base_dependency_packages)"
+    install_packages "${packages[@]}" || {
+        echo -e "${RED}系统依赖安装失败${NC}" >&2
+        exit 1
+    }
+
+    SYSTEM_PYTHON3_BIN=$(command -v python3 2>/dev/null || true)
+    PYTHON3_BIN="$SYSTEM_PYTHON3_BIN"
+    verify_base_runtime || exit 1
     ensure_panel_venv
 }
 
@@ -243,23 +344,20 @@ install_flask_runtime() {
         install_python_runtime_with_pip "${req_file}" 2>/dev/null || true
     fi
 
-    # pip 失败或不可用时，回退到系统包
+    # 面板运行在独立 venv 中，依赖必须安装到该 venv，系统 Python 包不可见。
     if ! "$PYTHON3_BIN" -c "import flask" &>/dev/null; then
-        echo -e "${YELLOW}pip 安装 Flask 失败，尝试系统包...${NC}"
-        install_packages python3-flask || \
+        echo -e "${YELLOW}批量安装 Flask 失败，尝试在 venv 中单独安装...${NC}"
         install_single_python_package Flask
     fi
 
     if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试系统包...${NC}"
-        install_single_python_package flask-limiter 2>/dev/null || \
-        install_packages python3-flask-limiter 2>/dev/null || true
+        install_single_python_package flask-limiter 2>/dev/null || true
     fi
 
     if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
         echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
-        install_single_python_package waitress 2>/dev/null || \
-        install_packages python3-waitress 2>/dev/null || true
+        install_single_python_package waitress
     fi
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
@@ -293,9 +391,11 @@ install_device_stats_service() {
     [ "$SYS" = "centos" ] && _ss_pkg="iproute"
     ensure_command "ss" "$_ss_pkg"
     mkdir -p "$(dirname "$DEVICE_STATS_FILE")"
+    printf 'managed\n' > "$(dirname "$DEVICE_STATS_FILE")/.ssr-panel-managed"
     chmod +x "$INSTALL_DIR/scripts/collect_device_stats.py" 2>/dev/null || true
 
     cat > /etc/systemd/system/ssr-device-stats.service <<SERVICE
+# Managed by SSR_Panel
 [Unit]
 Description=SSR Device Stats Collector
 After=network.target
@@ -330,6 +430,13 @@ sync_project_files() {
     local target_dir="$1"
     local tmp_clone_dir source_dir
 
+    case "$REPO_SUBDIR" in
+        /*|..|../*|*/..|*/../*)
+            echo -e "${RED}非法项目子目录: ${REPO_SUBDIR}${NC}" >&2
+            exit 1
+            ;;
+    esac
+
     tmp_clone_dir=$(mktemp -d /tmp/ssr-admin-panel.XXXXXX)
     git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$tmp_clone_dir" -q
     source_dir="$tmp_clone_dir"
@@ -344,11 +451,16 @@ sync_project_files() {
     fi
 
     mkdir -p "$target_dir"
-    find "$target_dir" -mindepth 1 -maxdepth 1 ! -name config.py ! -name backups ! -name venv -exec rm -rf {} +
-    cp -R "$source_dir"/. "$target_dir"/
+    "$PYTHON3_BIN" "$source_dir/scripts/sync_project_files.py" "$source_dir" "$target_dir"
     SYNC_REVISION=$(git -C "$tmp_clone_dir" rev-parse --short HEAD 2>/dev/null || echo "")
     rm -rf "$tmp_clone_dir"
 }
+
+detect_platform
+validate_package_settings || exit 1
+echo -e "${CYAN}系统检测: ${YELLOW}${SYS} (${PACKAGE_MANAGER})${NC}"
+echo -e "${GREEN}[0/6] 安装基础系统依赖...${NC}"
+ensure_basic_runtime
 
 # ========== 交互式配置 ==========
 echo
@@ -369,7 +481,7 @@ safe_read() {
     if [ -t 0 ]; then
         if [ "$is_password" = "yes" ]; then read -r -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
     elif [ -e /dev/tty ]; then
-        if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input < /dev/tty; echo; else read -r -p "$prompt" input < /dev/tty; fi
+        if [ "$is_password" = "yes" ]; then read -r -s -p "$prompt" input < /dev/tty; echo; else read -r -p "$prompt" input < /dev/tty; fi
     else
         return 1
     fi
@@ -393,7 +505,7 @@ if [ -z "$ADMIN_PASS" ]; then
     # 确认密码（非交互模式跳过确认）
     if [ -t 0 ] || [ -e /dev/tty ]; then
         local_confirm=""
-        read -s -p "请再次输入密码确认: " local_confirm
+        read -r -s -p "请再次输入密码确认: " local_confirm
         echo
         if [ "$ADMIN_PASS" != "$local_confirm" ]; then
             echo -e "${RED}两次密码不一致！${NC}"
@@ -419,16 +531,16 @@ if [ -n "${SSR_ADMIN_USER:-}" ]; then
     ENABLE_SHARE_TEMPLATE="n"
     echo -e "${YELLOW}检测到非交互模式，已跳过分享配置${NC}"
 else
-    if [ -t 0 ]; then read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
-    elif [ -e /dev/tty ]; then read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE < /dev/tty
+    if [ -t 0 ]; then read -r -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
+    elif [ -e /dev/tty ]; then read -r -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE < /dev/tty
     else ENABLE_SHARE_TEMPLATE="n"; fi
 fi
 
 ENABLE_SHARE_TEMPLATE=$(printf '%s' "$ENABLE_SHARE_TEMPLATE" | tr '[:upper:]' '[:lower:]')
 
 if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; then
-    if [ -t 0 ]; then read -p "请输入分享域名/IP: " SHARE_HOST
-    elif [ -e /dev/tty ]; then read -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
+    if [ -t 0 ]; then read -r -p "请输入分享域名/IP: " SHARE_HOST
+    elif [ -e /dev/tty ]; then read -r -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
     else SHARE_HOST=""; fi
     
     if [ -z "$SHARE_HOST" ]; then
@@ -456,9 +568,9 @@ fi
 # 下载项目文件
 echo -e "${GREEN}[1/6] 下载项目文件...${NC}" 
 sync_project_files "$INSTALL_DIR"
-ensure_panel_venv
+printf 'managed\n' > "$INSTALL_DIR/.ssr-panel-managed"
 
-chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/sync_ssr_firewall.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION="${SYNC_REVISION:-$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")}"
 PANEL_BUILD_INFO_FILE="$INSTALL_DIR/.panel-build.json"
@@ -488,16 +600,12 @@ apply_ssr_python_compatibility_fix
 echo -e "${GREEN}✓ 项目文件下载完成${NC}"
 echo
 
-# 安装依赖
-echo -e "${GREEN}[2/6] 安装系统依赖...${NC}"
-ensure_basic_runtime
-
-echo -e "${GREEN}[3/6] 安装Python依赖...${NC}"
+echo -e "${GREEN}[2/6] 安装Python依赖...${NC}"
 install_flask_runtime
 
 echo
 # 创建配置文件
-echo -e "${GREEN}[4/6] 生成配置文件...${NC}" 
+echo -e "${GREEN}[3/6] 生成配置文件...${NC}"
 if [ -f "$INSTALL_DIR/config.py" ]; then
     echo -e "${YELLOW}检测到现有配置文件，已保留: $INSTALL_DIR/config.py${NC}"
 else
@@ -544,10 +652,11 @@ fi
 harden_sensitive_files
 
 # 创建systemd服务
-echo -e "${GREEN}[5/6] 配置系统服务...${NC}" 
+echo -e "${GREEN}[4/6] 配置系统服务...${NC}"
 install_device_stats_service
 
 cat > /etc/systemd/system/ssr-admin.service <<SERVICE
+# Managed by SSR_Panel
 [Unit]
 Description=SSR Admin Panel
 After=network.target
@@ -587,7 +696,7 @@ else
 fi
 
 # ── SSR 服务器性能优化 ──
-echo -e "${GREEN}[6/6] SSR 服务器性能优化...${NC}"
+echo -e "${GREEN}[5/6] SSR 服务器性能优化...${NC}"
 if [ -d "$SSR_DIR" ]; then
     bash "$INSTALL_DIR/scripts/optimize_server.sh"
 else

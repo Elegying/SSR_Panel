@@ -4,28 +4,50 @@
 
 ## 支持环境
 
-- Ubuntu 18.04 / 20.04 / 22.04 / 24.04 / 26.04
-- Debian 10 / 11 / 12
-- CentOS Stream / RHEL 系 8 / 9 / 10
-- Python 3.6+（推荐 3.8+；Python 3.6/3.7 会自动使用兼容依赖）
-- systemd
+- x86_64 容器冒烟：Ubuntu 22.04、Debian 12、Rocky Linux 9，仅覆盖依赖安装、测试套件和 Shell 语法，不包含真实 systemd 部署
+- 安装识别：Debian/Ubuntu 与 RHEL/Rocky/Alma/CentOS Stream 系的 `apt-get`、`dnf`、`yum`
+- CI 验证 Python 3.9 / 3.11 / 3.12；Python 3.6/3.7 仅保留尽力兼容依赖
+- systemd 必须作为 PID 1；Docker、未启用 systemd 的 WSL 和 chroot 不支持自动部署
+- x86_64 与 aarch64/ARM64 均使用发行版提供的 Python 和 `jq`；ARM64 未在 CI 实机验证
 
-CentOS/RHEL 系脚本使用 `dnf/yum` 分支安装基础依赖；极简系统需保证软件源可用。
+安装脚本会先刷新包索引，再一次性安装并验证 CA、`sudo`、`curl`、`wget`、`socat`、Git、Python/venv、systemd、iproute、jq 和防火墙兼容包。未知系统会在复制项目文件之前退出。
+
+Debian/Ubuntu 刚重装后，`apt-daily`、`unattended-upgrades` 或 cloud-init 可能正在占用 dpkg。安装和更新脚本会使用 apt 原生锁机制等待最多 300 秒，并对网络/软件源错误重试 3 次，不会删除任何锁文件。慢速镜像可按需延长等待：
+
+```bash
+SSR_ADMIN_APT_LOCK_TIMEOUT=600 \
+SSR_ADMIN_PACKAGE_INSTALL_RETRIES=3 \
+bash install-all.sh
+```
+
+若等待后仍失败，应先用错误中显示的 PID 检查合法进程；不要手工删除 `/var/lib/dpkg/lock*`。
 
 ## 部署方式
+
+极简 Debian/Ubuntu 如果尚无下载器，先以 root 执行：
+
+```bash
+apt-get update && apt-get install -y ca-certificates sudo curl wget
+```
+
+Rocky/RHEL 系对应执行：
+
+```bash
+dnf install -y ca-certificates sudo curl wget
+```
 
 完整安装 SSR + 面板：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install-all.sh -o install-all.sh
-bash install-all.sh
+sudo bash install-all.sh
 ```
 
 仅安装管理面板：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/install.sh -o install.sh
-bash install.sh
+sudo bash install.sh
 ```
 
 非交互安装可通过环境变量传入管理员账号：
@@ -54,11 +76,35 @@ nft list table inet ssr_filter
 
 没有 `/usr/local/shadowsocksr/mudb.json` 时，面板安装会跳过设备统计服务，这是正常行为。
 
+## 导入 mudb.json 与开放 SSR 端口
+
+部署会安装 `/usr/local/libexec/ssr-panel/sync-firewall.py`，并在 SSR 每次启动前同步本机防火墙。同步范围包括 `mudb.json` 中所有有效用户端口，以及 `/etc/default/ssr-panel-firewall` 的附加端口；附加端口默认包含单端口多用户入口 `18899`：
+
+```bash
+# Managed by SSR_Panel
+SSR_EXTRA_PORTS=18899
+```
+
+导入自己的配置后执行：
+
+```bash
+install -m 600 /root/mudb.json /usr/local/shadowsocksr/mudb.json
+systemctl restart ssr
+systemctl is-active ssr
+cat /var/lib/ssr-panel-firewall/managed-ports.json
+ss -lntup | grep ':18899' || true
+```
+
+需要额外入口时可写成 `SSR_EXTRA_PORTS="18899,24444"`，然后重启 SSR。面板新增或删除用户时也会即时同步。规则对 firewalld 或 iptables 的 TCP/UDP、IPv4/IPv6 后端幂等执行，并在端口退出配置后移除项目管理的旧规则。
+
+本机防火墙放行不等于 SSR 已监听：`ss` 没有显示 `18899` 时，应检查导入配置本身。云厂商安全组不受本项目控制，还必须在云控制台单独放行 `18899/TCP` 和 `18899/UDP`。
+
 ## SSR 服务端网络优化
 
 安装脚本会自动调用 `/opt/ssr-admin-panel/scripts/optimize_server.sh`。除 systemd、ulimit、sysctl、Fast Open、日志轮转、fail2ban 外，脚本还会默认启用面向 YouTube/Google 卡顿的服务端防护：
 
 - 统一入口承载优化：适用于所有用户通过同一个入口端口（例如 `18899`）连接的部署，持久化 BBR/fq、TFO、`somaxconn`、`tcp_max_syn_backlog`、本地端口范围，以及 SSR systemd 文件句柄/进程数上限。
+- 入站端口同步：默认放行 `18899/TCP+UDP`，并在 SSR 启动前根据 `mudb.json` 和附加端口配置同步 firewalld 或 iptables。
 - IPv6 目标防护：为 `/usr/local/shadowsocksr/mudb.json` 的用户配置写入 `forbidden_ip`，包含 `127.0.0.0/8,::1/128,::/0`。服务器没有真实 IPv6 出口时，SSR 会快速拒绝 IPv6 目标，客户端通常会回落到 IPv4。
 - UDP/443 放行：默认清理旧版脚本留下的出站 `udp/443` 拦截，允许 YouTube/Google QUIC/HTTP3 首连成功，避免先失败再回落造成首屏卡顿。确需强制 TCP 回落时，可手动启用拦截。
 
@@ -91,13 +137,30 @@ SSR_ADMIN_REPO_SUBDIR="ssr-admin-panel" \
 bash /opt/ssr-admin-panel/update.sh
 ```
 
-更新脚本会保留 `config.py`，并在启动失败时尝试回滚到自动备份。
+更新脚本使用 `flock` 防止并发执行，保留 `config.py` 和本地文件，并备份应用文件、完整 venv 及相关 systemd unit。任何同步后步骤失败都会触发回滚；重启成功后还必须通过本机 HTTP 健康检查。
 
-如果服务器存在 `/usr/local/shadowsocksr`，更新脚本也会重新应用 SSR 服务端优化。临时跳过：
+为避免面板更新意外修改 SSR 数据、网络规则或内核参数，更新默认不重新应用服务端优化，也不修补 SSR 源码。需要时显式启用：
 
 ```bash
-SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=0 bash /opt/ssr-admin-panel/update.sh
+SSR_ADMIN_PATCH_SSR_COMPAT=1 \
+SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=1 \
+bash /opt/ssr-admin-panel/update.sh
 ```
+
+可通过 `SSR_ADMIN_HEALTH_URL` 覆盖默认健康检查地址 `http://127.0.0.1:5000/login`。
+
+## SSR 来源与可复现性
+
+完整安装默认从 `ToyoDAdoubiBackup/shadowsocksr` 的固定提交 `c4507b7af1fe20a5a6adbb5e3b5a86da9d3a35e8` 获取源码，并把实际 revision 写入 `/usr/local/shadowsocksr/.ssr-upstream-revision`。如需自定义上游，`SSR_UPSTREAM_REF` 仍必须是完整 40 位提交哈希：
+
+```bash
+SSR_UPSTREAM_REPO="https://github.com/your-name/shadowsocksr.git" \
+SSR_UPSTREAM_REF="0123456789abcdef0123456789abcdef01234567" \
+```bash
+bash /opt/ssr-admin-panel/ssrmu.sh
+```
+
+`ssrmu.sh` 的旧版 BBR、ServerSpeeder、LotServer、BT/PT/SPAM 和源码编译入口会下载未经本项目校验的 root 脚本，默认拒绝执行。只有完成独立审计后，才可临时设置 `SSR_ALLOW_UNVERIFIED_DOWNLOADS=1`；生产环境不建议开启。
 
 ## 卸载
 
@@ -119,12 +182,17 @@ bash /opt/ssr-admin-panel/uninstall.sh --yes --keep-data
 bash /opt/ssr-admin-panel/uninstall.sh --yes --remove-ssr
 ```
 
+默认路径保持向后兼容；通过环境变量使用自定义目录时，卸载器只接受包含 `.ssr-panel-managed` 标记且不穿越符号链接的目录。安装和更新脚本会自动创建该标记。
+
+仅卸载面板会保留 SSR 的防火墙同步助手，避免后续 `systemctl restart ssr` 失败；使用 `--remove-ssr` 时才会一并清理默认 `18899`、用户端口规则和带托管标记的同步文件。
+
 ## 发布前检查
 
 ```bash
 python3 -m pip install -r requirements.txt
 python3 -m unittest discover -s tests -q
 bash -n install.sh install-all.sh update.sh scripts/optimize_server.sh ssrmu.sh uninstall.sh
+shellcheck --severity=error install.sh install-all.sh update.sh scripts/optimize_server.sh ssrmu.sh uninstall.sh
 ```
 
 GitHub Actions 会在 push 和 pull request 时自动运行这些检查。
@@ -134,4 +202,5 @@ GitHub Actions 会在 push 和 pull request 时自动运行这些检查。
 - 面板无法启动：执行 `journalctl -u ssr-admin -n 50 --no-pager`。
 - 更新失败：执行 `git -C /opt/ssr-admin-panel status --short` 检查本地改动。
 - 设备统计服务未运行：先确认 `/usr/local/shadowsocksr/mudb.json` 是否存在。
+- 导入配置后 `18899` 不通：依次检查 `systemctl status ssr`、`journalctl -u ssr`、`ss -lntup`、本机防火墙和云安全组。
 - 依赖安装失败：确认服务器可访问 PyPI 或配置可用的软件源。

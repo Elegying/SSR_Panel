@@ -180,6 +180,17 @@ SSR_WORKDIR = SSR_DIR / "shadowsocks"
 SSR_SERVER = SSR_WORKDIR / "server.py"
 SSR_LOG_FILE = SSR_DIR / "ssserver.log"
 SSR_INIT_SCRIPT = Path(getattr(app_config, "SSR_INIT_SCRIPT", "/etc/init.d/ssrmu"))
+SSR_SYSTEMD_UNIT = Path(
+    getattr(app_config, "SSR_SYSTEMD_UNIT", "/etc/systemd/system/ssr.service")
+)
+SSR_SYSTEMD_SERVICE = getattr(app_config, "SSR_SYSTEMD_SERVICE", "ssr.service")
+SSR_FIREWALL_SYNC_HELPER = Path(
+    getattr(
+        app_config,
+        "SSR_FIREWALL_SYNC_HELPER",
+        "/usr/local/libexec/ssr-panel/sync-firewall.py",
+    )
+)
 SSR_PYTHON_BIN = getattr(app_config, "SSR_PYTHON_BIN", "")
 BACKUP_DIR = Path("/opt/ssr-admin-panel/backups")
 PANEL_DIR = Path(__file__).resolve().parent
@@ -254,23 +265,31 @@ def mudb_path():
     return Path(MUDB_FILE)
 
 
-def load_users():
-    path = mudb_path()
+class UserDatabaseError(RuntimeError):
+    """Raised when the SSR user database cannot be read safely."""
+
+
+class UserOperationError(ValueError):
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
+
+
+def _read_users_unlocked(path):
     try:
-        with path.with_suffix(path.suffix + ".lock").open("a+", encoding="utf-8") as lock:
-            fcntl.flock(lock, fcntl.LOCK_SH)
-            with path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-            fcntl.flock(lock, fcntl.LOCK_UN)
-        return data if isinstance(data, list) else []
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
         return []
+    except (json.JSONDecodeError, OSError) as exc:
+        raise UserDatabaseError(f"无法读取用户数据库: {path}") from exc
+
+    if not isinstance(data, list):
+        raise UserDatabaseError(f"用户数据库格式无效: {path}")
+    return data
 
 
-def save_users(users):
-    path = mudb_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_suffix(path.suffix + ".lock")
+def _write_users_unlocked(path, users):
     tmp_name = None
     mode = None
     try:
@@ -278,40 +297,88 @@ def save_users(users):
     except OSError:
         pass
 
+    try:
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=str(path.parent),
+            text=True,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(users, f, indent=4, ensure_ascii=False)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        if mode is not None:
+            os.chmod(tmp_name, mode)
+        os.replace(tmp_name, path)
+        tmp_name = None
+        try:
+            dir_flags = getattr(os, "O_DIRECTORY", 0)
+            dir_fd = os.open(path.parent, dir_flags)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
+    finally:
+        if tmp_name:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+
+
+def load_users():
+    path = mudb_path()
+    if not path.exists():
+        return []
+    try:
+        with path.with_suffix(path.suffix + ".lock").open("a+", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            try:
+                return _read_users_unlocked(path)
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+    except UserDatabaseError:
+        raise
+    except OSError as exc:
+        raise UserDatabaseError(f"无法锁定用户数据库: {path}") from exc
+
+
+def save_users(users):
+    path = mudb_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(path.suffix + ".lock")
     with lock_path.open("a+", encoding="utf-8") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            fd, tmp_name = tempfile.mkstemp(
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                dir=str(path.parent),
-                text=True,
-            )
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(users, f, indent=4, ensure_ascii=False)
-                f.write("\n")
-                f.flush()
-                os.fsync(f.fileno())
-            if mode is not None:
-                os.chmod(tmp_name, mode)
-            os.replace(tmp_name, path)
-            tmp_name = None
-            try:
-                dir_flags = getattr(os, "O_DIRECTORY", 0)
-                dir_fd = os.open(path.parent, dir_flags)
-                try:
-                    os.fsync(dir_fd)
-                finally:
-                    os.close(dir_fd)
-            except OSError:
-                pass
+            if path.exists():
+                _read_users_unlocked(path)
+            _write_users_unlocked(path, users)
         finally:
-            if tmp_name:
-                try:
-                    os.unlink(tmp_name)
-                except OSError:
-                    pass
             fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def mutate_users(mutator):
+    path = mudb_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    try:
+        with lock_path.open("a+", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                users = _read_users_unlocked(path)
+                result = mutator(users)
+                _write_users_unlocked(path, users)
+                return result
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+    except (UserDatabaseError, UserOperationError):
+        raise
+    except OSError as exc:
+        raise UserDatabaseError(f"无法更新用户数据库: {path}") from exc
 
 
 def generate_password(length=12):
@@ -483,6 +550,17 @@ def build_ssr_share_url(user, host):
 
 def json_error(message, status=400):
     return jsonify({"success": False, "error": message}), status
+
+
+@app.errorhandler(UserDatabaseError)
+def handle_user_database_error(error):
+    audit_log("USER_DATABASE_ERROR", str(error), "ERROR")
+    return json_error("用户数据库不可用，已拒绝操作以保护现有数据", 500)
+
+
+@app.errorhandler(UserOperationError)
+def handle_user_operation_error(error):
+    return json_error(str(error), error.status)
 
 
 def read_json_file(path, default):
@@ -738,6 +816,28 @@ def start_panel_update():
         PANEL_SERVICE_NAME,
     ]
 
+    status = {
+        "in_progress": True,
+        "started_at": datetime.now().isoformat(),
+        "finished_at": None,
+        "message": f"正在从 {PANEL_GIT_REMOTE}/{PANEL_GIT_BRANCH} 更新到 {info['latest_version']}",
+        "current_version": info["current_version"],
+        "latest_version": info["latest_version"],
+        "last_exit_code": None,
+        "phase": "queued",
+        "backup_dir": "",
+        "rollback_attempted": False,
+        "rollback_success": False,
+    }
+    try:
+        PANEL_UPDATE_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PANEL_UPDATE_STATUS_FILE.write_text(
+            json.dumps(status, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError as e:
+        return {"success": False, "message": f"无法创建更新状态文件: {e}"}
+
     if shutil.which("systemd-run"):
         launch_result = run_process(command)
     else:
@@ -755,27 +855,26 @@ def start_panel_update():
             launch_result = {"success": False, "output": "", "error": str(e)}
 
     if not launch_result["success"]:
+        status.update(
+            {
+                "in_progress": False,
+                "finished_at": datetime.now().isoformat(),
+                "message": launch_result["error"] or launch_result["output"] or "更新任务启动失败",
+                "last_exit_code": 1,
+                "phase": "failed",
+            }
+        )
+        try:
+            PANEL_UPDATE_STATUS_FILE.write_text(
+                json.dumps(status, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
         return {
             "success": False,
             "message": launch_result["error"] or launch_result["output"] or "更新任务启动失败",
         }
-
-    PANEL_UPDATE_STATUS_FILE.write_text(
-        json.dumps(
-            {
-                "in_progress": True,
-                "started_at": datetime.now().isoformat(),
-                "finished_at": None,
-                "message": f"正在从 {PANEL_GIT_REMOTE}/{PANEL_GIT_BRANCH} 更新到 {info['latest_version']}",
-                "current_version": info["current_version"],
-                "latest_version": info["latest_version"],
-                "last_exit_code": None,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
     return {
         "success": True,
         "message": f"更新任务已启动，目标版本 {info['latest_version']}。面板会在完成后自动重启。",
@@ -1036,6 +1135,17 @@ def run_process(args, cwd=None):
         return {"success": False, "output": "", "error": str(e)}
 
 
+def sync_ssr_firewall():
+    if not SSR_FIREWALL_SYNC_HELPER.is_file() or SSR_FIREWALL_SYNC_HELPER.is_symlink():
+        return {"success": True, "output": "", "error": "", "skipped": True}
+
+    result = run_process([str(SSR_FIREWALL_SYNC_HELPER)])
+    if not result["success"]:
+        details = (result["error"] or result["output"] or "unknown error").replace("\n", " ")[:500]
+        audit_log("FIREWALL_SYNC_FAILED", details, level="WARNING")
+    return result
+
+
 def get_expected_ssr_status(action):
     return "stopped" if action == "stop" else "running"
 
@@ -1079,6 +1189,18 @@ def run_ssr_init_script(action):
     return run_process([str(SSR_INIT_SCRIPT), action])
 
 
+def systemd_controls_ssr():
+    return (
+        SSR_SYSTEMD_UNIT.is_file()
+        and Path("/run/systemd/system").is_dir()
+        and shutil.which("systemctl") is not None
+    )
+
+
+def run_ssr_systemd_command(action):
+    return run_process(["systemctl", action, SSR_SYSTEMD_SERVICE])
+
+
 def run_ssr_server_command_once(action):
     if not SSR_SERVER.exists():
         return {"success": False, "output": "", "error": f"未找到 SSR 服务脚本: {SSR_SERVER}"}
@@ -1109,11 +1231,14 @@ def execute_ssr_command(action):
     if action not in {"start", "stop", "restart"}:
         return {"success": False, "output": "", "error": "不支持的操作"}
 
-    runners = []
-    if SSR_INIT_SCRIPT.exists():
-        runners.append(run_ssr_init_script)
-    if SSR_SERVER.exists():
-        runners.append(run_ssr_server_command)
+    if systemd_controls_ssr():
+        runners = [run_ssr_systemd_command]
+    else:
+        runners = []
+        if SSR_INIT_SCRIPT.exists():
+            runners.append(run_ssr_init_script)
+        if SSR_SERVER.exists():
+            runners.append(run_ssr_server_command)
 
     if not runners:
         return {
@@ -1147,13 +1272,23 @@ def execute_ssr_command(action):
 
 def get_ssr_status():
     try:
+        if systemd_controls_ssr():
+            result = run_process(["systemctl", "is-active", SSR_SYSTEMD_SERVICE])
+            status = (result["output"] or result["error"]).strip().lower().splitlines()
+            state = status[0] if status else ""
+            if result["success"] or state in {"active", "activating", "reloading"}:
+                return "running"
+            if state in {"inactive", "failed", "deactivating", "dead"}:
+                return "stopped"
+            return "unknown"
+
         if SSR_INIT_SCRIPT.exists():
             result = run_process([str(SSR_INIT_SCRIPT), "status"])
             output = "\n".join(filter(None, [result["output"], result["error"]])).lower()
-            if any(keyword in output for keyword in ("running", "active", "正在运行", "已运行")):
-                return "running"
             if any(keyword in output for keyword in ("not running", "stopped", "inactive", "未运行", "已停止")):
                 return "stopped"
+            if any(keyword in output for keyword in ("running", "active", "正在运行", "已运行")):
+                return "running"
 
         result = subprocess.run(
             ["ps", "-eo", "args="],
@@ -1439,14 +1574,18 @@ def api_users():
 @requires_csrf
 @limiter.limit("30 per minute")
 def add_user():
-    users = load_users()
-    new_user, error = validate_new_user(request.get_json(silent=True) or {}, users)
-    if error:
-        return json_error(error)
+    payload = request.get_json(silent=True) or {}
 
-    users.append(new_user)
-    save_users(users)
+    def add(users):
+        new_user, error = validate_new_user(payload, users)
+        if error:
+            raise UserOperationError(error)
+        users.append(new_user)
+        return new_user
+
+    new_user = mutate_users(add)
     audit_log("USER_ADD", f"添加用户: {new_user['user']}, 端口: {new_user['port']}")
+    sync_ssr_firewall()
     created_user = serialize_user(new_user)
     created_user["generated_password"] = new_user["passwd"]
     return jsonify({"success": True, "message": "用户添加成功", "user": created_user})
@@ -1480,15 +1619,17 @@ def share_user(user):
 @requires_csrf
 @limiter.limit("30 per minute")
 def delete_user(user):
-    users = load_users()
-    target = find_user(users, user)
-    if not target:
-        return json_error("用户不存在", 404)
+    def delete(users):
+        target = find_user(users, user)
+        if not target:
+            raise UserOperationError("用户不存在", 404)
+        port = target.get("port", "?")
+        users.remove(target)
+        return port
 
-    port = target.get("port", "?")
-    users.remove(target)
-    save_users(users)
+    port = mutate_users(delete)
     audit_log("USER_DELETE", f"删除用户: {user}, 端口: {port}")
+    sync_ssr_firewall()
     return jsonify({"success": True, "message": "用户删除成功"})
 
 
@@ -1497,14 +1638,14 @@ def delete_user(user):
 @requires_csrf
 @limiter.limit("30 per minute")
 def reset_user(user):
-    users = load_users()
-    target = find_user(users, user)
-    if not target:
-        return json_error("用户不存在", 404)
+    def reset(users):
+        target = find_user(users, user)
+        if not target:
+            raise UserOperationError("用户不存在", 404)
+        target["u"] = 0
+        target["d"] = 0
 
-    target["u"] = 0
-    target["d"] = 0
-    save_users(users)
+    mutate_users(reset)
     audit_log("USER_RESET", f"重置流量: {user}")
     return jsonify({"success": True, "message": f"用户 {user} 流量已重置"})
 
@@ -1514,14 +1655,15 @@ def reset_user(user):
 @requires_csrf
 @limiter.limit("30 per minute")
 def toggle_user(user):
-    users = load_users()
-    target = find_user(users, user)
-    if not target:
-        return json_error("用户不存在", 404)
+    def toggle(users):
+        target = find_user(users, user)
+        if not target:
+            raise UserOperationError("用户不存在", 404)
+        new_state = 0 if to_int(target.get("enable", 0), 0) == 1 else 1
+        target["enable"] = new_state
+        return new_state
 
-    new_state = 0 if to_int(target.get("enable", 0), 0) == 1 else 1
-    target["enable"] = new_state
-    save_users(users)
+    new_state = mutate_users(toggle)
     audit_log("USER_TOGGLE", f"{'启用' if new_state else '禁用'}用户: {user}")
     return jsonify({"success": True, "message": f"用户 {user} 状态已切换"})
 

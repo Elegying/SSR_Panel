@@ -1,6 +1,20 @@
 #!/bin/bash
 
-set -euo pipefail
+set -Eeuo pipefail
+
+# The update overlays update.sh itself. Execute from a private immutable path so
+# Bash never continues parsing a file that has been replaced mid-transaction.
+UPDATE_STABLE_COPY=""
+if [ "${SSR_ADMIN_UPDATE_STABLE_COPY:-0}" != "1" ]; then
+    UPDATE_STABLE_COPY="$(mktemp /tmp/ssr-admin-panel-update-run.XXXXXX)"
+    cp "$0" "${UPDATE_STABLE_COPY}"
+    chmod 700 "${UPDATE_STABLE_COPY}"
+    export SSR_ADMIN_UPDATE_STABLE_COPY=1
+    exec bash "${UPDATE_STABLE_COPY}" "$@"
+fi
+case "$0" in
+    /tmp/ssr-admin-panel-update-run.*) UPDATE_STABLE_COPY="$0" ;;
+esac
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -18,8 +32,14 @@ DEVICE_STATS_SERVICE_NAME="${SSR_DEVICE_STATS_SERVICE_NAME:-ssr-device-stats}"
 DEVICE_STATS_FILE="${SSR_DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
 DEVICE_STATS_INTERVAL="${SSR_DEVICE_STATS_INTERVAL:-15}"
 DEVICE_STATS_WINDOW="${SSR_DEVICE_STATS_WINDOW:-900}"
-APPLY_SERVER_OPTIMIZATION="${SSR_ADMIN_APPLY_SERVER_OPTIMIZATION:-1}"
+APPLY_SERVER_OPTIMIZATION="${SSR_ADMIN_APPLY_SERVER_OPTIMIZATION:-0}"
+PATCH_SSR_COMPAT="${SSR_ADMIN_PATCH_SSR_COMPAT:-0}"
 VENV_DIR="${SSR_ADMIN_VENV_DIR:-${PANEL_DIR}/venv}"
+SYSTEMD_DIR="${SSR_ADMIN_SYSTEMD_DIR:-/etc/systemd/system}"
+HEALTH_URL="${SSR_ADMIN_HEALTH_URL:-http://127.0.0.1:5000/login}"
+LOCK_FILE="${SSR_ADMIN_UPDATE_LOCK_FILE:-/run/lock/ssr-admin-panel-update.lock}"
+PACKAGE_INSTALL_RETRIES="${SSR_ADMIN_PACKAGE_INSTALL_RETRIES:-3}"
+APT_LOCK_TIMEOUT="${SSR_ADMIN_APT_LOCK_TIMEOUT:-300}"
 if [ -z "${PYTHON3_BIN:-}" ]; then
     if [ -x "${VENV_DIR}/bin/python" ]; then
         PYTHON3_BIN="${VENV_DIR}/bin/python"
@@ -32,6 +52,8 @@ STATUS_FILE="${SSR_ADMIN_UPDATE_STATUS_FILE:-}"
 BACKUP_DIR=""
 ROLLBACK_ATTEMPTED=0
 ROLLBACK_SUCCESS=0
+TRANSACTION_ACTIVE=0
+ROLLBACK_IN_PROGRESS=0
 APT_UPDATED=0
 RPM_UPDATED=0
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
@@ -41,28 +63,82 @@ if [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then
 elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
     SYS="centos"
 else
-    SYS="debian"
+    if command -v apt-get &>/dev/null; then
+        SYS="debian"
+    elif command -v dnf &>/dev/null || command -v yum &>/dev/null; then
+        SYS="centos"
+    else
+        SYS="unsupported"
+    fi
 fi
 
+retry_command() {
+    local attempt=1
+
+    while [ "$attempt" -le "$PACKAGE_INSTALL_RETRIES" ]; do
+        if "$@"; then
+            return 0
+        fi
+        if [ "$attempt" -eq "$PACKAGE_INSTALL_RETRIES" ]; then
+            break
+        fi
+        echo -e "${YELLOW}命令失败，正在重试 (${attempt}/${PACKAGE_INSTALL_RETRIES})...${NC}" >&2
+        sleep "$attempt"
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
+validate_package_settings() {
+    case "$PACKAGE_INSTALL_RETRIES" in
+        ''|*[!0-9]*|0)
+            echo -e "${RED}SSR_ADMIN_PACKAGE_INSTALL_RETRIES 必须是正整数${NC}" >&2
+            return 1
+            ;;
+    esac
+    case "$APT_LOCK_TIMEOUT" in
+        ''|*[!0-9]*)
+            echo -e "${RED}SSR_ADMIN_APT_LOCK_TIMEOUT 必须是非负整数${NC}" >&2
+            return 1
+            ;;
+    esac
+}
+
+apt_get() {
+    apt-get -o Acquire::Retries=3 -o "DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}" "$@"
+}
+
 install_packages() {
+    if [ "$SYS" = "unsupported" ]; then
+        echo -e "${RED}不支持当前系统：未找到 apt-get、dnf 或 yum${NC}" >&2
+        return 1
+    fi
     if [ "$SYS" = "centos" ]; then
         local rpm_cmd="yum"
         command -v dnf &>/dev/null && rpm_cmd="dnf"
         if [ "$RPM_UPDATED" -eq 0 ]; then
             echo -e "${YELLOW}刷新 yum/dnf 软件源索引...${NC}"
-            "${rpm_cmd}" makecache -q 2>/dev/null || true
+            retry_command "${rpm_cmd}" makecache -q || {
+                echo -e "${RED}${rpm_cmd} 软件源刷新失败${NC}" >&2
+                return 1
+            }
             RPM_UPDATED=1
         fi
-        "${rpm_cmd}" install -y -q "$@" 2>/dev/null
+        retry_command "${rpm_cmd}" install -y -q "$@"
         return
     fi
 
     if [ "$APT_UPDATED" -eq 0 ]; then
+        echo -e "${YELLOW}如 apt/dpkg 正被系统更新占用，将等待最多 ${APT_LOCK_TIMEOUT} 秒...${NC}"
         echo -e "${YELLOW}刷新 apt 软件源索引...${NC}"
-        apt-get update -qq
+        retry_command apt_get update -qq || {
+            echo -e "${RED}apt 软件源刷新失败${NC}" >&2
+            return 1
+        }
         APT_UPDATED=1
     fi
-    apt-get install -y -qq "$@"
+    retry_command apt_get install -y -qq "$@"
 }
 
 ensure_command() {
@@ -74,22 +150,40 @@ ensure_command() {
     echo -e "${YELLOW}${binary} 未安装，正在安装...${NC}"
     install_packages "$@" || {
         echo -e "${RED}${binary} 安装失败，请手动安装后重试${NC}"
-        exit 1
+        return 1
     }
 }
 
 ensure_update_runtime() {
+    validate_package_settings
     ensure_command "git" "git"
     ensure_command "systemctl" "systemd"
+    ensure_command "flock" "util-linux"
+    if ! systemctl show-environment >/dev/null 2>&1; then
+        echo -e "${RED}当前环境没有正在运行的 systemd manager${NC}" >&2
+        return 1
+    fi
     if ! [ -x "${PYTHON3_BIN}" ]; then
         ensure_command "python3" "python3"
         PYTHON3_BIN="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"
     fi
 }
 
+acquire_update_lock() {
+    mkdir -p "$(dirname "${LOCK_FILE}")"
+    exec 9>"${LOCK_FILE}"
+    if ! flock -n 9; then
+        echo -e "${RED}已有面板更新正在运行，请稍后重试${NC}" >&2
+        return 1
+    fi
+}
+
 cleanup() {
     if [ -n "${TMP_CLONE_DIR}" ] && [ -d "${TMP_CLONE_DIR}" ]; then
         rm -rf "${TMP_CLONE_DIR}"
+    fi
+    if [ -n "${UPDATE_STABLE_COPY}" ]; then
+        rm -f "${UPDATE_STABLE_COPY}"
     fi
 }
 
@@ -136,6 +230,67 @@ import sys
 major = int(sys.argv[1])
 minor = int(sys.argv[2])
 raise SystemExit(0 if sys.version_info >= (major, minor) else 1)
+PY
+}
+
+validate_update_paths() {
+    case "${SERVICE_NAME}" in
+        ''|*[!A-Za-z0-9_.@-]*)
+            echo -e "${RED}非法服务名: ${SERVICE_NAME}${NC}" >&2
+            return 1
+            ;;
+    esac
+    case "${DEVICE_STATS_SERVICE_NAME}" in
+        ''|*[!A-Za-z0-9_.@-]*)
+            echo -e "${RED}非法服务名: ${DEVICE_STATS_SERVICE_NAME}${NC}" >&2
+            return 1
+            ;;
+    esac
+    if [ "${SERVICE_NAME}" = "ssr" ] || [ "${DEVICE_STATS_SERVICE_NAME}" = "ssr" ]; then
+        echo -e "${RED}服务名 ssr 已保留给 ShadowsocksR 主服务${NC}" >&2
+        return 1
+    fi
+    if [ "${SERVICE_NAME}" = "${DEVICE_STATS_SERVICE_NAME}" ]; then
+        echo -e "${RED}面板服务与设备统计服务不能同名${NC}" >&2
+        return 1
+    fi
+
+    "${PYTHON3_BIN}" - "${PANEL_DIR}" "${VENV_DIR}" "${SYSTEMD_DIR}" "${REPO_SUBDIR}" <<'PY'
+import sys
+from pathlib import Path
+
+panel_input = Path(sys.argv[1])
+venv_input = Path(sys.argv[2])
+systemd_input = Path(sys.argv[3])
+repo_subdir = Path(sys.argv[4]) if sys.argv[4] else None
+
+
+def reject_symlink_components(label, path):
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise SystemExit(f"unsafe {label} symlink component: {current}")
+
+
+for label, path in (("panel", panel_input), ("venv", venv_input), ("systemd", systemd_input)):
+    if not path.is_absolute():
+        raise SystemExit(f"unsafe relative {label} path: {path}")
+    reject_symlink_components(label, path)
+
+if repo_subdir is not None and (repo_subdir.is_absolute() or ".." in repo_subdir.parts):
+    raise SystemExit(f"unsafe repo subdir: {repo_subdir}")
+
+panel = panel_input.resolve()
+venv = venv_input.resolve()
+systemd = systemd_input.resolve()
+
+if panel == Path("/"):
+    raise SystemExit("unsafe panel directory")
+if venv == panel or panel not in venv.parents:
+    raise SystemExit("SSR_ADMIN_VENV_DIR must be inside SSR_ADMIN_PANEL_DIR")
+if systemd == Path("/") or not systemd.is_absolute():
+    raise SystemExit("unsafe systemd directory")
 PY
 }
 
@@ -203,6 +358,11 @@ exclude = {"backups", "__pycache__", "venv", ".initial_ssr_password", "ssr-insta
 if mode == "sync" and not (source / "config.py").exists():
     exclude.add("config.py")
 
+if not source.is_dir() or source.is_symlink():
+    raise SystemExit(f"invalid copy source: {source}")
+if target.is_symlink():
+    raise SystemExit(f"refusing symlink copy target: {target}")
+
 
 def remove_path(path: Path) -> None:
     if path.is_dir() and not path.is_symlink():
@@ -211,11 +371,21 @@ def remove_path(path: Path) -> None:
         path.unlink()
 
 
+def validate_source_directory(src: Path) -> None:
+    for item in src.iterdir():
+        if item.name in exclude:
+            continue
+        if item.is_symlink():
+            raise SystemExit(f"refusing source symlink: {item}")
+        if item.is_dir():
+            validate_source_directory(item)
+
+
 def copy_dir(src: Path, dst: Path) -> None:
     dst.mkdir(parents=True, exist_ok=True)
     source_items = {item.name: item for item in src.iterdir() if item.name not in exclude}
 
-    if mode == "sync":
+    if mode == "restore":
         for existing in list(dst.iterdir()):
             if existing.name in exclude:
                 continue
@@ -224,6 +394,8 @@ def copy_dir(src: Path, dst: Path) -> None:
 
     for name, src_item in source_items.items():
         dst_item = dst / name
+        if dst_item.is_symlink():
+            remove_path(dst_item)
         if src_item.is_dir() and not src_item.is_symlink():
             if dst_item.exists() and not dst_item.is_dir():
                 remove_path(dst_item)
@@ -235,18 +407,104 @@ def copy_dir(src: Path, dst: Path) -> None:
             shutil.copy2(src_item, dst_item, follow_symlinks=False)
 
 
+if mode == "sync":
+    validate_source_directory(source)
 copy_dir(source, target)
 PY
 }
 
 create_full_backup() {
-    BACKUP_DIR="${PANEL_DIR}/backups/update_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "${PANEL_DIR}/backups"
+    BACKUP_DIR="$(mktemp -d "${PANEL_DIR}/backups/update_$(date +%Y%m%d_%H%M%S).XXXXXX")"
     mkdir -p "${BACKUP_DIR}/app"
     copy_tree "${PANEL_DIR}" "${BACKUP_DIR}/app" "copy"
+    if [ -d "${VENV_DIR}" ]; then
+        cp -a "${VENV_DIR}" "${BACKUP_DIR}/venv"
+    else
+        : > "${BACKUP_DIR}/venv.absent"
+    fi
+
+    mkdir -p "${BACKUP_DIR}/systemd"
+    local service unit unit_name
+    for service in "${SERVICE_NAME}" "${DEVICE_STATS_SERVICE_NAME}"; do
+        unit="${SYSTEMD_DIR}/${service}.service"
+        unit_name="${service}.service"
+        if [ -f "${unit}" ]; then
+            cp -a "${unit}" "${BACKUP_DIR}/systemd/${unit_name}"
+        else
+            : > "${BACKUP_DIR}/systemd/${unit_name}.absent"
+        fi
+        if systemctl is-enabled --quiet "${service}" 2>/dev/null; then
+            printf '1\n' > "${BACKUP_DIR}/systemd/${unit_name}.enabled"
+        else
+            printf '0\n' > "${BACKUP_DIR}/systemd/${unit_name}.enabled"
+        fi
+        if systemctl is-active --quiet "${service}" 2>/dev/null; then
+            printf '1\n' > "${BACKUP_DIR}/systemd/${unit_name}.active"
+        else
+            printf '0\n' > "${BACKUP_DIR}/systemd/${unit_name}.active"
+        fi
+    done
 }
 
 harden_sensitive_files() {
     chmod 600 "${PANEL_DIR}/config.py" "${PANEL_DIR}/.initial_ssr_password" "${PANEL_DIR}/ssr-install.log" "${SSR_DIR}/mudb.json" 2>/dev/null || true
+}
+
+restore_virtualenv() {
+    if [ -d "${BACKUP_DIR}/venv" ]; then
+        rm -rf "${VENV_DIR}"
+        mkdir -p "$(dirname "${VENV_DIR}")"
+        cp -a "${BACKUP_DIR}/venv" "${VENV_DIR}"
+    elif [ -f "${BACKUP_DIR}/venv.absent" ]; then
+        rm -rf "${VENV_DIR}"
+    fi
+}
+
+restore_service_units() {
+    local unit_name target
+    mkdir -p "${SYSTEMD_DIR}"
+    for unit_name in "${SERVICE_NAME}.service" "${DEVICE_STATS_SERVICE_NAME}.service"; do
+        target="${SYSTEMD_DIR}/${unit_name}"
+        if [ -f "${BACKUP_DIR}/systemd/${unit_name}" ]; then
+            cp -a "${BACKUP_DIR}/systemd/${unit_name}" "${target}"
+        elif [ -f "${BACKUP_DIR}/systemd/${unit_name}.absent" ]; then
+            rm -f "${target}"
+        fi
+    done
+}
+
+restore_service_states() {
+    local service unit_name expected_enabled expected_active result=0
+    for service in "${SERVICE_NAME}" "${DEVICE_STATS_SERVICE_NAME}"; do
+        unit_name="${service}.service"
+        expected_enabled="$(cat "${BACKUP_DIR}/systemd/${unit_name}.enabled" 2>/dev/null || echo 0)"
+        expected_active="$(cat "${BACKUP_DIR}/systemd/${unit_name}.active" 2>/dev/null || echo 0)"
+
+        if [ "${expected_enabled}" = "1" ]; then
+            systemctl enable "${service}" >/dev/null 2>&1 || result=1
+        else
+            systemctl disable "${service}" >/dev/null 2>&1 || true
+        fi
+
+        if [ "${expected_active}" = "1" ]; then
+            systemctl restart "${service}" || result=1
+        else
+            systemctl stop "${service}" >/dev/null 2>&1 || true
+        fi
+
+        if [ "${expected_enabled}" = "1" ]; then
+            systemctl is-enabled --quiet "${service}" 2>/dev/null || result=1
+        elif systemctl is-enabled --quiet "${service}" 2>/dev/null; then
+            result=1
+        fi
+        if [ "${expected_active}" = "1" ]; then
+            systemctl is-active --quiet "${service}" 2>/dev/null || result=1
+        elif systemctl is-active --quiet "${service}" 2>/dev/null; then
+            result=1
+        fi
+    done
+    return "${result}"
 }
 
 restore_backup() {
@@ -257,11 +515,16 @@ restore_backup() {
     ROLLBACK_ATTEMPTED=1
     echo -e "${YELLOW}正在恢复上一版应用文件...${NC}"
     write_status "rollback" "新版本启动失败，正在恢复上一版"
-    copy_tree "${BACKUP_DIR}/app" "${PANEL_DIR}" "sync"
+    copy_tree "${BACKUP_DIR}/app" "${PANEL_DIR}" "restore"
+    restore_virtualenv
+    restore_service_units
     harden_sensitive_files
-    chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" 2>/dev/null || true
+    chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" 2>/dev/null || true
     systemctl daemon-reload || true
-    if systemctl restart "${SERVICE_NAME}" && systemctl is-active --quiet "${SERVICE_NAME}"; then
+    if restore_service_states; then
+        if [ "$(cat "${BACKUP_DIR}/systemd/${SERVICE_NAME}.service.active" 2>/dev/null || echo 0)" = "1" ]; then
+            verify_panel_health || return 1
+        fi
         ROLLBACK_SUCCESS=1
         echo -e "${GREEN}已恢复上一版并重启服务${NC}"
         return 0
@@ -269,6 +532,59 @@ restore_backup() {
 
     echo -e "${RED}回滚后服务仍未启动，请检查日志${NC}"
     return 1
+}
+
+handle_update_error() {
+    local exit_code="${1:-1}"
+    local line="${2:-unknown}"
+
+    trap - ERR INT TERM HUP
+    set +e
+    echo -e "${RED}更新在第 ${line} 行失败（退出码 ${exit_code}）${NC}" >&2
+    if [ "${TRANSACTION_ACTIVE}" -eq 1 ] && [ "${ROLLBACK_IN_PROGRESS}" -eq 0 ]; then
+        ROLLBACK_IN_PROGRESS=1
+        restore_backup
+    fi
+    write_status "failed" "更新失败，已尝试回滚" "${exit_code}"
+    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager 2>/dev/null || true
+    exit "${exit_code}"
+}
+
+handle_update_signal() {
+    local exit_code="$1"
+    local signal_name="$2"
+
+    trap - ERR INT TERM HUP
+    set +e
+    echo -e "${RED}更新被 ${signal_name} 中止${NC}" >&2
+    if [ "${TRANSACTION_ACTIVE}" -eq 1 ] && [ "${ROLLBACK_IN_PROGRESS}" -eq 0 ]; then
+        ROLLBACK_IN_PROGRESS=1
+        restore_backup
+    fi
+    write_status "failed" "更新被 ${signal_name} 中止，已尝试回滚" "${exit_code}"
+    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager 2>/dev/null || true
+    exit "${exit_code}"
+}
+
+ensure_panel_venv() {
+    if [ -x "${VENV_DIR}/bin/python" ]; then
+        PYTHON3_BIN="${VENV_DIR}/bin/python"
+        return 0
+    fi
+
+    local system_python
+    system_python="$(command -v python3)"
+    mkdir -p "$(dirname "${VENV_DIR}")"
+    if ! "${system_python}" -m venv "${VENV_DIR}"; then
+        if [ "${SYS}" = "debian" ]; then
+            install_packages python3-venv
+        else
+            install_packages python3 python3-pip
+        fi
+        rm -rf "${VENV_DIR}"
+        "${system_python}" -m venv "${VENV_DIR}"
+    fi
+    PYTHON3_BIN="${VENV_DIR}/bin/python"
 }
 
 ensure_python_deps() {
@@ -351,14 +667,12 @@ ensure_python_deps() {
         fi
     fi
 
-    # 验证关键依赖
+    # 验证关键依赖。虚拟环境与系统 site-packages 隔离，因此这里只使用 venv 内的 pip。
     if ! "${PYTHON3_BIN}" -c "import flask" &>/dev/null; then
-        echo -e "${RED}Flask 导入失败，尝试系统包回退...${NC}"
-        install_packages python3-flask 2>/dev/null || true
+        echo -e "${RED}Flask 导入失败${NC}"
     fi
     if ! "${PYTHON3_BIN}" -c "import flask_limiter" &>/dev/null; then
-        echo -e "${RED}Flask-Limiter 导入失败，尝试系统包回退...${NC}"
-        install_packages python3-flask-limiter 2>/dev/null || true
+        echo -e "${YELLOW}Flask-Limiter 导入失败，将以应用内置限流兼容模式运行${NC}"
     fi
 
     if ! "${PYTHON3_BIN}" -c "import waitress" &>/dev/null; then
@@ -366,7 +680,7 @@ ensure_python_deps() {
         run_pip_install "${pip_install_opts[@]}" waitress -q 2>/dev/null || true
     fi
 
-    if ! "${PYTHON3_BIN}" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
+    if ! "${PYTHON3_BIN}" -c "import flask; import waitress" &>/dev/null; then
         echo -e "${RED}Python 依赖安装失败，服务可能无法启动${NC}"
         return 1
     fi
@@ -385,7 +699,9 @@ install_or_restart_device_stats_service() {
     ensure_command "ss" "$_ss_pkg"
     chmod +x "${stats_script}" 2>/dev/null || true
     mkdir -p "$(dirname "${DEVICE_STATS_FILE}")"
-    cat > /etc/systemd/system/${DEVICE_STATS_SERVICE_NAME}.service <<SERVICE
+    mkdir -p "${SYSTEMD_DIR}"
+    cat > "${SYSTEMD_DIR}/${DEVICE_STATS_SERVICE_NAME}.service" <<SERVICE
+# Managed by SSR_Panel
 [Unit]
 Description=SSR Device Stats Collector
 After=network.target
@@ -402,11 +718,13 @@ WantedBy=multi-user.target
 SERVICE
 
     systemctl enable "${DEVICE_STATS_SERVICE_NAME}" >/dev/null 2>&1 || true
-    systemctl restart "${DEVICE_STATS_SERVICE_NAME}" || true
+    systemctl restart "${DEVICE_STATS_SERVICE_NAME}"
 }
 
 install_or_update_panel_service() {
-    cat > /etc/systemd/system/${SERVICE_NAME}.service <<SERVICE
+    mkdir -p "${SYSTEMD_DIR}"
+    cat > "${SYSTEMD_DIR}/${SERVICE_NAME}.service" <<SERVICE
+# Managed by SSR_Panel
 [Unit]
 Description=SSR Admin Panel
 After=network.target
@@ -431,6 +749,29 @@ SERVICE
     systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1 || true
 }
 
+verify_panel_health() {
+    systemctl is-active --quiet "${SERVICE_NAME}"
+    PANEL_HEALTH_URL="${HEALTH_URL}" "${PYTHON3_BIN}" <<'PY'
+import os
+import time
+import urllib.error
+import urllib.request
+
+url = os.environ["PANEL_HEALTH_URL"]
+last_error = "unknown error"
+for _ in range(20):
+    try:
+        with urllib.request.urlopen(url, timeout=2) as response:
+            if 200 <= response.status < 400:
+                raise SystemExit(0)
+            last_error = f"HTTP {response.status}"
+    except (OSError, urllib.error.URLError) as exc:
+        last_error = str(exc)
+    time.sleep(0.5)
+raise SystemExit(f"panel health check failed: {last_error}")
+PY
+}
+
 apply_server_optimization() {
     local optimizer="${PANEL_DIR}/scripts/optimize_server.sh"
     if [ "${APPLY_SERVER_OPTIMIZATION}" != "1" ]; then
@@ -445,6 +786,7 @@ apply_server_optimization() {
     echo -e "${CYAN}检测到 SSR，正在应用服务器优化...${NC}"
     if ! bash "${optimizer}"; then
         echo -e "${YELLOW}SSR 服务器优化未完全成功，请稍后手动执行: bash ${optimizer}${NC}"
+        return 1
     fi
 }
 
@@ -453,11 +795,16 @@ if [ "${1:-}" = "--version" ]; then
     exit 0
 fi
 
+trap 'handle_update_error $? $LINENO' ERR
+trap 'handle_update_signal 130 SIGINT' INT
+trap 'handle_update_signal 143 SIGTERM' TERM
+trap 'handle_update_signal 129 SIGHUP' HUP
+
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}      SSR Admin Panel 更新脚本${NC}"
 echo -e "${GREEN}========================================${NC}"
 
-if [ "$EUID" -ne 0 ]; then
+if [ "$EUID" -ne 0 ] && [ "${SSR_ADMIN_SKIP_ROOT_CHECK:-0}" != "1" ]; then
     echo -e "${RED}请使用 root 权限运行此脚本${NC}"
     exit 1
 fi
@@ -468,8 +815,10 @@ if [ ! -d "${PANEL_DIR}" ]; then
 fi
 
 ensure_update_runtime
+acquire_update_lock
+validate_update_paths
 
-if [ -d "${SSR_DIR}" ]; then
+if [ "${PATCH_SSR_COMPAT}" = "1" ] && [ -d "${SSR_DIR}" ]; then
     echo -e "${CYAN}检测到 SSR 目录，应用 Python 兼容修复...${NC}"
 fi
 
@@ -483,8 +832,7 @@ git clone --depth 1 --branch "${TARGET_REF}" "${REPO_URL}" "${TMP_CLONE_DIR}" -q
 SOURCE_DIR="$(repo_source_dir "${TMP_CLONE_DIR}")"
 if [ ! -f "${SOURCE_DIR}/app.py" ]; then
     echo -e "${RED}Project files not found: ${SOURCE_DIR}${NC}"
-    write_status "failed" "Project files not found: ${SOURCE_DIR}" "1"
-    exit 1
+    false
 fi
 
 NEW_VERSION="$(read_version "${SOURCE_DIR}")"
@@ -492,10 +840,12 @@ NEW_REVISION="$(git -C "${TMP_CLONE_DIR}" rev-parse --short HEAD 2>/dev/null || 
 harden_sensitive_files
 write_status "backup" "正在备份当前版本"
 create_full_backup
+TRANSACTION_ACTIVE=1
 echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
 
 write_status "sync" "正在同步新版本"
 copy_tree "${SOURCE_DIR}" "${PANEL_DIR}" "sync"
+printf 'managed\n' > "${PANEL_DIR}/.ssr-panel-managed"
 harden_sensitive_files
 
 PANEL_BUILD_INFO_FILE="${PANEL_DIR}/.panel-build.json"
@@ -521,13 +871,14 @@ Path(os.environ["PANEL_BUILD_INFO_FILE"]).write_text(
 )
 PY
 
-chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
 
-if [ -d "${SSR_DIR}" ]; then
+if [ "${PATCH_SSR_COMPAT}" = "1" ] && [ -d "${SSR_DIR}" ]; then
     "${PYTHON3_BIN}" "${PANEL_DIR}/scripts/patch_ssr_python_compat.py" "${SSR_DIR}"
 fi
 
 write_status "deps" "正在安装 Python 依赖"
+ensure_panel_venv
 ensure_python_deps
 
 write_status "restart" "正在重启服务"
@@ -536,23 +887,11 @@ install_or_restart_device_stats_service
 apply_server_optimization
 install_or_update_panel_service
 systemctl daemon-reload
-if ! systemctl restart "${SERVICE_NAME}"; then
-    echo -e "${RED}更新后服务重启命令失败${NC}"
-    restore_backup || true
-    write_status "failed" "更新后服务重启失败，已尝试回滚" "1"
-    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager || true
-    exit 1
-fi
+systemctl restart "${SERVICE_NAME}"
+verify_panel_health
 
-if systemctl is-active --quiet "${SERVICE_NAME}"; then
-    echo -e "${GREEN}更新完成${NC}"
-    echo -e "${CYAN}新版本:${NC} ${YELLOW}${NEW_VERSION}${NC}"
-    echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
-    write_status "done" "更新完成，服务已重启" "0"
-else
-    echo -e "${RED}更新后服务启动失败，开始自动回滚${NC}"
-    restore_backup || true
-    write_status "failed" "更新后服务启动失败，已尝试回滚" "1"
-    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager || true
-    exit 1
-fi
+TRANSACTION_ACTIVE=0
+echo -e "${GREEN}更新完成${NC}"
+echo -e "${CYAN}新版本:${NC} ${YELLOW}${NEW_VERSION}${NC}"
+echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
+write_status "done" "更新完成，服务及 HTTP 健康检查通过" "0"
