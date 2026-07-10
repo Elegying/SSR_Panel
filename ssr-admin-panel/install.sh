@@ -332,7 +332,7 @@ ensure_basic_runtime() {
 }
 
 install_flask_runtime() {
-    if "$PYTHON3_BIN" -c "import flask; import waitress" &>/dev/null; then
+    if "$PYTHON3_BIN" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
         echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
         return
     fi
@@ -351,8 +351,8 @@ install_flask_runtime() {
     fi
 
     if ! "$PYTHON3_BIN" -c "import flask_limiter" &>/dev/null; then
-        echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试系统包...${NC}"
-        install_single_python_package flask-limiter 2>/dev/null || true
+        echo -e "${YELLOW}pip 安装 Flask-Limiter 失败，尝试单独安装...${NC}"
+        install_single_python_package flask-limiter
     fi
 
     if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
@@ -362,6 +362,7 @@ install_flask_runtime() {
 
     if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
 import flask
+import flask_limiter
 import waitress
 PY
     then
@@ -608,9 +609,11 @@ echo
 echo -e "${GREEN}[3/6] 生成配置文件...${NC}"
 if [ -f "$INSTALL_DIR/config.py" ]; then
     echo -e "${YELLOW}检测到现有配置文件，已保留: $INSTALL_DIR/config.py${NC}"
+    "$PYTHON3_BIN" "$INSTALL_DIR/security_utils.py" migrate-config "$INSTALL_DIR/config.py"
 else
 SECRET_KEY=$("$PYTHON3_BIN" -c "import secrets; print(secrets.token_hex(32))")
-INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" DEVICE_STATS_FILE="$DEVICE_STATS_FILE" SHARE_HOST="$SHARE_HOST" SHARE_PORT="$SHARE_PORT" SHARE_PASSWORD="$SHARE_PASSWORD" SHARE_REMARKS="$SHARE_REMARKS" SHARE_PROTOCOL="$SHARE_PROTOCOL" SHARE_METHOD="$SHARE_METHOD" SHARE_OBFS="$SHARE_OBFS" SHARE_OBFS_PARAM="$SHARE_OBFS_PARAM" "$PYTHON3_BIN" << 'PY'
+ADMIN_PASSWORD_HASH=$(printf '%s' "$ADMIN_PASS" | "$PYTHON3_BIN" "$INSTALL_DIR/security_utils.py" hash)
+INSTALL_DIR="$INSTALL_DIR" ADMIN_USER="$ADMIN_USER" ADMIN_PASSWORD_HASH="$ADMIN_PASSWORD_HASH" SECRET_KEY="$SECRET_KEY" MUDB_FILE="$MUDB_FILE" DEVICE_STATS_FILE="$DEVICE_STATS_FILE" SHARE_HOST="$SHARE_HOST" SHARE_PORT="$SHARE_PORT" SHARE_PASSWORD="$SHARE_PASSWORD" SHARE_REMARKS="$SHARE_REMARKS" SHARE_PROTOCOL="$SHARE_PROTOCOL" SHARE_METHOD="$SHARE_METHOD" SHARE_OBFS="$SHARE_OBFS" SHARE_OBFS_PARAM="$SHARE_OBFS_PARAM" "$PYTHON3_BIN" << 'PY'
 import os
 from pathlib import Path
 
@@ -625,7 +628,7 @@ def to_int(value, default):
 config_path = Path(os.environ["INSTALL_DIR"]) / "config.py"
 values = {
     "ADMIN_USER": os.environ["ADMIN_USER"],
-    "ADMIN_PASS": os.environ["ADMIN_PASS"],
+    "ADMIN_PASSWORD_HASH": os.environ["ADMIN_PASSWORD_HASH"],
     "SECRET_KEY": os.environ["SECRET_KEY"],
     "MUDB_FILE": os.environ["MUDB_FILE"],
     "SSR_SHARE_HOST": os.environ.get("SHARE_HOST", ""),
@@ -718,7 +721,7 @@ echo
 echo -e "访问地址: ${YELLOW}http://your-server-ip:5000${NC}"
 echo -e "管理员账号: ${YELLOW}${ADMIN_USER}${NC}"
 echo
-echo -e "${CYAN}提示: 如需修改账号密码，编辑 config.py 后执行:${NC}"
+echo -e "${CYAN}提示: 如需修改密码，先用 security_utils.py hash 生成哈希并替换 config.py 中的 ADMIN_PASSWORD_HASH，再执行:${NC}"
 echo -e "${CYAN}  systemctl restart ssr-admin${NC}"
 echo -e "${CYAN}更新命令:${NC}"
 echo -e "${CYAN}  bash /opt/ssr-admin-panel/update.sh${NC}"

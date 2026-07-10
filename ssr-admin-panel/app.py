@@ -17,22 +17,9 @@ from functools import wraps
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
-try:
-    from flask_limiter import Limiter
-    from flask_limiter.util import get_remote_address
-except ImportError:
-    def get_remote_address():
-        return request.remote_addr or "127.0.0.1"
-
-    class Limiter:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def limit(self, *args, **kwargs):
-            def decorator(func):
-                return func
-            return decorator
 
 try:
     import fcntl
@@ -54,6 +41,8 @@ try:
     import config as app_config
 except ImportError:
     app_config = None
+
+from security_utils import hash_password, verify_password
 
 
 # ========== 审计日志 ==========
@@ -81,7 +70,10 @@ def _default_secret_key():
 
 
 ADMIN_USER = getattr(app_config, "ADMIN_USER", "admin")
-ADMIN_PASS = getattr(app_config, "ADMIN_PASS", secrets.token_urlsafe(16))
+ADMIN_PASSWORD_HASH = getattr(app_config, "ADMIN_PASSWORD_HASH", "")
+if not ADMIN_PASSWORD_HASH:
+    legacy_admin_password = getattr(app_config, "ADMIN_PASS", "")
+    ADMIN_PASSWORD_HASH = hash_password(legacy_admin_password or secrets.token_urlsafe(32))
 SECRET_KEY = getattr(app_config, "SECRET_KEY", _default_secret_key())
 MUDB_FILE = getattr(app_config, "MUDB_FILE", "/usr/local/shadowsocksr/mudb.json")
 SSR_SHARE_HOST = getattr(app_config, "SSR_SHARE_HOST", "")
@@ -218,9 +210,9 @@ DEFAULT_TRANSFER = 268435456000
 
 
 def check_auth(username, password):
-    return hmac.compare_digest(username or "", ADMIN_USER) and hmac.compare_digest(
-        password or "", ADMIN_PASS
-    )
+    username_matches = hmac.compare_digest(username or "", ADMIN_USER)
+    password_matches = verify_password(password or "", ADMIN_PASSWORD_HASH)
+    return username_matches and password_matches
 
 
 def requires_auth(f):

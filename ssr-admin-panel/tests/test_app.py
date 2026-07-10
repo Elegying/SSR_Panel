@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import app as panel_app
+from security_utils import hash_password
 
 
 class AppSecurityTests(unittest.TestCase):
@@ -300,7 +301,7 @@ class AppSecurityTests(unittest.TestCase):
             sess["csrf_token"] = "login-token"
 
         with mock.patch.object(panel_app, "ADMIN_USER", "admin"), mock.patch.object(
-            panel_app, "ADMIN_PASS", "secret"
+            panel_app, "ADMIN_PASSWORD_HASH", hash_password("secret")
         ):
             missing = self.client.post("/login", data={"username": "admin", "password": "secret"})
             self.assertEqual(missing.status_code, 200)

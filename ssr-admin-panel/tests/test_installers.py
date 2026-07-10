@@ -492,7 +492,7 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn('sync_project_files "$', content)
             self.assertLess(content.index("    ensure_panel_venv\n"), content.index('\nsync_project_files "$'))
 
-    def test_installers_do_not_require_flask_limiter_to_start_panel(self):
+    def test_installers_require_flask_limiter_to_start_panel(self):
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertNotIn("install_packages python3-waitress", content)
@@ -500,8 +500,21 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertNotIn("install_packages python3-flask-limiter", content)
             self.assertIn("install_single_python_package Flask", content)
             self.assertIn("install_single_python_package waitress", content)
-            self.assertIn("import flask\nimport waitress", content)
-            self.assertNotIn("import flask\nimport flask_limiter\nimport waitress", content)
+            self.assertIn("import flask\nimport flask_limiter\nimport waitress", content)
+
+        update = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+        self.assertIn('import flask; import flask_limiter; import waitress', update)
+        self.assertNotIn("内置限流兼容模式", update)
+
+    def test_installers_write_password_hash_and_migrate_legacy_config(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("ADMIN_PASSWORD_HASH", content)
+            self.assertNotIn('"ADMIN_PASS": os.environ["ADMIN_PASS"]', content)
+
+        update = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+        self.assertIn("security_utils.py", update)
+        self.assertIn("migrate-config", update)
 
     def test_update_script_uses_python_version_checks_without_bc_or_eval(self):
         content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")

@@ -686,16 +686,12 @@ ensure_python_deps() {
     if ! "${PYTHON3_BIN}" -c "import flask" &>/dev/null; then
         echo -e "${RED}Flask 导入失败${NC}"
     fi
-    if ! "${PYTHON3_BIN}" -c "import flask_limiter" &>/dev/null; then
-        echo -e "${YELLOW}Flask-Limiter 导入失败，将以应用内置限流兼容模式运行${NC}"
-    fi
-
     if ! "${PYTHON3_BIN}" -c "import waitress" &>/dev/null; then
         echo -e "${RED}Waitress 导入失败，尝试 pip 单独安装...${NC}"
         run_pip_install "${pip_install_opts[@]}" waitress -q 2>/dev/null || true
     fi
 
-    if ! "${PYTHON3_BIN}" -c "import flask; import waitress" &>/dev/null; then
+    if ! "${PYTHON3_BIN}" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
         echo -e "${RED}Python 依赖安装失败，服务可能无法启动${NC}"
         return 1
     fi
@@ -875,6 +871,7 @@ echo -e "${CYAN}完整备份:${NC} ${YELLOW}${BACKUP_DIR}${NC}"
 write_status "sync" "正在同步新版本"
 copy_tree "${SOURCE_DIR}" "${PANEL_DIR}" "sync"
 printf 'managed\n' > "${PANEL_DIR}/.ssr-panel-managed"
+"${PYTHON3_BIN}" "${PANEL_DIR}/security_utils.py" migrate-config "${PANEL_DIR}/config.py"
 harden_sensitive_files
 
 PANEL_BUILD_INFO_FILE="${PANEL_DIR}/.panel-build.json"

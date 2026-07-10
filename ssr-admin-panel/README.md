@@ -89,10 +89,18 @@ wget https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/i
 
 ```python
 ADMIN_USER = 'your-username'    # 管理员用户名
-ADMIN_PASS = 'your-password'    # 管理员密码
+ADMIN_PASSWORD_HASH = 'pbkdf2_sha256$...'  # 管理员密码哈希（安装器自动生成）
 SECRET_KEY = '...'              # Session密钥（自动生成）
 MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'  # SSR用户文件
 DEVICE_STATS_FILE = '/var/lib/ssr-admin-panel/device-stats.json'  # 设备统计文件
+```
+
+修改密码时，先生成新哈希再替换 `ADMIN_PASSWORD_HASH`：
+
+```bash
+read -r -s -p '新密码: ' PANEL_PASSWORD; echo
+printf '%s' "$PANEL_PASSWORD" | /opt/ssr-admin-panel/venv/bin/python /opt/ssr-admin-panel/security_utils.py hash
+unset PANEL_PASSWORD
 ```
 
 修改配置后重启服务：

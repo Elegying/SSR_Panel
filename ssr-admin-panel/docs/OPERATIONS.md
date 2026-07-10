@@ -58,6 +58,8 @@ SSR_ADMIN_PASS="change-this-password" \
 bash install.sh
 ```
 
+安装器只把 PBKDF2-SHA256 哈希写入 `config.py`。旧版本的 `ADMIN_PASS` 会在更新时自动迁移，原密码保持不变。
+
 ## 部署后验证
 
 ```bash
