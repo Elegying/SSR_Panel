@@ -81,6 +81,7 @@ SSR_Panel/
 │   ├── install.sh            # 仅安装面板
 │   ├── install-all.sh        # 安装 SSR + 面板 + 优化
 │   ├── update.sh             # 线上更新脚本
+│   ├── rollback.sh           # 正式发布包本地回滚入口
 │   └── README.md             # 子项目说明
 ├── ssr-server-optimizer/     # SSR 服务器优化工具
 │   ├── optimize-ssr.sh       # 优化脚本

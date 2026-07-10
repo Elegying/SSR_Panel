@@ -95,6 +95,8 @@ bash /opt/ssr-admin-panel/update.sh
 bash /opt/ssr-admin-panel/update.sh --version
 ```
 
+正式 Release 同时提供回滚归档与 `SHA256SUMS`。校验并解压后执行包内 `ssr-admin-panel/rollback.sh --yes`，即可从本地发布源恢复指定版本；`config.py`、`mudb.json` 和本地文件保持不变。完整步骤见 `ssr-admin-panel/docs/OPERATIONS.md`。
+
 ## 服务管理
 
 SSR Admin Panel：

@@ -2,6 +2,9 @@
 
 ## v1.3.1 (2026-07-10)
 
+### Added
+- 正式发布包提供 SHA-256 校验和及 `rollback.sh` 回滚入口，可从已校验的本地归档复用事务式备份、服务重启和 HTTP 健康检查，不依赖 Git clone。
+
 ### Fixed
 - Debian/Ubuntu 安装与更新统一使用 apt 原生锁等待，默认等待 `apt/dpkg` 最多 300 秒并保留网络重试，避免新装系统的 `apt-daily`、`unattended-upgrades` 或 cloud-init 占锁时立即部署失败。
 - 更新器不再忽略 yum/dnf 仓库刷新失败，所有包管理器入口现在使用一致的重试与错误报告逻辑。
