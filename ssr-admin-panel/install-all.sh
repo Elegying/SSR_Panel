@@ -377,9 +377,11 @@ verify_base_runtime() {
 # runtime-common:end
 
 prepare_minimal_runtime() {
+    local packages
     echo -e "${GREEN}检查并安装最小运行环境...${NC}"
 
-    install_packages $(base_dependency_packages) || {
+    read -r -a packages <<< "$(base_dependency_packages)"
+    install_packages "${packages[@]}" || {
         echo -e "${RED}系统依赖安装失败${NC}" >&2
         exit 1
     }
@@ -601,7 +603,7 @@ safe_read() {
     if [ -t 0 ]; then
         if [ "$is_password" = "yes" ]; then read -r -s -p "$prompt" input; echo; else read -r -p "$prompt" input; fi
     elif [ -e /dev/tty ]; then
-        if [ "$is_password" = "yes" ]; then read -s -p "$prompt" input < /dev/tty; echo; else read -r -p "$prompt" input < /dev/tty; fi
+        if [ "$is_password" = "yes" ]; then read -r -s -p "$prompt" input < /dev/tty; echo; else read -r -p "$prompt" input < /dev/tty; fi
     else
         return 1
     fi
@@ -665,9 +667,9 @@ if [ -n "${SSR_ADMIN_USER:-}" ]; then
     echo -e "${YELLOW}检测到非交互模式，已跳过分享配置${NC}"
 else
     if [ -t 0 ]; then
-        read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
+        read -r -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE
     elif [ -e /dev/tty ]; then
-        read -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE < /dev/tty
+        read -r -p "是否启用账号分享模板？[y/N]: " ENABLE_SHARE_TEMPLATE < /dev/tty
     else
         ENABLE_SHARE_TEMPLATE="n"
     fi
@@ -677,8 +679,8 @@ ENABLE_SHARE_TEMPLATE=$(printf '%s' "$ENABLE_SHARE_TEMPLATE" | tr '[:upper:]' '[
 
 if [ "$ENABLE_SHARE_TEMPLATE" = "y" ] || [ "$ENABLE_SHARE_TEMPLATE" = "yes" ]; then
     # 读取分享域名
-    if [ -t 0 ]; then read -p "请输入分享域名/IP: " SHARE_HOST
-    elif [ -e /dev/tty ]; then read -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
+    if [ -t 0 ]; then read -r -p "请输入分享域名/IP: " SHARE_HOST
+    elif [ -e /dev/tty ]; then read -r -p "请输入分享域名/IP: " SHARE_HOST < /dev/tty
     else SHARE_HOST=""; fi
 
     if [ -z "$SHARE_HOST" ]; then
@@ -727,7 +729,7 @@ else
         printf '\n'
         printf '\n'
         printf '%s\n' "$SSR_DEFAULT_PASSWORD"
-        for i in $(seq 1 50); do printf '\n'; done
+        printf '\n%.0s' {1..50}
     } | bash "$PANEL_DIR/ssrmu.sh" >"$SSR_INSTALL_LOG" 2>&1; then
         echo -e "${RED}SSR 安装失败，日志: ${SSR_INSTALL_LOG}${NC}"
         print_sanitized_ssr_install_log
