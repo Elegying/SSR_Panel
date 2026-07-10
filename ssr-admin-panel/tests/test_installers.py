@@ -146,6 +146,28 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("systemctl disable ssrmu.service", embedded)
         self.assertIn("systemctl disable ssrmu.service", standalone)
 
+    def test_optimizers_install_firewall_sync_with_default_shared_port(self):
+        embedded = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+        standalone = (REPO_ROOT.parent / "ssr-server-optimizer" / "optimize-ssr.sh").read_text(
+            encoding="utf-8"
+        )
+
+        for content in (embedded, standalone):
+            self.assertIn("sync_ssr_firewall.py", content)
+            self.assertIn("/usr/local/libexec/ssr-panel/sync-firewall.py", content)
+            self.assertIn("/etc/default/ssr-panel-firewall", content)
+            self.assertIn("SSR_EXTRA_PORTS=18899", content)
+            self.assertIn("EnvironmentFile=-", content)
+            self.assertIn("ExecStartPre=", content)
+
+        helper = (REPO_ROOT / "scripts" / "sync_ssr_firewall.py").read_text(encoding="utf-8")
+        self.assertIn('return "18899"', helper)
+        self.assertIn('"/etc/default/ssr-panel-firewall"', helper)
+
+        for script in ("install.sh", "install-all.sh", "update.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("sync_ssr_firewall.py", content)
+
     def test_optimizer_persists_nft_rule_without_overwriting_existing_tables(self):
         content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
         self.assertIn("/etc/nftables.d", content)

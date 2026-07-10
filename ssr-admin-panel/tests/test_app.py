@@ -28,6 +28,7 @@ class AppSecurityTests(unittest.TestCase):
             "SSR_LOG_FILE": panel_app.SSR_LOG_FILE,
             "SSR_INIT_SCRIPT": panel_app.SSR_INIT_SCRIPT,
             "SSR_SYSTEMD_UNIT": panel_app.SSR_SYSTEMD_UNIT,
+            "SSR_FIREWALL_SYNC_HELPER": panel_app.SSR_FIREWALL_SYNC_HELPER,
             "SSR_PYTHON_BIN": panel_app.SSR_PYTHON_BIN,
             "BACKUP_DIR": panel_app.BACKUP_DIR,
             "PANEL_GIT_URL": panel_app.PANEL_GIT_URL,
@@ -52,6 +53,7 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_LOG_FILE = self.log_file
         panel_app.SSR_INIT_SCRIPT = self.base_path / "etc" / "init.d" / "ssrmu"
         panel_app.SSR_SYSTEMD_UNIT = self.base_path / "systemd" / "ssr.service"
+        panel_app.SSR_FIREWALL_SYNC_HELPER = self.base_path / "sync-firewall.py"
         panel_app.SSR_PYTHON_BIN = ""
         panel_app.BACKUP_DIR = self.backup_dir
         panel_app.PANEL_GIT_URL = "https://github.com/Elegying/SSR_Panel.git"
@@ -82,6 +84,7 @@ class AppSecurityTests(unittest.TestCase):
         panel_app.SSR_LOG_FILE = self.original_state["SSR_LOG_FILE"]
         panel_app.SSR_INIT_SCRIPT = self.original_state["SSR_INIT_SCRIPT"]
         panel_app.SSR_SYSTEMD_UNIT = self.original_state["SSR_SYSTEMD_UNIT"]
+        panel_app.SSR_FIREWALL_SYNC_HELPER = self.original_state["SSR_FIREWALL_SYNC_HELPER"]
         panel_app.SSR_PYTHON_BIN = self.original_state["SSR_PYTHON_BIN"]
         panel_app.BACKUP_DIR = self.original_state["BACKUP_DIR"]
         panel_app.PANEL_GIT_URL = self.original_state["PANEL_GIT_URL"]
@@ -447,6 +450,38 @@ class AppSecurityTests(unittest.TestCase):
         )
         self.assertEqual(ok_response.status_code, 200)
         self.assertEqual(self.read_users(), [])
+
+    def test_user_add_and_delete_sync_the_firewall_without_hiding_success(self):
+        self.write_users([])
+        panel_app.SSR_FIREWALL_SYNC_HELPER.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+        with mock.patch.object(
+            panel_app,
+            "run_process",
+            return_value={"success": False, "output": "", "error": "firewall unavailable"},
+        ) as run_process_mock, mock.patch.object(panel_app, "audit_log") as audit_mock:
+            added = self.post_json(
+                "/api/add",
+                {"port": 9001, "user": "firewall-user", "password": "pw", "transfer": 2048},
+            )
+            deleted = self.client.post(
+                "/api/delete/firewall-user",
+                headers={"X-CSRF-Token": "test-token"},
+            )
+
+        self.assertEqual(added.status_code, 200)
+        self.assertTrue(added.get_json()["success"])
+        self.assertEqual(deleted.status_code, 200)
+        self.assertTrue(deleted.get_json()["success"])
+        self.assertEqual(
+            run_process_mock.call_args_list,
+            [
+                mock.call([str(panel_app.SSR_FIREWALL_SYNC_HELPER)]),
+                mock.call([str(panel_app.SSR_FIREWALL_SYNC_HELPER)]),
+            ],
+        )
+        warning_calls = [call for call in audit_mock.call_args_list if call.kwargs.get("level") == "WARNING"]
+        self.assertEqual(len(warning_calls), 2)
 
     def test_save_users_is_atomic_when_json_dump_fails(self):
         original = [{"user": "existing", "passwd": "pw", "port": 8080}]

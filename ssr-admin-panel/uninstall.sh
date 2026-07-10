@@ -5,6 +5,9 @@ DEFAULT_PANEL_DIR="/opt/ssr-admin-panel"
 DEFAULT_SSR_DIR="/usr/local/shadowsocksr"
 DEFAULT_DEVICE_STATS_DIR="/var/lib/ssr-admin-panel"
 DEFAULT_LEGACY_INIT_SCRIPT="/etc/init.d/ssrmu"
+DEFAULT_FIREWALL_HELPER_DIR="/usr/local/libexec/ssr-panel"
+DEFAULT_FIREWALL_CONFIG="/etc/default/ssr-panel-firewall"
+DEFAULT_FIREWALL_STATE_DIR="/var/lib/ssr-panel-firewall"
 MANAGED_MARKER=".ssr-panel-managed"
 SYSTEMD_DIR="${SSR_ADMIN_SYSTEMD_DIR-/etc/systemd/system}"
 DEFAULT_ADMIN_SERVICE="ssr-admin"
@@ -16,6 +19,10 @@ DEVICE_STATS_DIR="${SSR_DEVICE_STATS_DIR-$DEFAULT_DEVICE_STATS_DIR}"
 ADMIN_SERVICE="${SSR_ADMIN_SERVICE_NAME-$DEFAULT_ADMIN_SERVICE}"
 DEVICE_STATS_SERVICE="${SSR_DEVICE_STATS_SERVICE_NAME-$DEFAULT_DEVICE_STATS_SERVICE}"
 LEGACY_INIT_SCRIPT="$DEFAULT_LEGACY_INIT_SCRIPT"
+FIREWALL_HELPER_DIR="$DEFAULT_FIREWALL_HELPER_DIR"
+FIREWALL_CONFIG="$DEFAULT_FIREWALL_CONFIG"
+FIREWALL_STATE_DIR="$DEFAULT_FIREWALL_STATE_DIR"
+FIREWALL_STATE_FILE="${FIREWALL_STATE_DIR}/managed-ports.json"
 
 CONFIRM=0
 KEEP_DATA=0
@@ -186,33 +193,40 @@ stop_service() {
 
 collect_ssr_ports() {
   local database="${SSR_DIR}/mudb.json"
+  local -a sources=()
 
-  [[ -f "$database" && ! -L "$database" ]] || return 0
+  [[ ! -f "$database" || -L "$database" ]] || sources+=("$database")
+  [[ ! -f "$FIREWALL_STATE_FILE" || -L "$FIREWALL_STATE_FILE" ]] || sources+=("$FIREWALL_STATE_FILE")
+  [[ "${#sources[@]}" -gt 0 ]] || return 0
   command -v python3 >/dev/null 2>&1 || {
     log "python3 is unavailable; skipping firewall cleanup" >&2
     return 0
   }
 
-  python3 - "$database" <<'PY'
+  python3 - "${sources[@]}" <<'PY'
 import json
 import sys
 
-with open(sys.argv[1], encoding="utf-8") as handle:
-    users = json.load(handle)
-
 ports = set()
-for user in users if isinstance(users, list) else []:
-    value = user.get("port") if isinstance(user, dict) else None
-    if isinstance(value, bool):
+for source in sys.argv[1:]:
+    try:
+        with open(source, encoding="utf-8") as handle:
+            entries = json.load(handle)
+    except (OSError, ValueError) as exc:
+        print("warning: cannot read firewall ports from {}: {}".format(source, exc), file=sys.stderr)
         continue
-    if isinstance(value, int):
-        port = value
-    elif isinstance(value, str) and value.isdigit():
-        port = int(value)
-    else:
-        continue
-    if 1 <= port <= 65535:
-        ports.add(port)
+    for entry in entries if isinstance(entries, list) else []:
+        value = entry.get("port") if isinstance(entry, dict) else entry
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            port = value
+        elif isinstance(value, str) and value.isdigit():
+            port = int(value)
+        else:
+            continue
+        if 1 <= port <= 65535:
+            ports.add(port)
 
 for port in sorted(ports):
     print(port)
@@ -300,6 +314,31 @@ cleanup_legacy_init() {
   rm -f "$LEGACY_INIT_SCRIPT"
 }
 
+cleanup_managed_firewall_artifacts() {
+  local marker
+
+  marker="${FIREWALL_HELPER_DIR}/${MANAGED_MARKER}"
+  if [[ -d "$FIREWALL_HELPER_DIR" && ! -L "$FIREWALL_HELPER_DIR" && -f "$marker" && ! -L "$marker" ]]; then
+    rm -rf "$FIREWALL_HELPER_DIR"
+  elif [[ -e "$FIREWALL_HELPER_DIR" || -L "$FIREWALL_HELPER_DIR" ]]; then
+    log "leaving unrecognized firewall helper directory intact: $FIREWALL_HELPER_DIR"
+  fi
+
+  if [[ -f "$FIREWALL_CONFIG" && ! -L "$FIREWALL_CONFIG" ]] &&
+    grep -Fqx "# Managed by SSR_Panel" "$FIREWALL_CONFIG"; then
+    rm -f "$FIREWALL_CONFIG"
+  elif [[ -e "$FIREWALL_CONFIG" || -L "$FIREWALL_CONFIG" ]]; then
+    log "leaving unrecognized firewall config intact: $FIREWALL_CONFIG"
+  fi
+
+  marker="${FIREWALL_STATE_DIR}/${MANAGED_MARKER}"
+  if [[ -d "$FIREWALL_STATE_DIR" && ! -L "$FIREWALL_STATE_DIR" && -f "$marker" && ! -L "$marker" ]]; then
+    rm -rf "$FIREWALL_STATE_DIR"
+  elif [[ -e "$FIREWALL_STATE_DIR" || -L "$FIREWALL_STATE_DIR" ]]; then
+    log "leaving unrecognized firewall state directory intact: $FIREWALL_STATE_DIR"
+  fi
+}
+
 log "disabling panel services"
 stop_service "$ADMIN_SERVICE"
 stop_service "$DEVICE_STATS_SERVICE"
@@ -314,6 +353,7 @@ if [[ "$REMOVE_SSR" -eq 1 ]]; then
   if [[ "$KEEP_DATA" -ne 1 ]]; then
     cleanup_legacy_init
     cleanup_firewall_ports "$SSR_PORTS"
+    cleanup_managed_firewall_artifacts
     rm -rf "$SSR_DIR"
   fi
 else

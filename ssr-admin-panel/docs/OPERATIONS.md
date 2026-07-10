@@ -66,11 +66,35 @@ nft list table inet ssr_filter
 
 没有 `/usr/local/shadowsocksr/mudb.json` 时，面板安装会跳过设备统计服务，这是正常行为。
 
+## 导入 mudb.json 与开放 SSR 端口
+
+部署会安装 `/usr/local/libexec/ssr-panel/sync-firewall.py`，并在 SSR 每次启动前同步本机防火墙。同步范围包括 `mudb.json` 中所有有效用户端口，以及 `/etc/default/ssr-panel-firewall` 的附加端口；附加端口默认包含单端口多用户入口 `18899`：
+
+```bash
+# Managed by SSR_Panel
+SSR_EXTRA_PORTS=18899
+```
+
+导入自己的配置后执行：
+
+```bash
+install -m 600 /root/mudb.json /usr/local/shadowsocksr/mudb.json
+systemctl restart ssr
+systemctl is-active ssr
+cat /var/lib/ssr-panel-firewall/managed-ports.json
+ss -lntup | grep ':18899' || true
+```
+
+需要额外入口时可写成 `SSR_EXTRA_PORTS="18899,24444"`，然后重启 SSR。面板新增或删除用户时也会即时同步。规则对 firewalld 或 iptables 的 TCP/UDP、IPv4/IPv6 后端幂等执行，并在端口退出配置后移除项目管理的旧规则。
+
+本机防火墙放行不等于 SSR 已监听：`ss` 没有显示 `18899` 时，应检查导入配置本身。云厂商安全组不受本项目控制，还必须在云控制台单独放行 `18899/TCP` 和 `18899/UDP`。
+
 ## SSR 服务端网络优化
 
 安装脚本会自动调用 `/opt/ssr-admin-panel/scripts/optimize_server.sh`。除 systemd、ulimit、sysctl、Fast Open、日志轮转、fail2ban 外，脚本还会默认启用面向 YouTube/Google 卡顿的服务端防护：
 
 - 统一入口承载优化：适用于所有用户通过同一个入口端口（例如 `18899`）连接的部署，持久化 BBR/fq、TFO、`somaxconn`、`tcp_max_syn_backlog`、本地端口范围，以及 SSR systemd 文件句柄/进程数上限。
+- 入站端口同步：默认放行 `18899/TCP+UDP`，并在 SSR 启动前根据 `mudb.json` 和附加端口配置同步 firewalld 或 iptables。
 - IPv6 目标防护：为 `/usr/local/shadowsocksr/mudb.json` 的用户配置写入 `forbidden_ip`，包含 `127.0.0.0/8,::1/128,::/0`。服务器没有真实 IPv6 出口时，SSR 会快速拒绝 IPv6 目标，客户端通常会回落到 IPv4。
 - UDP/443 放行：默认清理旧版脚本留下的出站 `udp/443` 拦截，允许 YouTube/Google QUIC/HTTP3 首连成功，避免先失败再回落造成首屏卡顿。确需强制 TCP 回落时，可手动启用拦截。
 
@@ -122,6 +146,7 @@ bash /opt/ssr-admin-panel/update.sh
 ```bash
 SSR_UPSTREAM_REPO="https://github.com/your-name/shadowsocksr.git" \
 SSR_UPSTREAM_REF="0123456789abcdef0123456789abcdef01234567" \
+```bash
 bash /opt/ssr-admin-panel/ssrmu.sh
 ```
 
@@ -149,6 +174,8 @@ bash /opt/ssr-admin-panel/uninstall.sh --yes --remove-ssr
 
 默认路径保持向后兼容；通过环境变量使用自定义目录时，卸载器只接受包含 `.ssr-panel-managed` 标记且不穿越符号链接的目录。安装和更新脚本会自动创建该标记。
 
+仅卸载面板会保留 SSR 的防火墙同步助手，避免后续 `systemctl restart ssr` 失败；使用 `--remove-ssr` 时才会一并清理默认 `18899`、用户端口规则和带托管标记的同步文件。
+
 ## 发布前检查
 
 ```bash
@@ -165,4 +192,5 @@ GitHub Actions 会在 push 和 pull request 时自动运行这些检查。
 - 面板无法启动：执行 `journalctl -u ssr-admin -n 50 --no-pager`。
 - 更新失败：执行 `git -C /opt/ssr-admin-panel status --short` 检查本地改动。
 - 设备统计服务未运行：先确认 `/usr/local/shadowsocksr/mudb.json` 是否存在。
+- 导入配置后 `18899` 不通：依次检查 `systemctl status ssr`、`journalctl -u ssr`、`ss -lntup`、本机防火墙和云安全组。
 - 依赖安装失败：确认服务器可访问 PyPI 或配置可用的软件源。

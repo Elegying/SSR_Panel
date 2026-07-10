@@ -184,6 +184,13 @@ SSR_SYSTEMD_UNIT = Path(
     getattr(app_config, "SSR_SYSTEMD_UNIT", "/etc/systemd/system/ssr.service")
 )
 SSR_SYSTEMD_SERVICE = getattr(app_config, "SSR_SYSTEMD_SERVICE", "ssr.service")
+SSR_FIREWALL_SYNC_HELPER = Path(
+    getattr(
+        app_config,
+        "SSR_FIREWALL_SYNC_HELPER",
+        "/usr/local/libexec/ssr-panel/sync-firewall.py",
+    )
+)
 SSR_PYTHON_BIN = getattr(app_config, "SSR_PYTHON_BIN", "")
 BACKUP_DIR = Path("/opt/ssr-admin-panel/backups")
 PANEL_DIR = Path(__file__).resolve().parent
@@ -1128,6 +1135,17 @@ def run_process(args, cwd=None):
         return {"success": False, "output": "", "error": str(e)}
 
 
+def sync_ssr_firewall():
+    if not SSR_FIREWALL_SYNC_HELPER.is_file() or SSR_FIREWALL_SYNC_HELPER.is_symlink():
+        return {"success": True, "output": "", "error": "", "skipped": True}
+
+    result = run_process([str(SSR_FIREWALL_SYNC_HELPER)])
+    if not result["success"]:
+        details = (result["error"] or result["output"] or "unknown error").replace("\n", " ")[:500]
+        audit_log("FIREWALL_SYNC_FAILED", details, level="WARNING")
+    return result
+
+
 def get_expected_ssr_status(action):
     return "stopped" if action == "stop" else "running"
 
@@ -1567,6 +1585,7 @@ def add_user():
 
     new_user = mutate_users(add)
     audit_log("USER_ADD", f"添加用户: {new_user['user']}, 端口: {new_user['port']}")
+    sync_ssr_firewall()
     created_user = serialize_user(new_user)
     created_user["generated_password"] = new_user["passwd"]
     return jsonify({"success": True, "message": "用户添加成功", "user": created_user})
@@ -1610,6 +1629,7 @@ def delete_user(user):
 
     port = mutate_users(delete)
     audit_log("USER_DELETE", f"删除用户: {user}, 端口: {port}")
+    sync_ssr_firewall()
     return jsonify({"success": True, "message": "用户删除成功"})
 
 

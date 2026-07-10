@@ -472,7 +472,7 @@ restore_backup() {
     restore_virtualenv
     restore_service_units
     harden_sensitive_files
-    chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" 2>/dev/null || true
+    chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" 2>/dev/null || true
     systemctl daemon-reload || true
     if restore_service_states; then
         if [ "$(cat "${BACKUP_DIR}/systemd/${SERVICE_NAME}.service.active" 2>/dev/null || echo 0)" = "1" ]; then
@@ -824,7 +824,7 @@ Path(os.environ["PANEL_BUILD_INFO_FILE"]).write_text(
 )
 PY
 
-chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
 
 if [ "${PATCH_SSR_COMPAT}" = "1" ] && [ -d "${SSR_DIR}" ]; then
     "${PYTHON3_BIN}" "${PANEL_DIR}/scripts/patch_ssr_python_compat.py" "${SSR_DIR}"

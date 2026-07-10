@@ -546,7 +546,7 @@ echo -e "${GREEN}[1/6] 下载项目文件...${NC}"
 sync_project_files "$INSTALL_DIR"
 printf 'managed\n' > "$INSTALL_DIR/.ssr-panel-managed"
 
-chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/update.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/install-all.sh" "$INSTALL_DIR/uninstall.sh" "$INSTALL_DIR/scripts/collect_device_stats.py" "$INSTALL_DIR/scripts/sync_ssr_firewall.py" "$INSTALL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION="${SYNC_REVISION:-$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")}"
 PANEL_BUILD_INFO_FILE="$INSTALL_DIR/.panel-build.json"

@@ -32,6 +32,10 @@ class UninstallSafetyTests(unittest.TestCase):
         self.default_stats_dir = self.root / "default-stats"
         self.systemd_dir = self.root / "systemd"
         self.legacy_init = self.root / "ssrmu"
+        self.firewall_helper_dir = self.root / "firewall-helper"
+        self.firewall_helper = self.firewall_helper_dir / "sync-firewall.py"
+        self.firewall_config = self.root / "ssr-panel-firewall"
+        self.firewall_managed_state = self.root / "managed-firewall-state"
         self.firewall_state = self.root / "firewall-state"
         self.firewall_state.mkdir()
         self.systemd_dir.mkdir()
@@ -51,6 +55,9 @@ class UninstallSafetyTests(unittest.TestCase):
             ('DEFAULT_SSR_DIR="/usr/local/shadowsocksr"', f'DEFAULT_SSR_DIR="{self.default_ssr_dir}"'),
             ('DEFAULT_DEVICE_STATS_DIR="/var/lib/ssr-admin-panel"', f'DEFAULT_DEVICE_STATS_DIR="{self.default_stats_dir}"'),
             ('DEFAULT_LEGACY_INIT_SCRIPT="/etc/init.d/ssrmu"', f'DEFAULT_LEGACY_INIT_SCRIPT="{self.legacy_init}"'),
+            ('DEFAULT_FIREWALL_HELPER_DIR="/usr/local/libexec/ssr-panel"', f'DEFAULT_FIREWALL_HELPER_DIR="{self.firewall_helper_dir}"'),
+            ('DEFAULT_FIREWALL_CONFIG="/etc/default/ssr-panel-firewall"', f'DEFAULT_FIREWALL_CONFIG="{self.firewall_config}"'),
+            ('DEFAULT_FIREWALL_STATE_DIR="/var/lib/ssr-panel-firewall"', f'DEFAULT_FIREWALL_STATE_DIR="{self.firewall_managed_state}"'),
         ):
             self.assertEqual(harness_source.count(original), 1)
             harness_source = harness_source.replace(original, replacement)
@@ -387,9 +394,24 @@ class UninstallSafetyTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.legacy_init.chmod(0o755)
+        self.firewall_helper_dir.mkdir()
+        (self.firewall_helper_dir / ".ssr-panel-managed").write_text(
+            "Managed by SSR_Panel\n", encoding="utf-8"
+        )
+        self.firewall_helper.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.firewall_config.write_text(
+            "# Managed by SSR_Panel\nSSR_EXTRA_PORTS=18899\n", encoding="utf-8"
+        )
+        self.firewall_managed_state.mkdir()
+        (self.firewall_managed_state / ".ssr-panel-managed").write_text(
+            "Managed by SSR_Panel\n", encoding="utf-8"
+        )
+        (self.firewall_managed_state / "managed-ports.json").write_text(
+            "[18899]\n", encoding="utf-8"
+        )
         for command in ("iptables", "ip6tables"):
             for protocol in ("tcp", "udp"):
-                for port in (2333, 24444):
+                for port in (2333, 18899, 24444):
                     (self.firewall_state / f"{command}-{protocol}-{port}").touch()
 
         result, actions = self.run_uninstall("--yes", "--remove-ssr")
@@ -400,13 +422,38 @@ class UninstallSafetyTests(unittest.TestCase):
         self.assertIn(f"rm\t-f\t{self.legacy_init}", actions)
         for command in ("iptables", "ip6tables"):
             for protocol in ("tcp", "udp"):
-                for port in (2333, 24444):
+                for port in (2333, 18899, 24444):
                     self.assertIn(
                         f"{command}\t-D\tINPUT\t-m\tconntrack\t--ctstate\tNEW"
                         f"\t-p\t{protocol}\t--dport\t{port}\t-j\tACCEPT",
                         actions,
                     )
         self.assertIn("netfilter-persistent\tsave", actions)
+        self.assertIn(f"rm\t-rf\t{self.firewall_helper_dir}", actions)
+        self.assertIn(f"rm\t-f\t{self.firewall_config}", actions)
+        self.assertIn(f"rm\t-rf\t{self.firewall_managed_state}", actions)
+
+    def test_panel_only_uninstall_preserves_firewall_sync_for_running_ssr(self):
+        self.firewall_helper_dir.mkdir()
+        (self.firewall_helper_dir / ".ssr-panel-managed").write_text(
+            "Managed by SSR_Panel\n", encoding="utf-8"
+        )
+        self.firewall_helper.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.firewall_config.write_text(
+            "# Managed by SSR_Panel\nSSR_EXTRA_PORTS=18899\n", encoding="utf-8"
+        )
+        self.firewall_managed_state.mkdir()
+        (self.firewall_managed_state / ".ssr-panel-managed").write_text(
+            "Managed by SSR_Panel\n", encoding="utf-8"
+        )
+
+        result, actions = self.run_uninstall("--yes")
+
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        joined = "\n".join(actions)
+        self.assertNotIn(str(self.firewall_helper_dir), joined)
+        self.assertNotIn(str(self.firewall_config), joined)
+        self.assertNotIn(str(self.firewall_managed_state), joined)
 
 
 if __name__ == "__main__":

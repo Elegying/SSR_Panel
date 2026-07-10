@@ -12,6 +12,7 @@
 - 安装前自动刷新 apt/dnf/yum 索引，安装并验证 `sudo`、`curl`、`socat`、CA、Python、venv、systemd、iptables 等完整基础环境。
 - 更新流程增加互斥锁、应用/venv/systemd unit 完整备份、全阶段错误捕获、自动回滚和本机 HTTP 健康检查。
 - CI 增加 Python 3.9/3.11/3.12、Ubuntu 22.04、Debian 12、Rocky Linux 9、ShellCheck 与依赖安全审计。
+- 新增 SSR 防火墙同步助手：默认开放单端口多用户入口 `18899/TCP+UDP`，并从 `mudb.json` 与 `SSR_EXTRA_PORTS` 同步 firewalld/iptables 的 IPv4/IPv6 规则。
 
 ### Fixed
 - 修复两个优化器误启用单端口底层入口，统一以 `/usr/local/shadowsocksr/server.py m` 启动读取 `mudb.json` 的多用户服务。
@@ -21,6 +22,7 @@
 - ARM64 等非 x86_64 系统不再误用 `jq-linux32`，统一链接发行版提供的 `jq`。
 - 安装器不再强制覆盖服务器时区；firewalld 和 iptables/nft 兼容层均可配置幂等端口规则。
 - 安装和更新覆盖源码时保留本地文件；完整安装会验证 SSR 入口、配置和 `mudb.json`，不再只凭目录存在判断成功。
+- SSR systemd 启动前、面板增删用户后自动同步端口；完整卸载 SSR 时会清理状态文件记录的 `18899` 等托管规则，仅卸载面板则保留同步助手。
 
 ### Changed
 - 面板更新默认不修改 SSR 源码或重新运行服务器优化；需要时分别显式设置 `SSR_ADMIN_PATCH_SSR_COMPAT=1`、`SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=1`。

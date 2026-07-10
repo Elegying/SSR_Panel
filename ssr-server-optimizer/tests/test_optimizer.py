@@ -29,6 +29,11 @@ class OptimizerScriptTests(unittest.TestCase):
         (ssr_dir / "shadowsocks" / "server.py").write_text("# server\n", encoding="utf-8")
         (ssr_dir / "server.py").write_text("# multi-user server\n", encoding="utf-8")
 
+        panel_dir = base / "panel"
+        (panel_dir / "scripts").mkdir(parents=True)
+        firewall_source = panel_dir / "scripts" / "sync_ssr_firewall.py"
+        firewall_source.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
         bin_dir = base / "bin"
         bin_dir.mkdir()
         self.write_executable(
@@ -57,9 +62,11 @@ class OptimizerScriptTests(unittest.TestCase):
             "SYSTEMD_DIR": str(base / "systemd"),
             "SYSCTL_DIR": str(base / "sysctl.d"),
             "SYSCTL_CONF": str(base / "sysctl.conf"),
-            "PANEL_DIR": str(base / "panel"),
+            "PANEL_DIR": str(panel_dir),
             "SYSTEMCTL_LOG": str(base / "systemctl.log"),
             "SSR_LEGACY_INIT": str(legacy_init),
+            "SSR_FIREWALL_HELPER": str(base / "libexec" / "sync-firewall.py"),
+            "SSR_FIREWALL_CONFIG": str(base / "etc" / "ssr-panel-firewall"),
         }, ssr_dir
 
     def write_executable(self, path: Path, content: str):
@@ -129,6 +136,23 @@ class OptimizerScriptTests(unittest.TestCase):
             unit = (base / "systemd" / "ssr.service").read_text(encoding="utf-8")
             self.assertIn(f"WorkingDirectory={ssr_dir}", unit)
             self.assertIn(f"{ssr_dir / 'server.py'} m", unit)
+            self.assertIn(
+                f"EnvironmentFile=-{base / 'etc' / 'ssr-panel-firewall'}",
+                unit,
+            )
+            self.assertIn(
+                f"ExecStartPre={base / 'libexec' / 'sync-firewall.py'}",
+                unit,
+            )
+            firewall_helper = base / "libexec" / "sync-firewall.py"
+            firewall_config = base / "etc" / "ssr-panel-firewall"
+            self.assertTrue(firewall_helper.is_file())
+            self.assertTrue(firewall_helper.stat().st_mode & stat.S_IXUSR)
+            self.assertEqual(
+                firewall_config.read_text(encoding="utf-8"),
+                "# Managed by SSR_Panel\nSSR_EXTRA_PORTS=18899\n",
+            )
+            self.assertEqual(stat.S_IMODE(firewall_config.stat().st_mode), 0o600)
             actions = (base / "systemctl.log").read_text(encoding="utf-8")
             self.assertIn("legacy stop", actions)
             self.assertIn("disable ssrmu.service", actions)

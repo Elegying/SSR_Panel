@@ -18,6 +18,10 @@ SSR_SERVER="${SSR_DIR}/server.py"
 SSR_LEGACY_INIT="${SSR_LEGACY_INIT:-/etc/init.d/ssrmu}"
 SSR_CONFIG="${SSR_DIR}/user-config.json"
 MUDB_FILE="${SSR_DIR}/mudb.json"
+PANEL_DIR="${PANEL_DIR:-/opt/ssr-admin-panel}"
+SSR_FIREWALL_SOURCE="${SSR_FIREWALL_SOURCE:-${PANEL_DIR}/scripts/sync_ssr_firewall.py}"
+SSR_FIREWALL_HELPER="${SSR_FIREWALL_HELPER:-/usr/local/libexec/ssr-panel/sync-firewall.py}"
+SSR_FIREWALL_CONFIG="${SSR_FIREWALL_CONFIG:-/etc/default/ssr-panel-firewall}"
 SYSCTL_CONF="/etc/sysctl.d/99-ssr-optimize.conf"
 LIMITS_CONF="/etc/security/limits.conf"
 LOGROTATE_CONF="/etc/logrotate.d/ssr"
@@ -27,6 +31,7 @@ NFTABLES_DIR="/etc/nftables.d"
 SSR_FILTER_NFT="${NFTABLES_DIR}/ssr-filter.nft"
 SSR_BLOCK_IPV6_TARGETS="${SSR_BLOCK_IPV6_TARGETS:-1}"
 SSR_BLOCK_UDP_443="${SSR_BLOCK_UDP_443:-0}"
+FIREWALL_SYNC_AVAILABLE=0
 
 log_ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 log_warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
@@ -112,6 +117,31 @@ disable_udp_443_guard() {
     log_ok "已放行服务器出站 UDP/443（保留 QUIC/HTTP3，可避免首次连接回落卡顿）"
 }
 
+install_firewall_sync() {
+    if [ ! -f "$SSR_FIREWALL_SOURCE" ] || [ -L "$SSR_FIREWALL_SOURCE" ]; then
+        log_warn "未找到防火墙同步助手，SSR 服务不会自动同步端口"
+        FIREWALL_SYNC_AVAILABLE=0
+        return
+    fi
+    [ ! -L "$SSR_FIREWALL_HELPER" ] || { log_warn "防火墙助手目标是符号链接: $SSR_FIREWALL_HELPER"; return 1; }
+    [ ! -L "$SSR_FIREWALL_CONFIG" ] || { log_warn "防火墙配置目标是符号链接: $SSR_FIREWALL_CONFIG"; return 1; }
+
+    backup_file "$SSR_FIREWALL_HELPER"
+    backup_file "$SSR_FIREWALL_CONFIG"
+    mkdir -p "$(dirname "$SSR_FIREWALL_HELPER")" "$(dirname "$SSR_FIREWALL_CONFIG")"
+    cp "$SSR_FIREWALL_SOURCE" "$SSR_FIREWALL_HELPER"
+    chmod 0755 "$SSR_FIREWALL_HELPER"
+    printf 'Managed by SSR_Panel\n' > "$(dirname "$SSR_FIREWALL_HELPER")/.ssr-panel-managed"
+    if [ ! -e "$SSR_FIREWALL_CONFIG" ]; then
+        cat > "$SSR_FIREWALL_CONFIG" <<'EOF'
+# Managed by SSR_Panel
+SSR_EXTRA_PORTS=18899
+EOF
+    fi
+    chmod 0600 "$SSR_FIREWALL_CONFIG"
+    FIREWALL_SYNC_AVAILABLE=1
+}
+
 # ── 1. SSR systemd 服务 ──────────────────────────────────────
 setup_ssr_service() {
     echo -e "${GREEN}[优化 1/7] 配置 SSR systemd 服务...${NC}"
@@ -122,7 +152,14 @@ setup_ssr_service() {
     fi
 
     local PYTHON_BIN
+    local FIREWALL_DIRECTIVES=""
     PYTHON_BIN=$(command -v python 2>/dev/null || command -v python3 2>/dev/null || echo "/usr/bin/python3")
+    install_firewall_sync
+    if [ "$FIREWALL_SYNC_AVAILABLE" -eq 1 ]; then
+        FIREWALL_DIRECTIVES="EnvironmentFile=-${SSR_FIREWALL_CONFIG}
+Environment=SSR_MUDB_FILE=${MUDB_FILE}
+ExecStartPre=${SSR_FIREWALL_HELPER}"
+    fi
 
     cat > /etc/systemd/system/ssr.service <<SERVICE
 [Unit]
@@ -133,6 +170,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=${SSR_WORKDIR}
+${FIREWALL_DIRECTIVES}
 ExecStart=${PYTHON_BIN} ${SSR_DIR}/server.py m
 Restart=always
 RestartSec=3

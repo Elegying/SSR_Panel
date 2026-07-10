@@ -10,6 +10,9 @@ MUDB_FILE="${MUDB_FILE:-$SSR_DIR/mudb.json}"
 PANEL_DIR="${PANEL_DIR:-/opt/ssr-admin-panel}"
 DEVICE_STATS_SCRIPT="${DEVICE_STATS_SCRIPT:-$PANEL_DIR/scripts/collect_device_stats.py}"
 DEVICE_STATS_FILE="${DEVICE_STATS_FILE:-/var/lib/ssr-admin-panel/device-stats.json}"
+SSR_FIREWALL_SOURCE="${SSR_FIREWALL_SOURCE:-$PANEL_DIR/scripts/sync_ssr_firewall.py}"
+SSR_FIREWALL_HELPER="${SSR_FIREWALL_HELPER:-/usr/local/libexec/ssr-panel/sync-firewall.py}"
+SSR_FIREWALL_CONFIG="${SSR_FIREWALL_CONFIG:-/etc/default/ssr-panel-firewall}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 SYSCTL_DIR="${SYSCTL_DIR:-/etc/sysctl.d}"
 DEVICE_STATS_SERVICE="${DEVICE_STATS_SERVICE:-$SYSTEMD_DIR/ssr-device-stats.service}"
@@ -18,6 +21,7 @@ SERVICE_FILE="${SERVICE_FILE:-$SYSTEMD_DIR/ssr.service}"
 TIMESTAMP="$(date +%F-%H%M%S)"
 BACKUP_FILES=""
 ROLLBACK_ON_ERROR=0
+FIREWALL_SYNC_AVAILABLE=0
 
 log() {
   printf '[ssr-opt] %s\n' "$*"
@@ -162,9 +166,39 @@ fix_conflicting_backlog() {
   done
 }
 
+install_firewall_sync() {
+  if [[ ! -f "$SSR_FIREWALL_SOURCE" || -L "$SSR_FIREWALL_SOURCE" ]]; then
+    log "firewall sync helper not found; leaving SSR service without firewall pre-sync"
+    FIREWALL_SYNC_AVAILABLE=0
+    return
+  fi
+  [[ ! -L "$SSR_FIREWALL_HELPER" ]] || fail "unsafe firewall helper path: $SSR_FIREWALL_HELPER"
+  [[ ! -L "$SSR_FIREWALL_CONFIG" ]] || fail "unsafe firewall config path: $SSR_FIREWALL_CONFIG"
+
+  backup_file "$SSR_FIREWALL_HELPER"
+  backup_file "$SSR_FIREWALL_CONFIG"
+  mkdir -p "$(dirname "$SSR_FIREWALL_HELPER")" "$(dirname "$SSR_FIREWALL_CONFIG")"
+  cp "$SSR_FIREWALL_SOURCE" "$SSR_FIREWALL_HELPER"
+  chmod 0755 "$SSR_FIREWALL_HELPER"
+  printf 'Managed by SSR_Panel\n' > "$(dirname "$SSR_FIREWALL_HELPER")/.ssr-panel-managed"
+  if [[ ! -e "$SSR_FIREWALL_CONFIG" ]]; then
+    cat > "$SSR_FIREWALL_CONFIG" <<'EOF'
+# Managed by SSR_Panel
+SSR_EXTRA_PORTS=18899
+EOF
+  fi
+  chmod 0600 "$SSR_FIREWALL_CONFIG"
+  FIREWALL_SYNC_AVAILABLE=1
+}
+
 write_systemd_unit() {
-  local pybin
+  local pybin firewall_directives=""
   pybin="$(detect_python)"
+  if [[ "$FIREWALL_SYNC_AVAILABLE" -eq 1 ]]; then
+    firewall_directives="EnvironmentFile=-$SSR_FIREWALL_CONFIG
+Environment=SSR_MUDB_FILE=$MUDB_FILE
+ExecStartPre=$SSR_FIREWALL_HELPER"
+  fi
   log "writing systemd service"
   log "will update $SERVICE_FILE"
   backup_file "$SERVICE_FILE"
@@ -178,6 +212,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$SSR_WORKDIR
+$firewall_directives
 ExecStart=$pybin ${SSR_DIR}/server.py m
 Restart=always
 RestartSec=3
@@ -311,6 +346,7 @@ run_apply() {
   patch_ssr_config
   write_sysctl
   fix_conflicting_backlog
+  install_firewall_sync
   write_systemd_unit
   write_device_stats_unit
   apply_sysctl

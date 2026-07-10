@@ -528,7 +528,7 @@ sync_project_files "$PANEL_DIR"
 printf 'managed\n' > "$PANEL_DIR/.ssr-panel-managed"
 
 cd $PANEL_DIR
-chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/uninstall.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
+chmod +x "$PANEL_DIR/update.sh" "$PANEL_DIR/install.sh" "$PANEL_DIR/install-all.sh" "$PANEL_DIR/uninstall.sh" "$PANEL_DIR/scripts/collect_device_stats.py" "$PANEL_DIR/scripts/sync_ssr_firewall.py" "$PANEL_DIR/scripts/optimize_server.sh" 2>/dev/null || true
 APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
 APP_REVISION="${SYNC_REVISION:-$(git -C "$PANEL_DIR" rev-parse --short HEAD 2>/dev/null || echo "")}"
 PANEL_BUILD_INFO_FILE="$PANEL_DIR/.panel-build.json"
