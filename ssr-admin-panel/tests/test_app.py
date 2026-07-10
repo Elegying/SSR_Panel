@@ -1,5 +1,6 @@
 import json
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -422,6 +423,65 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(self.read_users(), original)
         self.assertFalse(list(self.mudb_path.parent.glob(".mudb.json.*.tmp")))
 
+    def test_add_user_refuses_to_overwrite_corrupt_database(self):
+        original = b"{broken-json\n"
+        self.mudb_path.write_bytes(original)
+
+        response = self.post_json(
+            "/api/add",
+            {
+                "port": 9001,
+                "user": "demo-user",
+                "password": "",
+                "transfer": 2048,
+            },
+        )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertFalse(response.get_json()["success"])
+        self.assertEqual(self.mudb_path.read_bytes(), original)
+
+    def test_concurrent_adds_preserve_both_users(self):
+        self.write_users([])
+        load_barrier = threading.Barrier(2)
+        original_load = panel_app.load_users
+        responses = {}
+        errors = []
+
+        def synchronized_load():
+            users = original_load()
+            load_barrier.wait(timeout=2)
+            return users
+
+        def add_user(name, port):
+            try:
+                client = panel_app.app.test_client()
+                with client.session_transaction() as sess:
+                    sess["logged_in"] = True
+                    sess["csrf_token"] = "test-token"
+                responses[name] = client.post(
+                    "/api/add",
+                    json={"port": port, "user": name, "password": "", "transfer": 2048},
+                    headers={"X-CSRF-Token": "test-token"},
+                )
+            except Exception as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        with mock.patch.object(panel_app, "load_users", side_effect=synchronized_load):
+            first = threading.Thread(target=add_user, args=("first", 9001))
+            second = threading.Thread(target=add_user, args=("second", 9002))
+            first.start()
+            second.start()
+            first.join(timeout=2)
+            second.join(timeout=2)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertFalse(errors)
+        self.assertEqual(responses["first"].status_code, 200)
+        self.assertEqual(responses["second"].status_code, 200)
+        self.assertEqual({user["user"] for user in self.read_users()}, {"first", "second"})
+
     def test_add_user_validates_input_and_returns_created_password(self):
         self.write_users([])
 
@@ -569,6 +629,18 @@ class AppSecurityTests(unittest.TestCase):
         completed = mock.Mock(returncode=0, stdout="python app.py\n")
         with mock.patch.object(panel_app.subprocess, "run", return_value=completed):
             self.assertEqual(panel_app.get_ssr_status(), "stopped")
+
+    def test_get_ssr_status_prefers_stopped_phrases(self):
+        panel_app.SSR_INIT_SCRIPT.parent.mkdir(parents=True)
+        panel_app.SSR_INIT_SCRIPT.touch()
+
+        for output in ("ShadowsocksR is not running", "ssr.service is inactive"):
+            with self.subTest(output=output), mock.patch.object(
+                panel_app,
+                "run_process",
+                return_value={"success": False, "output": output, "error": ""},
+            ):
+                self.assertEqual(panel_app.get_ssr_status(), "stopped")
 
 
     def test_login_get_not_rate_limited(self):
