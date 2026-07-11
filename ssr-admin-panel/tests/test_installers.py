@@ -283,6 +283,10 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn('SSR_ADMIN_MUDB_FILE="${SSR_DIR}/mudb.json"', restore)
         self.assertIn("verify_user_database_access", restore)
         self.assertIn('verify_panel_health "${ROLLBACK_HEALTH_URL}"', restore)
+        self.assertIn(
+            'ROLLBACK_HEALTH_URL="${SSR_ADMIN_ROLLBACK_HEALTH_URL:-${SSR_ADMIN_HEALTH_URL:-http://127.0.0.1:5000/login}}"',
+            content,
+        )
 
     def test_update_script_guards_the_entire_post_backup_transaction(self):
         content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
