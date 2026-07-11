@@ -139,6 +139,25 @@ class AppSecurityTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertIn(r"attacker\n[FORGED]", entries[0])
 
+    def test_backup_serializes_a_validated_database_snapshot(self):
+        users = [{"user": "alice", "port": 18899}]
+        self.write_users(users)
+
+        response = self.client.post("/api/backup", headers={"X-CSRF-Token": "test-token"})
+
+        self.assertEqual(response.status_code, 200)
+        backups = list(self.backup_dir.glob("mudb_*.json"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(json.loads(backups[0].read_text(encoding="utf-8")), users)
+
+    def test_backup_refuses_to_copy_a_corrupt_database(self):
+        self.mudb_path.write_text("not-json", encoding="utf-8")
+
+        response = self.client.post("/api/backup", headers={"X-CSRF-Token": "test-token"})
+
+        self.assertEqual(response.status_code, 500)
+        self.assertFalse(list(self.backup_dir.glob("mudb_*.json")))
+
     def test_server_optimization_status_treats_udp443_block_as_optional(self):
         self.write_users([{"user": "u1", "forbidden_ip": "127.0.0.0/8,::1/128,::/0"}])
 

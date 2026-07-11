@@ -333,6 +333,8 @@ class InstallerRegressionTests(unittest.TestCase):
 
         self.assertIn('chmod 0600 "$SSR_CONFIG"', hardening)
         self.assertIn('[ -e "$MUDB_FILE" ]', hardening)
+        self.assertIn('[ ! -L "$SSR_CONFIG" ]', hardening)
+        self.assertIn('[ ! -L "$MUDB_FILE" ]', hardening)
         self.assertIn("getent group ssr-panel", hardening)
         self.assertIn('chown root:ssr-panel "$MUDB_FILE"', hardening)
         self.assertIn('chmod 0640 "$MUDB_FILE"', hardening)

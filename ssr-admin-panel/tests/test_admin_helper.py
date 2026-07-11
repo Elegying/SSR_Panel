@@ -77,6 +77,12 @@ class AdminHelperTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     admin_helper._read_pending_payload(pending)
 
+    def test_atomic_mudb_commit_fsyncs_parent_directory(self):
+        source = Path(admin_helper.__file__).read_text(encoding="utf-8")
+
+        self.assertIn('os.open(str(target.parent), getattr(os, "O_DIRECTORY", 0))', source)
+        self.assertIn("os.fsync(directory_fd)", source)
+
 
 if __name__ == "__main__":
     unittest.main()

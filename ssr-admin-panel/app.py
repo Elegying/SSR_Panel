@@ -1465,9 +1465,10 @@ def panel_update():
 def backup_data():
     try:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        users = load_users()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         backup_file = BACKUP_DIR / f"mudb_{timestamp}.json"
-        shutil.copy2(mudb_path(), backup_file)
+        _write_users_unlocked(backup_file, users)
 
         backups = sorted(BACKUP_DIR.glob("mudb_*.json"))
         for old_backup in backups[:-10]:
@@ -1476,7 +1477,7 @@ def backup_data():
         audit_log("BACKUP", f"备份成功: {backup_file.name}")
         return jsonify({"success": True, "message": f"备份成功: {backup_file}"})
     except OSError as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/backups/list")
@@ -1500,7 +1501,7 @@ def list_backups():
 
         return jsonify({"success": True, "backups": backups})
     except OSError as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/users")

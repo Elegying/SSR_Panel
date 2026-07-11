@@ -48,6 +48,8 @@ backup_file() {
 }
 
 harden_ssr_files() {
+    [ ! -L "$SSR_CONFIG" ] || { log_warn "拒绝修改符号链接: $SSR_CONFIG"; return 1; }
+    [ ! -L "$MUDB_FILE" ] || { log_warn "拒绝修改符号链接: $MUDB_FILE"; return 1; }
     chmod 0600 "$SSR_CONFIG"
     if [ -e "$MUDB_FILE" ]; then
         if getent group ssr-panel >/dev/null 2>&1; then
