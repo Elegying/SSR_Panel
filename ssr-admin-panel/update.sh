@@ -39,6 +39,7 @@ PATCH_SSR_COMPAT="${SSR_ADMIN_PATCH_SSR_COMPAT:-0}"
 VENV_DIR="${SSR_ADMIN_VENV_DIR:-${PANEL_DIR}/venv}"
 SYSTEMD_DIR="${SSR_ADMIN_SYSTEMD_DIR:-/etc/systemd/system}"
 HEALTH_URL="${SSR_ADMIN_HEALTH_URL:-http://127.0.0.1:5000/healthz}"
+ROLLBACK_HEALTH_URL="${SSR_ADMIN_ROLLBACK_HEALTH_URL:-http://127.0.0.1:5000/login}"
 LOCK_FILE="${SSR_ADMIN_UPDATE_LOCK_FILE:-/run/lock/ssr-admin-panel-update.lock}"
 PACKAGE_INSTALL_RETRIES="${SSR_ADMIN_PACKAGE_INSTALL_RETRIES:-3}"
 APT_LOCK_TIMEOUT="${SSR_ADMIN_APT_LOCK_TIMEOUT:-300}"
@@ -565,7 +566,8 @@ restore_backup() {
     systemctl daemon-reload || true
     if restore_service_states; then
         if [ "$(cat "${BACKUP_DIR}/systemd/${SERVICE_NAME}.service.active" 2>/dev/null || echo 0)" = "1" ]; then
-            verify_panel_health || return 1
+            verify_user_database_access || return 1
+            verify_panel_health "${ROLLBACK_HEALTH_URL}" || return 1
         fi
         ROLLBACK_SUCCESS=1
         echo -e "${GREEN}已恢复上一版并重启服务${NC}"
@@ -797,8 +799,9 @@ SERVICE
 }
 
 verify_panel_health() {
+    local health_url="${1:-${HEALTH_URL}}"
     systemctl is-active --quiet "${SERVICE_NAME}"
-    PANEL_HEALTH_URL="${HEALTH_URL}" "${PYTHON3_BIN}" <<'PY'
+    PANEL_HEALTH_URL="${health_url}" "${PYTHON3_BIN}" <<'PY'
 import os
 import time
 import urllib.error
@@ -816,6 +819,24 @@ for _ in range(20):
         last_error = str(exc)
     time.sleep(0.5)
 raise SystemExit(f"panel health check failed: {last_error}")
+PY
+}
+
+verify_user_database_access() {
+    local mudb_file="${SSR_DIR}/mudb.json"
+    local -a verify_command=("${PYTHON3_BIN}" - "${mudb_file}")
+    [ -e "${mudb_file}" ] || return 0
+    if [ "${SSR_ADMIN_SKIP_ROOT_CHECK:-0}" != "1" ]; then
+        verify_command=(runuser -u ssr-panel -- "${verify_command[@]}")
+    fi
+    "${verify_command[@]}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
+if not isinstance(payload, list):
+    raise SystemExit("mudb root must be a list")
 PY
 }
 
