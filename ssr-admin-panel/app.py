@@ -49,16 +49,21 @@ from security_utils import hash_password, verify_password
 AUDIT_LOG_PATH = Path("/var/log/ssr-admin-panel/audit.log")
 
 
+def _audit_field(value, limit=4096):
+    text = str(value or "").replace("\r", "\\r").replace("\n", "\\n")
+    return text[:limit]
+
+
 def audit_log(action: str, details: str = "", level: str = "INFO"):
     """记录审计日志"""
     try:
         AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().isoformat()
-        ip = request.remote_addr if request else "system"
-        user = session.get("username", "anonymous") if session else "system"
-        log_entry = f"[{timestamp}] [{level}] [{ip}] [{user}] {action}"
+        ip = _audit_field(request.remote_addr if request else "system", 256)
+        user = _audit_field(session.get("username", "anonymous") if session else "system", 256)
+        log_entry = f"[{timestamp}] [{_audit_field(level, 32)}] [{ip}] [{user}] {_audit_field(action, 256)}"
         if details:
-            log_entry += f" | {details}"
+            log_entry += f" | {_audit_field(details)}"
         with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(log_entry + "\n")
     except OSError:
@@ -89,10 +94,13 @@ DEVICE_STATS_FILE = getattr(
     app_config, "DEVICE_STATS_FILE", "/var/lib/ssr-admin-panel/device-stats.json"
 )
 DEVICE_STATS_STALE_SECONDS = getattr(app_config, "DEVICE_STATS_STALE_SECONDS", 120)
+TRUST_PROXY = getattr(app_config, "TRUST_PROXY", False) is True
 
 app = Flask(__name__)
-# 信任 nginx 反代传入的 X-Forwarded-Proto / X-Forwarded-For
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+# Forwarded headers are attacker-controlled when port 5000 is exposed directly.
+# Trust exactly one reverse proxy only when the operator explicitly opts in.
+if TRUST_PROXY:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.secret_key = SECRET_KEY
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -1338,6 +1346,12 @@ def login():
     return render_template("login.html", error=error, csrf_token=ensure_csrf_token())
 
 
+@app.route("/healthz")
+def healthz():
+    load_users()
+    return jsonify({"status": "ok"})
+
+
 @app.route("/logout")
 def logout():
     session.clear()
@@ -1451,9 +1465,10 @@ def panel_update():
 def backup_data():
     try:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        users = load_users()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         backup_file = BACKUP_DIR / f"mudb_{timestamp}.json"
-        shutil.copy2(mudb_path(), backup_file)
+        _write_users_unlocked(backup_file, users)
 
         backups = sorted(BACKUP_DIR.glob("mudb_*.json"))
         for old_backup in backups[:-10]:
@@ -1462,7 +1477,7 @@ def backup_data():
         audit_log("BACKUP", f"备份成功: {backup_file.name}")
         return jsonify({"success": True, "message": f"备份成功: {backup_file}"})
     except OSError as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/backups/list")
@@ -1486,7 +1501,7 @@ def list_backups():
 
         return jsonify({"success": True, "backups": backups})
     except OSError as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/users")
@@ -1607,4 +1622,8 @@ def toggle_user(user):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(
+        host=os.environ.get("SSR_ADMIN_BIND", "127.0.0.1"),
+        port=int(os.environ.get("SSR_ADMIN_PORT", "5000")),
+        debug=False,
+    )

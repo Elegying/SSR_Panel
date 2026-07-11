@@ -5,6 +5,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import app as panel_app
 from security_utils import hash_password
@@ -22,6 +23,7 @@ class AppSecurityTests(unittest.TestCase):
         self.backup_dir = self.base_path / "backups"
 
         self.original_state = {
+            "AUDIT_LOG_PATH": panel_app.AUDIT_LOG_PATH,
             "MUDB_FILE": panel_app.MUDB_FILE,
             "SSR_DIR": panel_app.SSR_DIR,
             "SSR_LOG_FILE": panel_app.SSR_LOG_FILE,
@@ -47,6 +49,7 @@ class AppSecurityTests(unittest.TestCase):
             "PANEL_UPDATE_STATUS_FILE": panel_app.PANEL_UPDATE_STATUS_FILE,
         }
 
+        panel_app.AUDIT_LOG_PATH = self.base_path / "audit.log"
         panel_app.MUDB_FILE = str(self.mudb_path)
         panel_app.SSR_DIR = self.ssr_dir
         panel_app.SSR_LOG_FILE = self.log_file
@@ -78,6 +81,7 @@ class AppSecurityTests(unittest.TestCase):
             sess["csrf_token"] = "test-token"
 
     def tearDown(self):
+        panel_app.AUDIT_LOG_PATH = self.original_state["AUDIT_LOG_PATH"]
         panel_app.MUDB_FILE = self.original_state["MUDB_FILE"]
         panel_app.SSR_DIR = self.original_state["SSR_DIR"]
         panel_app.SSR_LOG_FILE = self.original_state["SSR_LOG_FILE"]
@@ -108,6 +112,51 @@ class AppSecurityTests(unittest.TestCase):
 
     def read_users(self):
         return json.loads(self.mudb_path.read_text(encoding="utf-8"))
+
+    def test_forwarded_headers_are_not_trusted_by_default(self):
+        self.assertFalse(panel_app.TRUST_PROXY)
+        self.assertNotIsInstance(panel_app.app.wsgi_app, ProxyFix)
+
+    def test_health_check_exercises_user_database_without_authentication(self):
+        self.write_users([])
+        with self.client.session_transaction() as sess:
+            sess.clear()
+
+        healthy = self.client.get("/healthz")
+        self.assertEqual(healthy.status_code, 200)
+        self.assertEqual(healthy.get_json(), {"status": "ok"})
+
+        self.mudb_path.write_text("not-json", encoding="utf-8")
+        unhealthy = self.client.get("/healthz")
+        self.assertEqual(unhealthy.status_code, 500)
+        self.assertFalse(unhealthy.get_json()["success"])
+
+    def test_audit_log_escapes_untrusted_line_breaks(self):
+        with panel_app.app.test_request_context("/login", environ_base={"REMOTE_ADDR": "127.0.0.1"}):
+            panel_app.audit_log("LOGIN_FAILED", "username: attacker\n[FORGED] success", "WARNING")
+
+        entries = panel_app.AUDIT_LOG_PATH.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(entries), 1)
+        self.assertIn(r"attacker\n[FORGED]", entries[0])
+
+    def test_backup_serializes_a_validated_database_snapshot(self):
+        users = [{"user": "alice", "port": 18899}]
+        self.write_users(users)
+
+        response = self.client.post("/api/backup", headers={"X-CSRF-Token": "test-token"})
+
+        self.assertEqual(response.status_code, 200)
+        backups = list(self.backup_dir.glob("mudb_*.json"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(json.loads(backups[0].read_text(encoding="utf-8")), users)
+
+    def test_backup_refuses_to_copy_a_corrupt_database(self):
+        self.mudb_path.write_text("not-json", encoding="utf-8")
+
+        response = self.client.post("/api/backup", headers={"X-CSRF-Token": "test-token"})
+
+        self.assertEqual(response.status_code, 500)
+        self.assertFalse(list(self.backup_dir.glob("mudb_*.json")))
 
     def test_server_optimization_status_treats_udp443_block_as_optional(self):
         self.write_users([{"user": "u1", "forbidden_ip": "127.0.0.0/8,::1/128,::/0"}])

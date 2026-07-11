@@ -274,6 +274,20 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("rollback_success", content)
         self.assertIn("backup_dir", content)
 
+    def test_update_rollback_restores_privileged_runtime_from_backup(self):
+        content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+        start = content.index("restore_backup()")
+        restore = content[start : content.index("\n}\n", start) + 3]
+
+        self.assertIn('bash "${PANEL_DIR}/scripts/provision_panel_runtime.sh"', restore)
+        self.assertIn('SSR_ADMIN_MUDB_FILE="${SSR_DIR}/mudb.json"', restore)
+        self.assertIn("verify_user_database_access", restore)
+        self.assertIn('verify_panel_health "${ROLLBACK_HEALTH_URL}"', restore)
+        self.assertIn(
+            'ROLLBACK_HEALTH_URL="${SSR_ADMIN_ROLLBACK_HEALTH_URL:-${SSR_ADMIN_HEALTH_URL:-http://127.0.0.1:5000/login}}"',
+            content,
+        )
+
     def test_update_script_guards_the_entire_post_backup_transaction(self):
         content = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
 
@@ -315,6 +329,41 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("chmod 0640", content)
             self.assertIn("config.py", content)
             self.assertIn("mudb.json", content)
+
+    def test_embedded_optimizer_preserves_panel_access_to_user_database(self):
+        content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+        start = content.index("harden_ssr_files()")
+        hardening = content[start : content.index("\n}\n", start) + 3]
+
+        self.assertIn('chmod 0600 "$SSR_CONFIG"', hardening)
+        self.assertIn('[ -e "$MUDB_FILE" ]', hardening)
+        self.assertIn('[ ! -L "$SSR_CONFIG" ]', hardening)
+        self.assertIn('[ ! -L "$MUDB_FILE" ]', hardening)
+        self.assertIn("getent group ssr-panel", hardening)
+        self.assertIn('chown root:ssr-panel "$MUDB_FILE"', hardening)
+        self.assertIn('chmod 0640 "$MUDB_FILE"', hardening)
+        self.assertNotIn('chmod 600 "$SSR_CONFIG" "$MUDB_FILE"', hardening)
+        self.assertNotIn("|| true", hardening)
+
+    def test_install_and_update_health_checks_read_the_user_database(self):
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("verify_panel_health", content)
+            self.assertIn("http://127.0.0.1:5000/healthz", content)
+
+        update = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'HEALTH_URL="${SSR_ADMIN_HEALTH_URL:-http://127.0.0.1:5000/healthz}"',
+            update,
+        )
+
+    def test_reverse_proxy_headers_require_explicit_opt_in(self):
+        app_source = (REPO_ROOT / "app.py").read_text(encoding="utf-8")
+        example = (REPO_ROOT / "config.py.example").read_text(encoding="utf-8")
+
+        self.assertIn('TRUST_PROXY = getattr(app_config, "TRUST_PROXY", False) is True', app_source)
+        self.assertIn("if TRUST_PROXY:", app_source)
+        self.assertIn("TRUST_PROXY = False", example)
 
     def test_full_install_generates_private_ssr_password(self):
         content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")

@@ -180,6 +180,11 @@ def _write_mudb_atomic(payload, target=MUDB_FILE):
         os.chmod(temp_name, 0o640)
         os.replace(temp_name, str(target))
         temp_name = None
+        directory_fd = os.open(str(target.parent), getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if fd >= 0:
             os.close(fd)

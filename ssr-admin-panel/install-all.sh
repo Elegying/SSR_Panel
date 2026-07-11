@@ -290,6 +290,19 @@ harden_sensitive_files() {
     chmod 0600 "$SSR_INITIAL_PASSWORD_FILE" 2>/dev/null || true
 }
 
+verify_panel_health() {
+    local attempt
+    for attempt in {1..20}; do
+        if curl -fsS --max-time 2 http://127.0.0.1:5000/healthz >/dev/null; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    echo -e "${RED}面板健康检查失败：用户数据库不可读或 HTTP 服务不可用${NC}" >&2
+    journalctl -u ssr-admin -n 50 --no-pager 2>/dev/null || true
+    return 1
+}
+
 persist_initial_ssr_password() {
     mkdir -p "$(dirname "$SSR_INITIAL_PASSWORD_FILE")"
     install -m 600 /dev/null "$SSR_INITIAL_PASSWORD_FILE"
@@ -869,6 +882,8 @@ if ! systemctl is-active --quiet ssr.service; then
     journalctl -u ssr.service -n 50 --no-pager || true
     exit 1
 fi
+harden_sensitive_files
+verify_panel_health
 
 APP_VERSION=$(cat "$PANEL_DIR/VERSION" 2>/dev/null || echo "unknown")
 

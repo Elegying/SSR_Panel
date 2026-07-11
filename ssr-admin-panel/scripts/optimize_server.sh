@@ -48,7 +48,17 @@ backup_file() {
 }
 
 harden_ssr_files() {
-    chmod 600 "$SSR_CONFIG" "$MUDB_FILE" 2>/dev/null || true
+    [ ! -L "$SSR_CONFIG" ] || { log_warn "拒绝修改符号链接: $SSR_CONFIG"; return 1; }
+    [ ! -L "$MUDB_FILE" ] || { log_warn "拒绝修改符号链接: $MUDB_FILE"; return 1; }
+    chmod 0600 "$SSR_CONFIG"
+    if [ -e "$MUDB_FILE" ]; then
+        if getent group ssr-panel >/dev/null 2>&1; then
+            chown root:ssr-panel "$MUDB_FILE"
+            chmod 0640 "$MUDB_FILE"
+        else
+            chmod 0600 "$MUDB_FILE"
+        fi
+    fi
 }
 
 count_ssr_ports() {

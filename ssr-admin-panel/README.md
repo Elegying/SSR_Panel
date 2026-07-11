@@ -235,6 +235,10 @@ python3 -m unittest discover -s tests -q
 
 安装完成后访问：`http://your-server-ip:5000`
 
+直接暴露 5000 端口时保持 `config.py` 中 `TRUST_PROXY = False`。仅在防火墙禁止直连、且请求固定经过一层可信 Nginx/Caddy 反向代理时设置为 `True`。
+
+本机就绪检查：`curl -fsS http://127.0.0.1:5000/healthz`。该检查会实际读取用户数据库，权限错误或 JSON 损坏会返回 HTTP 500。
+
 ---
 
 ## 📝 更新日志

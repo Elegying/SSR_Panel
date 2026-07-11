@@ -62,13 +62,15 @@ bash install.sh
 
 面板和设备统计以无登录 shell 的 `ssr-panel` 用户运行。源码目录由 root 持有；SSR 启停、防火墙同步、`mudb.json` 提交和面板更新只能通过固定提权助手执行。当前仍监听 `0.0.0.0:5000`，原有 `http://服务器IP:5000` 访问方式不变。
 
+直接访问 5000 端口时保持 `config.py` 中 `TRUST_PROXY = False`。只有当防火墙已禁止直连 5000、所有请求都经过一层可信反向代理时，才设置为 `True`；否则客户端可伪造 `X-Forwarded-For`，绕过按来源 IP 的登录限速并污染审计日志。
+
 ## 部署后验证
 
 ```bash
 systemctl is-active ssr-admin
 systemctl show ssr-admin -p User -p Group --value
 journalctl -u ssr-admin -n 50 --no-pager
-curl -I http://127.0.0.1:5000/
+curl -fsS http://127.0.0.1:5000/healthz
 sudo -l -U ssr-panel
 ```
 
@@ -167,7 +169,7 @@ SSR_ADMIN_APPLY_SERVER_OPTIMIZATION=1 \
 bash /opt/ssr-admin-panel/update.sh
 ```
 
-可通过 `SSR_ADMIN_HEALTH_URL` 覆盖默认健康检查地址 `http://127.0.0.1:5000/login`。
+可通过 `SSR_ADMIN_HEALTH_URL` 覆盖默认健康检查地址 `http://127.0.0.1:5000/healthz`。该端点不仅检查 HTTP 进程，还会实际读取并校验用户数据库；数据库损坏或权限错误会返回 HTTP 500。
 
 ### 使用正式发布包回滚
 
