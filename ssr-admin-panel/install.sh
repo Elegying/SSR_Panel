@@ -433,6 +433,19 @@ harden_sensitive_files() {
     fi
 }
 
+verify_panel_health() {
+    local attempt
+    for attempt in {1..20}; do
+        if curl -fsS --max-time 2 http://127.0.0.1:5000/healthz >/dev/null; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    echo -e "${RED}面板健康检查失败：用户数据库不可读或 HTTP 服务不可用${NC}" >&2
+    journalctl -u ssr-admin -n 50 --no-pager 2>/dev/null || true
+    return 1
+}
+
 sync_project_files() {
     local target_dir="$1"
     local tmp_clone_dir source_dir
@@ -721,6 +734,8 @@ if [ -d "$SSR_DIR" ]; then
 else
     echo -e "${YELLOW}未检测到 SSR，跳过服务器优化（仅安装面板时无需优化）${NC}"
 fi
+harden_sensitive_files
+verify_panel_health
 
 APP_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
 

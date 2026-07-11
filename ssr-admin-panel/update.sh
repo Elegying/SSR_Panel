@@ -38,7 +38,7 @@ APPLY_SERVER_OPTIMIZATION="${SSR_ADMIN_APPLY_SERVER_OPTIMIZATION:-0}"
 PATCH_SSR_COMPAT="${SSR_ADMIN_PATCH_SSR_COMPAT:-0}"
 VENV_DIR="${SSR_ADMIN_VENV_DIR:-${PANEL_DIR}/venv}"
 SYSTEMD_DIR="${SSR_ADMIN_SYSTEMD_DIR:-/etc/systemd/system}"
-HEALTH_URL="${SSR_ADMIN_HEALTH_URL:-http://127.0.0.1:5000/login}"
+HEALTH_URL="${SSR_ADMIN_HEALTH_URL:-http://127.0.0.1:5000/healthz}"
 LOCK_FILE="${SSR_ADMIN_UPDATE_LOCK_FILE:-/run/lock/ssr-admin-panel-update.lock}"
 PACKAGE_INSTALL_RETRIES="${SSR_ADMIN_PACKAGE_INSTALL_RETRIES:-3}"
 APT_LOCK_TIMEOUT="${SSR_ADMIN_APT_LOCK_TIMEOUT:-300}"
@@ -557,7 +557,11 @@ restore_backup() {
     restore_virtualenv
     restore_service_units
     harden_sensitive_files
-    chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" 2>/dev/null || true
+    chmod +x "${PANEL_DIR}/update.sh" "${PANEL_DIR}/install.sh" "${PANEL_DIR}/install-all.sh" "${PANEL_DIR}/uninstall.sh" "${PANEL_DIR}/scripts/collect_device_stats.py" "${PANEL_DIR}/scripts/sync_ssr_firewall.py" "${PANEL_DIR}/scripts/admin_helper.py" "${PANEL_DIR}/scripts/provision_panel_runtime.sh" "${PANEL_DIR}/scripts/optimize_server.sh" 2>/dev/null || true
+    if [ "${SSR_ADMIN_SKIP_ROOT_CHECK:-0}" != "1" ]; then
+        SSR_ADMIN_PANEL_DIR="${PANEL_DIR}" SSR_ADMIN_MUDB_FILE="${SSR_DIR}/mudb.json" \
+            bash "${PANEL_DIR}/scripts/provision_panel_runtime.sh" || return 1
+    fi
     systemctl daemon-reload || true
     if restore_service_states; then
         if [ "$(cat "${BACKUP_DIR}/systemd/${SERVICE_NAME}.service.active" 2>/dev/null || echo 0)" = "1" ]; then

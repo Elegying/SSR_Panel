@@ -9,6 +9,10 @@ ADMIN_PASSWORD_HASH = 'replace-with-generated-pbkdf2-hash'
 # Session密钥 (自动生成，请勿修改)
 SECRET_KEY = 'change-this-to-random-string'
 
+# 仅当面板只允许通过一层可信反向代理访问时启用。
+# 直接暴露 5000 端口时必须保持 False，避免伪造 X-Forwarded-For 绕过限速。
+TRUST_PROXY = False
+
 # mudb.json 文件路径
 MUDB_FILE = '/usr/local/shadowsocksr/mudb.json'
 
