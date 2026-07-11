@@ -316,6 +316,17 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("config.py", content)
             self.assertIn("mudb.json", content)
 
+    def test_embedded_optimizer_preserves_panel_access_to_user_database(self):
+        content = (REPO_ROOT / "scripts" / "optimize_server.sh").read_text(encoding="utf-8")
+        start = content.index("harden_ssr_files()")
+        hardening = content[start : content.index("\n}\n", start) + 3]
+
+        self.assertIn('chmod 0600 "$SSR_CONFIG"', hardening)
+        self.assertIn("getent group ssr-panel", hardening)
+        self.assertIn('chown root:ssr-panel "$MUDB_FILE"', hardening)
+        self.assertIn('chmod 0640 "$MUDB_FILE"', hardening)
+        self.assertNotIn('chmod 600 "$SSR_CONFIG" "$MUDB_FILE"', hardening)
+
     def test_full_install_generates_private_ssr_password(self):
         content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
 

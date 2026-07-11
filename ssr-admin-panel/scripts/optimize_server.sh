@@ -48,7 +48,13 @@ backup_file() {
 }
 
 harden_ssr_files() {
-    chmod 600 "$SSR_CONFIG" "$MUDB_FILE" 2>/dev/null || true
+    chmod 0600 "$SSR_CONFIG" 2>/dev/null || true
+    if getent group ssr-panel >/dev/null 2>&1; then
+        chown root:ssr-panel "$MUDB_FILE" 2>/dev/null || true
+        chmod 0640 "$MUDB_FILE" 2>/dev/null || true
+    else
+        chmod 0600 "$MUDB_FILE" 2>/dev/null || true
+    fi
 }
 
 count_ssr_ports() {
