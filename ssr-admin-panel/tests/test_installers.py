@@ -171,6 +171,12 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("net.core.somaxconn = 4096", content)
         self.assertIn("net.ipv4.tcp_max_syn_backlog = 8192", content)
         self.assertIn("net.ipv4.ip_local_port_range = 10000 65535", content)
+        self.assertIn("net.core.rmem_default = 2097152", content)
+        self.assertIn("net.core.wmem_default = 1048576", content)
+        self.assertIn("patch_ssr_udp_listener", content)
+        self.assertIn("socket.SO_RCVBUF, %d)", content)
+        self.assertIn("% udp_rcvbuf_bytes", content)
+        self.assertIn("SSR_Panel: enlarge the shared UDP listener queue for QUIC bursts", content)
 
     def test_optimizers_use_the_real_ssr_server_entrypoint(self):
         expected = "${SSR_DIR}/server.py"
@@ -839,6 +845,30 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertNotIn('addr is ""', updated)
             self.assertNotIn("len(block) is 1", updated)
             self.assertNotIn("ip is not 0", updated)
+
+    def test_patch_ssr_python_compat_redacts_passwords_from_startup_logs(self):
+        patcher = REPO_ROOT / "scripts" / "patch_ssr_python_compat.py"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ssr_dir = Path(tmp_dir)
+            target = ssr_dir / "db_transfer.py"
+            target.write_text(
+                "logging.info('db start server at port [%s] pass [%s] protocol [%s] "
+                "method [%s] obfs [%s]' % (port, passwd, protocol, method, obfs))\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(patcher), str(ssr_dir)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            updated = target.read_text(encoding="utf-8")
+            self.assertIn("db start server at port [%s] protocol [%s]", updated)
+            self.assertNotIn(" pass [%s]", updated)
+            self.assertNotIn("(port, passwd, protocol", updated)
 
 
 if __name__ == "__main__":

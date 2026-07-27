@@ -14,7 +14,8 @@
 - 将 SSR 的 `timeout` 调整为 `300`
 - 将 SSR 的 `udp_timeout` 调整为 `120`
 - 开启 SSR `fast_open`
-- 优化内核 TCP 与 socket 缓冲参数，提升稳定性和吞吐表现
+- 优化内核 TCP 与 socket 缓冲参数，并把 SSR 共享 UDP listener 接收缓冲请求值设为 2 MiB，降低 QUIC/HTTP3 突发丢包
+- 移除 SSR 启动日志中的用户密码字段
 - 将 SSR 改为 `systemd` 托管，支持自动重启与开机自启
 - 如果检测到 `/opt/ssr-admin-panel`，同步刷新面板设备统计服务
 - 在修改前自动备份原配置文件
@@ -57,6 +58,8 @@ bash optimize-ssr.sh --check
   - `udp_timeout = 120`
   - `fast_open = true`
 - 写入 `/etc/sysctl.d/99-z-ssr-performance.conf`
+- 幂等修补 `/usr/local/shadowsocksr/shadowsocks/udprelay.py`，在 `bind()` 前设置 `SO_RCVBUF=2097152`；可通过 `SSR_UDP_RCVBUF_BYTES` 调整
+- 幂等修补 `/usr/local/shadowsocksr/db_transfer.py`，保留端口/协议等诊断信息但不再记录密码
 - 如果系统里存在旧的 `tcp_max_syn_backlog = 1024` 覆盖项，会自动修正
 - 创建 `/etc/systemd/system/ssr.service`
 - 如已安装 SSR Admin Panel，创建或刷新 `ssr-device-stats.service`
@@ -86,6 +89,9 @@ python3 -m unittest discover -s tests -q
 systemctl status ssr --no-pager
 journalctl -u ssr -n 50 --no-pager
 sysctl -n net.ipv4.tcp_max_syn_backlog
+sysctl -n net.core.rmem_default
+ss -u -l -n -m
+netstat -su | grep -E 'packet receive errors|receive buffer errors'
 ```
 
 如果 `sysctl --system` 报告某些内核参数不支持，脚本会输出 `/tmp/ssr-optimizer-sysctl.log` 的位置，方便确认是容器/内核限制还是配置问题。

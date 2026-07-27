@@ -116,6 +116,8 @@ ss -lntup | grep ':18899' || true
 安装脚本会自动调用 `/opt/ssr-admin-panel/scripts/optimize_server.sh`。除 systemd、ulimit、sysctl、Fast Open、日志轮转、fail2ban 外，脚本还会默认启用面向 YouTube/Google 卡顿的服务端防护：
 
 - 统一入口承载优化：适用于所有用户通过同一个入口端口（例如 `18899`）连接的部署，持久化 BBR/fq、TFO、`somaxconn`、`tcp_max_syn_backlog`、本地端口范围，以及 SSR systemd 文件句柄/进程数上限。
+- UDP 缓冲优化：系统默认 socket 收发缓冲设为 2 MiB/1 MiB，SSR 共享 UDP listener 在 `bind()` 前请求 2 MiB `SO_RCVBUF`（Linux 通常显示为 4 MiB），用于吸收视频 QUIC/HTTP3 的短时突发。补丁幂等，遇到未知 `udprelay.py` 布局会停止而不是盲目改写。
+- 启动日志脱敏：安装器的 SSR 兼容补丁会移除上游 `db_transfer.py` 日志中的密码字段；端口、协议、加密和混淆信息仍保留用于排障。
 - 入站端口同步：默认放行 `18899/TCP+UDP`，并在 SSR 启动前根据 `mudb.json` 和附加端口配置同步 firewalld 或 iptables。
 - IPv6 目标防护：为 `/usr/local/shadowsocksr/mudb.json` 的用户配置写入 `forbidden_ip`，包含 `127.0.0.0/8,::1/128,::/0`。服务器没有真实 IPv6 出口时，SSR 会快速拒绝 IPv6 目标，客户端通常会回落到 IPv4。
 - UDP/443 放行：默认清理旧版脚本留下的出站 `udp/443` 拦截，允许 YouTube/Google QUIC/HTTP3 首连成功，避免先失败再回落造成首屏卡顿。确需强制 TCP 回落时，可手动启用拦截。
@@ -132,7 +134,10 @@ grep -R "::/0" /usr/local/shadowsocksr/mudb.json
 ```bash
 SSR_BLOCK_IPV6_TARGETS=0 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 SSR_BLOCK_UDP_443=1 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
+SSR_UDP_RCVBUF_BYTES=4194304 bash /opt/ssr-admin-panel/scripts/optimize_server.sh
 ```
+
+`SSR_UDP_RCVBUF_BYTES` 默认为 `2097152`，允许范围 65536–16777216。调大前先用 `ss -u -l -n -m` 查看监听缓冲，并用 `netstat -su` 检查 `receive buffer errors`。
 
 ## 更新
 
