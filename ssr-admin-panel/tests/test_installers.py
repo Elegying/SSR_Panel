@@ -419,11 +419,46 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertIn("detect_server_pub_addr", content)
         self.assertIn(".initial_ssr_password", content)
         self.assertIn("SSR_INSTALL_LOG", content)
+        self.assertIn("sanitize_ssr_install_log.py", content)
         self.assertIn("print_sanitized_ssr_install_log", content)
         self.assertIn("[redacted]", content)
         self.assertIn("SSR_ADMIN_SHOW_SECRETS", content)
         self.assertIn("默认隐藏", content)
         self.assertNotIn('echo -e "  密码:     ${YELLOW}doub.io${NC}"', content)
+
+    def test_ssr_install_log_sanitizer_removes_credentials_and_share_links(self):
+        sanitizer = REPO_ROOT / "scripts" / "sanitize_ssr_install_log.py"
+        self.assertTrue(sanitizer.is_file())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            log_path = base / "ssr-install.log"
+            password_path = base / ".initial_ssr_password"
+            password = "fixture-secret-value"
+            log_path.write_text(
+                f"password={password}\n"
+                "share=ssr://ZmFrZS1zZW5zaXRpdmUtbGluaw==\n",
+                encoding="utf-8",
+            )
+            log_path.chmod(0o644)
+            password_path.write_text(password + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(sanitizer), str(log_path), str(password_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            sanitized = log_path.read_text(encoding="utf-8")
+            self.assertNotIn(password, sanitized)
+            self.assertNotIn("ZmFrZS1zZW5zaXRpdmUtbGluaw", sanitized)
+            self.assertIn("[redacted]", sanitized)
+            self.assertEqual(log_path.stat().st_mode & 0o777, 0o600)
+
+        update = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+        self.assertIn("sanitize_existing_ssr_install_log", update)
 
     def test_full_install_feeds_ssrmu_prompts_in_order(self):
         content = (REPO_ROOT / "install-all.sh").read_text(encoding="utf-8")
