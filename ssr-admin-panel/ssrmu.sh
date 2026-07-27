@@ -65,7 +65,7 @@ check_crontab(){
 }
 SSR_installation_status(){
 	[[ ! -e ${ssr_folder} ]] && echo -e "${Error} 没有发现 ShadowsocksR 文件夹，请检查 !" && exit 1
-	Fix_python_collections_compatibility
+	Apply_ssr_python_compatibility_patch
 }
 # 全局 Python 解释器路径（兼容只有 python3 的现代系统）
 PYTHON_BIN=""
@@ -104,6 +104,13 @@ Fix_python_collections_compatibility(){
 			-e 's/collections\.Callable/collections.abc.Callable/g' \
 			"${py_file}"
 	done
+}
+Apply_ssr_python_compatibility_patch(){
+	local patcher="${filepath}/scripts/patch_ssr_python_compat.py"
+	Fix_python_collections_compatibility
+	[[ ! -f "${patcher}" ]] && return 0
+	[[ -z "${PYTHON_BIN}" ]] && echo -e "${Error} 未找到可用的 Python 解释器，无法应用 SSR 安全兼容补丁 !" && return 1
+	"${PYTHON_BIN}" "${patcher}" "${ssr_folder}"
 }
 Create_local_ssr_init_script(){
 	local python_bin
@@ -1128,8 +1135,8 @@ Install_SSR(){
 	Installation_dependency
 	echo -e "${Info} 开始下载/安装 ShadowsocksR文件..."
 	Download_SSR
-	echo -e "${Info} 修复 Python 3.10+ collections 兼容性..."
-	Fix_python_collections_compatibility
+	echo -e "${Info} 应用 Python 兼容性和启动日志脱敏补丁..."
+	Apply_ssr_python_compatibility_patch || exit 1
 	echo -e "${Info} 开始下载/安装 ShadowsocksR服务脚本(init)..."
 	Service_SSR
 	echo -e "${Info} 开始下载/安装 JSNO解析器 JQ..."

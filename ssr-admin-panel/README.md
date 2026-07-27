@@ -76,9 +76,9 @@ wget https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-admin-panel/i
 
 ## 📋 系统要求
 
-- x86_64 容器冒烟: Ubuntu 22.04 / Debian 12 / Rocky Linux 9，仅运行依赖安装、测试套件和 Shell 语法，不包含真实 systemd 部署
+- x86_64 容器冒烟: Ubuntu 20.04 / Ubuntu 22.04 / Debian 12 / Rocky Linux 9，仅运行依赖安装、测试套件和 Shell 语法，不包含真实 systemd 部署
 - 自动识别: Debian/Ubuntu 与 RHEL/Rocky/Alma/CentOS Stream 系（需 systemd）
-- Python: CI 验证 3.9 / 3.11 / 3.12；3.6/3.7 仅尽力兼容
+- Python: CI 质量矩阵验证 3.9 / 3.11 / 3.12，Ubuntu 20.04 冒烟覆盖系统 Python 3.8；3.8 使用 Gunicorn，3.9+ 使用 Waitress，3.6/3.7 仅尽力兼容
 - 架构: x86_64 与 aarch64/ARM64 均使用系统 `jq`；ARM64 未在 CI 实机验证
 - 内存: 512MB+
 

@@ -260,6 +260,12 @@ install_single_python_package() {
             flask-limiter|Flask-Limiter) package='Flask-Limiter>=3.0,<3.5.1' ;;
             waitress|Waitress) package='waitress>=2.1,<2.2' ;;
         esac
+    elif python_version_lt 3 9; then
+        case "${package}" in
+            Flask|flask) package='Flask>=3.0.3,<3.1' ;;
+            flask-limiter|Flask-Limiter) package='Flask-Limiter>=3.8,<3.9' ;;
+            gunicorn|Gunicorn) package='gunicorn>=23,<24' ;;
+        esac
     fi
     "$PYTHON3_BIN" -m pip install "${pip_install_opts[@]}" -q "${package}"
 }
@@ -412,7 +418,18 @@ prepare_minimal_runtime() {
 }
 
 install_flask_runtime() {
-    if "$PYTHON3_BIN" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
+    if python_version_lt 3 8; then
+        WSGI_SERVER_MODULE="waitress"
+        WSGI_EXEC_START="${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app"
+    elif python_version_lt 3 9; then
+        WSGI_SERVER_MODULE="gunicorn"
+        WSGI_EXEC_START="${PYTHON3_BIN} -m gunicorn --bind=0.0.0.0:5000 --workers=2 --threads=4 app:app"
+    else
+        WSGI_SERVER_MODULE="waitress"
+        WSGI_EXEC_START="${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app"
+    fi
+
+    if "$PYTHON3_BIN" -c "import flask; import flask_limiter; import ${WSGI_SERVER_MODULE}" &>/dev/null; then
         echo -e "${GREEN}✓ Flask 运行时已就绪${NC}"
         return
     fi
@@ -435,19 +452,21 @@ install_flask_runtime() {
         install_single_python_package flask-limiter
     fi
 
-    if ! "$PYTHON3_BIN" -c "import waitress" &>/dev/null; then
-        echo -e "${YELLOW}pip 安装 Waitress 失败，尝试单独安装...${NC}"
-        install_single_python_package waitress
+    if ! "$PYTHON3_BIN" -c "import ${WSGI_SERVER_MODULE}" &>/dev/null; then
+        echo -e "${YELLOW}pip 安装 ${WSGI_SERVER_MODULE} 失败，尝试单独安装...${NC}"
+        install_single_python_package "${WSGI_SERVER_MODULE}"
     fi
 
-    if ! "$PYTHON3_BIN" - <<'PY' &>/dev/null
+    if ! WSGI_SERVER_MODULE="${WSGI_SERVER_MODULE}" "$PYTHON3_BIN" - <<'PY' &>/dev/null
+import importlib
+import os
 import flask
 import flask_limiter
-import waitress
+importlib.import_module(os.environ["WSGI_SERVER_MODULE"])
 PY
     then
         echo -e "${RED}Flask 运行时安装失败，请检查 Python 依赖${NC}"
-        echo -e "${CYAN}诊断命令:${NC} ${PYTHON3_BIN} -m pip show Flask flask-limiter"
+        echo -e "${CYAN}诊断命令:${NC} ${PYTHON3_BIN} -m pip show Flask flask-limiter ${WSGI_SERVER_MODULE}"
         exit 1
     fi
 }
@@ -840,7 +859,7 @@ Type=simple
 User=ssr-panel
 Group=ssr-panel
 WorkingDirectory=/opt/ssr-admin-panel
-ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
+ExecStart=${WSGI_EXEC_START}
 Restart=always
 RestartSec=5
 NoNewPrivileges=false

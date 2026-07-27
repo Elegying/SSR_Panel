@@ -39,8 +39,15 @@ class InstallerRegressionTests(unittest.TestCase):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
             self.assertIn("cat > /etc/systemd/system/ssr-admin.service <<SERVICE", content)
             self.assertNotIn("<< 'SERVICE'", content)
+            self.assertIn("ExecStart=${WSGI_EXEC_START}", content)
             self.assertIn(
-                "ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app",
+                'WSGI_EXEC_START="${PYTHON3_BIN} -m waitress '
+                '--host=0.0.0.0 --port=5000 app:app"',
+                content,
+            )
+            self.assertIn(
+                'WSGI_EXEC_START="${PYTHON3_BIN} -m gunicorn '
+                '--bind=0.0.0.0:5000 --workers=2 --threads=4 app:app"',
                 content,
             )
             self.assertIn("User=ssr-panel", content)
@@ -48,10 +55,41 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertIn("NoNewPrivileges=false", content)
             self.assertIn("PrivateTmp=true", content)
 
-    def test_runtime_requirements_no_longer_include_unused_gunicorn(self):
+    def test_runtime_requirements_select_wsgi_server_by_python_version(self):
         requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
-        self.assertNotIn("gunicorn", requirements.lower())
-        self.assertIn("waitress", requirements.lower())
+        self.assertIn('flask>=3.0.3,<3.1; python_version < "3.9"', requirements)
+        self.assertIn('flask-limiter>=3.8,<3.9; python_version < "3.9"', requirements)
+        self.assertIn(
+            'gunicorn>=23,<24; python_version >= "3.8" and python_version < "3.9"',
+            requirements,
+        )
+        self.assertIn('waitress>=3.0.2; python_version >= "3.9"', requirements)
+        self.assertIn('click>=8.3.3; python_version >= "3.10"', requirements)
+
+        for script in ("install.sh", "install-all.sh"):
+            content = (REPO_ROOT / script).read_text(encoding="utf-8")
+            self.assertIn("if python_version_lt 3 8; then", content)
+            self.assertIn("elif python_version_lt 3 9; then", content)
+            self.assertIn("python_version_lt 3 9", content)
+            self.assertIn('WSGI_SERVER_MODULE="gunicorn"', content)
+            self.assertIn('WSGI_SERVER_MODULE="waitress"', content)
+            self.assertIn("ExecStart=${WSGI_EXEC_START}", content)
+
+        update = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
+        self.assertIn("if python_version_lt 3 8; then", update)
+        self.assertIn("elif python_version_lt 3 9; then", update)
+        self.assertIn("python_version_lt 3 9", update)
+        self.assertIn('WSGI_SERVER_MODULE="gunicorn"', update)
+        self.assertIn('WSGI_SERVER_MODULE="waitress"', update)
+        self.assertIn("ExecStart=${WSGI_EXEC_START}", update)
+        ensure_deps = update[
+            update.index("ensure_python_deps() {") :
+            update.index("\n}\n\ninstall_or_restart_device_stats_service")
+        ]
+        self.assertLess(
+            ensure_deps.index('WSGI_SERVER_MODULE="waitress"'),
+            ensure_deps.index('if [ ! -f "${req_file}" ]'),
+        )
 
     def test_installers_do_not_eval_admin_input(self):
         for script in ("install.sh", "install-all.sh"):
@@ -595,11 +633,15 @@ class InstallerRegressionTests(unittest.TestCase):
             self.assertNotIn("install_packages python3-flask", content)
             self.assertNotIn("install_packages python3-flask-limiter", content)
             self.assertIn("install_single_python_package Flask", content)
-            self.assertIn("install_single_python_package waitress", content)
-            self.assertIn("import flask\nimport flask_limiter\nimport waitress", content)
+            self.assertIn('install_single_python_package "${WSGI_SERVER_MODULE}"', content)
+            self.assertIn("import flask\nimport flask_limiter", content)
+            self.assertIn('importlib.import_module(os.environ["WSGI_SERVER_MODULE"])', content)
 
         update = (REPO_ROOT / "update.sh").read_text(encoding="utf-8")
-        self.assertIn('import flask; import flask_limiter; import waitress', update)
+        self.assertIn(
+            'import flask; import flask_limiter; import ${WSGI_SERVER_MODULE}',
+            update,
+        )
         self.assertNotIn("内置限流兼容模式", update)
 
     def test_installers_write_password_hash_and_migrate_legacy_config(self):
@@ -758,7 +800,23 @@ class InstallerRegressionTests(unittest.TestCase):
     def test_ssrmu_applies_python_compatibility_patch_before_startup(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
         self.assertIn("Fix_python_collections_compatibility()", content)
-        self.assertIn("Fix_python_collections_compatibility\n\techo -e", content.replace("\r\n", "\n"))
+        self.assertIn("Apply_ssr_python_compatibility_patch()", content)
+        self.assertIn(
+            "Apply_ssr_python_compatibility_patch || exit 1\n\techo -e",
+            content.replace("\r\n", "\n"),
+        )
+
+    def test_ssrmu_redacts_startup_password_logs_before_first_start(self):
+        content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8").replace("\r\n", "\n")
+        install_ssr = content[content.index("Install_SSR(){") : content.index("\n}\nUpdate_SSR")]
+
+        self.assertIn("Apply_ssr_python_compatibility_patch()", content)
+        self.assertIn("patch_ssr_python_compat.py", content)
+        self.assertIn("Apply_ssr_python_compatibility_patch", install_ssr)
+        self.assertLess(
+            install_ssr.index("Apply_ssr_python_compatibility_patch"),
+            install_ssr.index("Start_SSR"),
+        )
 
     def test_ssrmu_generates_or_bypasses_missing_init_script(self):
         content = (REPO_ROOT / "ssrmu.sh").read_text(encoding="utf-8")
