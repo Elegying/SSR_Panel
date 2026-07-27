@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- 针对单端口多用户场景放大 SSR 共享 UDP 监听 socket 的接收缓冲，并将系统默认收发缓冲调整为 2 MiB/1 MiB，降低 YouTube QUIC/HTTP3 突发流量导致的 `UdpRcvbufErrors` 和监听队列丢包。
+- UDP listener 补丁支持重复执行和识别已有手工 `SO_RCVBUF` 设置；独立优化器执行失败时会随其他配置一起恢复。
+- 独立优化器检测到 `ssr-panel` 账户时不再把设备统计服务降级为 root 运行，保持 v1.4.0 的低权限服务边界。
+
+### Security
+- SSR 兼容补丁会移除上游 `db_transfer.py` 启动日志中的用户密码字段，防止每次服务启动时把全部凭据写入 systemd journal。
+
 ## v1.4.0 (2026-07-10)
 
 ### Security

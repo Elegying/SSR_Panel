@@ -6,6 +6,9 @@ SSR_WORKDIR="${SSR_DIR}"
 SSR_SERVER="${SSR_DIR}/server.py"
 SSR_LEGACY_INIT="${SSR_LEGACY_INIT:-/etc/init.d/ssrmu}"
 SSR_CONFIG="${SSR_CONFIG:-$SSR_DIR/user-config.json}"
+DB_TRANSFER="${DB_TRANSFER:-$SSR_DIR/db_transfer.py}"
+UDP_RELAY="${UDP_RELAY:-$SSR_DIR/shadowsocks/udprelay.py}"
+UDP_RCVBUF_BYTES="${SSR_UDP_RCVBUF_BYTES:-2097152}"
 MUDB_FILE="${MUDB_FILE:-$SSR_DIR/mudb.json}"
 PANEL_DIR="${PANEL_DIR:-/opt/ssr-admin-panel}"
 DEVICE_STATS_SCRIPT="${DEVICE_STATS_SCRIPT:-$PANEL_DIR/scripts/collect_device_stats.py}"
@@ -109,6 +112,115 @@ validate_layout() {
   [[ -d "$SSR_DIR" ]] || fail "$SSR_DIR not found"
   [[ -f "$SSR_SERVER" ]] || fail "$SSR_SERVER not found"
   [[ -f "$SSR_CONFIG" ]] || fail "$SSR_CONFIG not found"
+  [[ -f "$DB_TRANSFER" ]] || fail "$DB_TRANSFER not found"
+  [[ ! -L "$DB_TRANSFER" ]] || fail "unsafe DB transfer path: $DB_TRANSFER"
+  [[ -f "$UDP_RELAY" ]] || fail "$UDP_RELAY not found"
+  [[ ! -L "$UDP_RELAY" ]] || fail "unsafe UDP relay path: $UDP_RELAY"
+}
+
+patch_ssr_udp_listener() {
+  log "tuning SSR shared UDP listener buffer"
+  backup_file "$UDP_RELAY"
+  python3 - "$UDP_RELAY" "$UDP_RCVBUF_BYTES" <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    udp_rcvbuf_bytes = int(sys.argv[2])
+except ValueError as exc:
+    raise SystemExit("SSR_UDP_RCVBUF_BYTES must be an integer") from exc
+if not 65536 <= udp_rcvbuf_bytes <= 16777216:
+    raise SystemExit("SSR_UDP_RCVBUF_BYTES must be between 65536 and 16777216")
+
+source = path.read_text(encoding="utf-8")
+marker = "# SSR_Panel: enlarge the shared UDP listener queue for QUIC bursts"
+setting = (
+    "server_socket.setsockopt("
+    "socket.SOL_SOCKET, socket.SO_RCVBUF, %d)" % udp_rcvbuf_bytes
+)
+managed_pattern = re.compile(
+    r"^(?P<indent>[ \t]+)# SSR_Panel: enlarge the shared UDP listener queue for QUIC bursts\r?\n"
+    r"(?P=indent)server_socket\.setsockopt\(socket\.SOL_SOCKET, socket\.SO_RCVBUF, [^\r\n]+\)",
+    re.MULTILINE,
+)
+existing_pattern = re.compile(
+    r"^(?P<indent>[ \t]+)server_socket\.setsockopt\(socket\.SOL_SOCKET, socket\.SO_RCVBUF, [^\r\n]+\)",
+    re.MULTILINE,
+)
+anchor_pattern = re.compile(
+    r"^(?P<indent>[ \t]+)server_socket = socket\.socket\(af, socktype, proto\)\r?$",
+    re.MULTILINE,
+)
+
+managed_matches = list(managed_pattern.finditer(source))
+existing_matches = list(existing_pattern.finditer(source))
+anchor_matches = list(anchor_pattern.finditer(source))
+if len(managed_matches) == 1:
+    indent = managed_matches[0].group("indent")
+    updated, count = managed_pattern.subn(
+        indent + marker + "\n" + indent + setting, source, count=1
+    )
+elif len(managed_matches) > 1:
+    raise SystemExit("unsupported udprelay.py layout; managed listener patch is not unique")
+elif len(existing_matches) == 1:
+    indent = existing_matches[0].group("indent")
+    updated, count = existing_pattern.subn(
+        indent + marker + "\n" + indent + setting, source, count=1
+    )
+elif len(existing_matches) > 1:
+    raise SystemExit("unsupported udprelay.py layout; existing listener setting is not unique")
+else:
+    if len(anchor_matches) != 1:
+        raise SystemExit("unsupported udprelay.py layout; listener socket anchor not unique")
+    match = anchor_matches[0]
+    indent = match.group("indent")
+    insertion = "\n" + indent + marker + "\n" + indent + setting
+    updated = source[:match.end()] + insertion + source[match.end():]
+    count = 1
+
+if count != 1 or updated.count(marker) != 1:
+    raise SystemExit("failed to apply a unique UDP listener buffer patch")
+
+temporary = path.with_name(path.name + ".ssr-panel.tmp")
+temporary.write_text(updated, encoding="utf-8")
+os.chmod(str(temporary), path.stat().st_mode)
+os.replace(str(temporary), str(path))
+PY
+}
+
+redact_ssr_startup_secrets() {
+  log "redacting SSR startup password logs"
+  backup_file "$DB_TRANSFER"
+  python3 - "$DB_TRANSFER" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+exposed = (
+    "logging.info('db start server at port [%s] pass [%s] protocol [%s] method [%s] "
+    "obfs [%s]' % (port, passwd, protocol, method, obfs))"
+)
+redacted = (
+    "logging.info('db start server at port [%s] protocol [%s] method [%s] "
+    "obfs [%s]' % (port, protocol, method, obfs))"
+)
+if exposed in source:
+    updated = source.replace(exposed, redacted, 1)
+elif redacted in source:
+    updated = source
+else:
+    raise SystemExit("unsupported db_transfer.py layout; password log call not found")
+
+temporary = path.with_name(path.name + ".ssr-panel.tmp")
+temporary.write_text(updated, encoding="utf-8")
+os.chmod(str(temporary), path.stat().st_mode)
+os.replace(str(temporary), str(path))
+PY
 }
 
 patch_ssr_config() {
@@ -138,8 +250,8 @@ write_sysctl() {
 fs.file-max = 1048576
 net.core.somaxconn = 8192
 net.core.netdev_max_backlog = 16384
-net.core.rmem_default = 262144
-net.core.wmem_default = 262144
+net.core.rmem_default = 2097152
+net.core.wmem_default = 1048576
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 net.ipv4.ip_local_port_range = 10240 65535
@@ -231,6 +343,13 @@ write_device_stats_unit() {
   fi
 
   ensure_ss_tool
+  local service_identity="User=root"
+  if getent passwd ssr-panel >/dev/null 2>&1 && getent group ssr-panel >/dev/null 2>&1; then
+    service_identity="User=ssr-panel
+Group=ssr-panel"
+  else
+    log "ssr-panel account not found; keeping the legacy root identity for device stats"
+  fi
   mkdir -p "$(dirname "$DEVICE_STATS_FILE")"
   chmod +x "$DEVICE_STATS_SCRIPT" 2>/dev/null || true
   log "writing device stats service"
@@ -244,7 +363,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+$service_identity
 ExecStart=$(command -v python3) $DEVICE_STATS_SCRIPT --mudb $MUDB_FILE --output $DEVICE_STATS_FILE --interval 15 --window 900 --watch
 Restart=always
 RestartSec=5
@@ -324,6 +443,9 @@ check_mode() {
   log "preflight ok"
   log "SSR_DIR=$SSR_DIR"
   log "SSR_CONFIG=$SSR_CONFIG"
+  log "DB_TRANSFER=$DB_TRANSFER"
+  log "UDP_RELAY=$UDP_RELAY"
+  log "UDP_RCVBUF_BYTES=$UDP_RCVBUF_BYTES"
   log "SYSCTL_FILE=$SYSCTL_FILE"
   log "SERVICE_FILE=$SERVICE_FILE"
   if [[ -f "$DEVICE_STATS_SCRIPT" ]]; then
@@ -339,10 +461,14 @@ run_apply() {
   validate_layout
   log "planned changes:"
   log "- update SSR config: timeout=300, udp_timeout=120, fast_open=true"
+  log "- redact passwords from SSR startup logs"
+  log "- set SSR shared UDP listener receive buffer: ${UDP_RCVBUF_BYTES} bytes"
   log "- write sysctl tuning: $SYSCTL_FILE"
   log "- write systemd unit: $SERVICE_FILE"
   log "- refresh device stats unit when panel collector exists"
   ROLLBACK_ON_ERROR=1
+  patch_ssr_udp_listener
+  redact_ssr_startup_secrets
   patch_ssr_config
   write_sysctl
   fix_conflicting_backlog

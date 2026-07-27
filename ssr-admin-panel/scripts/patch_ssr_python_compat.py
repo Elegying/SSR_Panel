@@ -22,6 +22,14 @@ LEGACY_LITERAL_COMPARISONS = {
     "ip is not 0": "ip != 0",
 }
 
+SENSITIVE_LOG_REWRITES = {
+    "logging.info('db start server at port [%s] pass [%s] protocol [%s] method [%s] "
+    "obfs [%s]' % (port, passwd, protocol, method, obfs))": (
+        "logging.info('db start server at port [%s] protocol [%s] method [%s] "
+        "obfs [%s]' % (port, protocol, method, obfs))"
+    ),
+}
+
 
 def patch_python_file(file_path: Path) -> bool:
     try:
@@ -34,6 +42,9 @@ def patch_python_file(file_path: Path) -> bool:
         updated = updated.replace(old, new)
 
     for old, new in LEGACY_LITERAL_COMPARISONS.items():
+        updated = updated.replace(old, new)
+
+    for old, new in SENSITIVE_LOG_REWRITES.items():
         updated = updated.replace(old, new)
 
     if updated == original:

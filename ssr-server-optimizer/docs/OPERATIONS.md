@@ -47,6 +47,9 @@ bash optimize-ssr.sh --check
 systemctl is-active ssr
 journalctl -u ssr -n 50 --no-pager
 sysctl -n net.ipv4.tcp_max_syn_backlog
+sysctl -n net.core.rmem_default
+ss -u -l -n -m
+netstat -su | grep -E 'packet receive errors|receive buffer errors'
 ```
 
 如果安装了 SSR Admin Panel，也可以检查：
@@ -63,6 +66,8 @@ systemctl is-active ssr-device-stats || true
 
 ```bash
 ls -1 /usr/local/shadowsocksr/user-config.json.bak.* 2>/dev/null || true
+ls -1 /usr/local/shadowsocksr/db_transfer.py.bak.* 2>/dev/null || true
+ls -1 /usr/local/shadowsocksr/shadowsocks/udprelay.py.bak.* 2>/dev/null || true
 ls -1 /etc/systemd/system/ssr.service.bak.* 2>/dev/null || true
 ls -1 /etc/sysctl.d/99-z-ssr-performance.conf.bak.* 2>/dev/null || true
 ```

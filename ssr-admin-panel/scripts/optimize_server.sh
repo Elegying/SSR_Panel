@@ -17,6 +17,8 @@ SSR_WORKDIR="${SSR_DIR}"
 SSR_SERVER="${SSR_DIR}/server.py"
 SSR_LEGACY_INIT="${SSR_LEGACY_INIT:-/etc/init.d/ssrmu}"
 SSR_CONFIG="${SSR_DIR}/user-config.json"
+UDP_RELAY="${SSR_DIR}/shadowsocks/udprelay.py"
+UDP_RCVBUF_BYTES="${SSR_UDP_RCVBUF_BYTES:-2097152}"
 MUDB_FILE="${SSR_DIR}/mudb.json"
 PANEL_DIR="${PANEL_DIR:-/opt/ssr-admin-panel}"
 SSR_FIREWALL_SOURCE="${SSR_FIREWALL_SOURCE:-${PANEL_DIR}/scripts/sync_ssr_firewall.py}"
@@ -45,6 +47,81 @@ backup_file() {
     local target="$1"
     [ -f "$target" ] || return 0
     cp -a "$target" "${target}.bak-$(timestamp)"
+}
+
+patch_ssr_udp_listener() {
+    [ -f "$UDP_RELAY" ] || { log_warn "SSR UDP relay 不存在: $UDP_RELAY"; return 1; }
+    [ ! -L "$UDP_RELAY" ] || { log_warn "拒绝修改符号链接: $UDP_RELAY"; return 1; }
+    backup_file "$UDP_RELAY"
+    python3 - "$UDP_RELAY" "$UDP_RCVBUF_BYTES" <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    udp_rcvbuf_bytes = int(sys.argv[2])
+except ValueError as exc:
+    raise SystemExit("SSR_UDP_RCVBUF_BYTES must be an integer") from exc
+if not 65536 <= udp_rcvbuf_bytes <= 16777216:
+    raise SystemExit("SSR_UDP_RCVBUF_BYTES must be between 65536 and 16777216")
+
+source = path.read_text(encoding="utf-8")
+marker = "# SSR_Panel: enlarge the shared UDP listener queue for QUIC bursts"
+setting = (
+    "server_socket.setsockopt("
+    "socket.SOL_SOCKET, socket.SO_RCVBUF, %d)" % udp_rcvbuf_bytes
+)
+managed_pattern = re.compile(
+    r"^(?P<indent>[ \t]+)# SSR_Panel: enlarge the shared UDP listener queue for QUIC bursts\r?\n"
+    r"(?P=indent)server_socket\.setsockopt\(socket\.SOL_SOCKET, socket\.SO_RCVBUF, [^\r\n]+\)",
+    re.MULTILINE,
+)
+existing_pattern = re.compile(
+    r"^(?P<indent>[ \t]+)server_socket\.setsockopt\(socket\.SOL_SOCKET, socket\.SO_RCVBUF, [^\r\n]+\)",
+    re.MULTILINE,
+)
+anchor_pattern = re.compile(
+    r"^(?P<indent>[ \t]+)server_socket = socket\.socket\(af, socktype, proto\)\r?$",
+    re.MULTILINE,
+)
+
+managed_matches = list(managed_pattern.finditer(source))
+existing_matches = list(existing_pattern.finditer(source))
+anchor_matches = list(anchor_pattern.finditer(source))
+if len(managed_matches) == 1:
+    indent = managed_matches[0].group("indent")
+    updated, count = managed_pattern.subn(
+        indent + marker + "\n" + indent + setting, source, count=1
+    )
+elif len(managed_matches) > 1:
+    raise SystemExit("unsupported udprelay.py layout; managed listener patch is not unique")
+elif len(existing_matches) == 1:
+    indent = existing_matches[0].group("indent")
+    updated, count = existing_pattern.subn(
+        indent + marker + "\n" + indent + setting, source, count=1
+    )
+elif len(existing_matches) > 1:
+    raise SystemExit("unsupported udprelay.py layout; existing listener setting is not unique")
+else:
+    if len(anchor_matches) != 1:
+        raise SystemExit("unsupported udprelay.py layout; listener socket anchor not unique")
+    match = anchor_matches[0]
+    indent = match.group("indent")
+    insertion = "\n" + indent + marker + "\n" + indent + setting
+    updated = source[:match.end()] + insertion + source[match.end():]
+    count = 1
+
+if count != 1 or updated.count(marker) != 1:
+    raise SystemExit("failed to apply a unique UDP listener buffer patch")
+
+temporary = path.with_name(path.name + ".ssr-panel.tmp")
+temporary.write_text(updated, encoding="utf-8")
+os.chmod(str(temporary), path.stat().st_mode)
+os.replace(str(temporary), str(path))
+PY
+    log_ok "SSR UDP 监听接收缓冲已设为 ${UDP_RCVBUF_BYTES} 字节（Linux 生效值通常为请求值的 2 倍）"
 }
 
 harden_ssr_files() {
@@ -252,6 +329,8 @@ net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 
 # ── TCP 缓冲区（配合 BBR 发挥最大吞吐）──
+net.core.rmem_default = 2097152
+net.core.wmem_default = 1048576
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 net.ipv4.tcp_rmem = 4096 87380 16777216
@@ -277,7 +356,7 @@ net.ipv4.tcp_slow_start_after_idle = 0
 EOF
 
     if sysctl --system > /tmp/ssr-admin-sysctl.log 2>&1; then
-        log_ok "内核参数已生效（BBR/fq / TCP 缓冲区 16MB / TFO / backlog / 端口范围）"
+        log_ok "内核参数已生效（BBR/fq / UDP 默认缓冲 2MB/1MB / TCP 缓冲区 16MB / TFO / backlog / 端口范围）"
     else
         log_warn "内核参数未完全生效，已保留配置但不阻断部署；详情见 /tmp/ssr-admin-sysctl.log"
     fi
@@ -527,6 +606,7 @@ main() {
     echo -e "${GREEN}========================================${NC}"
     echo
 
+    patch_ssr_udp_listener
     setup_ssr_service
     setup_ulimit
     setup_sysctl

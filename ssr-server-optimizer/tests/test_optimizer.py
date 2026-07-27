@@ -27,10 +27,29 @@ class OptimizerScriptTests(unittest.TestCase):
         )
         (ssr_dir / "shadowsocks").mkdir()
         (ssr_dir / "shadowsocks" / "server.py").write_text("# server\n", encoding="utf-8")
+        (ssr_dir / "shadowsocks" / "udprelay.py").write_text(
+            "import socket\n"
+            "\n"
+            "def make_listener(af, socktype, proto, listen_addr, listen_port):\n"
+            "    server_socket = socket.socket(af, socktype, proto)\n"
+            "    server_socket.bind((listen_addr, listen_port))\n"
+            "    server_socket.setblocking(False)\n"
+            "    return server_socket\n",
+            encoding="utf-8",
+        )
+        (ssr_dir / "db_transfer.py").write_text(
+            "logging.info('db start server at port [%s] pass [%s] protocol [%s] "
+            "method [%s] obfs [%s]' % (port, passwd, protocol, method, obfs))\n",
+            encoding="utf-8",
+        )
         (ssr_dir / "server.py").write_text("# multi-user server\n", encoding="utf-8")
 
         panel_dir = base / "panel"
         (panel_dir / "scripts").mkdir(parents=True)
+        (panel_dir / "scripts" / "collect_device_stats.py").write_text(
+            "#!/usr/bin/env python3\n",
+            encoding="utf-8",
+        )
         firewall_source = panel_dir / "scripts" / "sync_ssr_firewall.py"
         firewall_source.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
 
@@ -46,6 +65,13 @@ class OptimizerScriptTests(unittest.TestCase):
         )
         self.write_executable(bin_dir / "sysctl", "#!/bin/sh\nexit 0\n")
         self.write_executable(bin_dir / "ss", "#!/bin/sh\nexit 0\n")
+        self.write_executable(
+            bin_dir / "getent",
+            "#!/bin/sh\n"
+            "[ \"$1\" = passwd ] && [ \"$2\" = ssr-panel ] && exit 0\n"
+            "[ \"$1\" = group ] && [ \"$2\" = ssr-panel ] && exit 0\n"
+            "exit 2\n",
+        )
         legacy_init = base / "ssrmu"
         self.write_executable(
             legacy_init,
@@ -63,6 +89,7 @@ class OptimizerScriptTests(unittest.TestCase):
             "SYSCTL_DIR": str(base / "sysctl.d"),
             "SYSCTL_CONF": str(base / "sysctl.conf"),
             "PANEL_DIR": str(panel_dir),
+            "DEVICE_STATS_FILE": str(base / "var" / "device-stats.json"),
             "SYSTEMCTL_LOG": str(base / "systemctl.log"),
             "SSR_LEGACY_INIT": str(legacy_init),
             "SSR_FIREWALL_HELPER": str(base / "libexec" / "sync-firewall.py"),
@@ -113,9 +140,77 @@ class OptimizerScriptTests(unittest.TestCase):
             self.assertEqual(config["timeout"], 120)
             self.assertEqual(config["udp_timeout"], 60)
             self.assertFalse(config["fast_open"])
+            udp_relay = (ssr_dir / "shadowsocks" / "udprelay.py").read_text(encoding="utf-8")
+            self.assertNotIn("SO_RCVBUF", udp_relay)
+            db_transfer = (ssr_dir / "db_transfer.py").read_text(encoding="utf-8")
+            self.assertIn(" pass [%s]", db_transfer)
             self.assertFalse((base / "systemd" / "ssr.service").exists())
             self.assertFalse((base / "sysctl.d" / "99-z-ssr-performance.conf").exists())
             self.assertIn("restoring changed files", result.stdout)
+
+    def test_apply_tunes_udp_defaults_and_patches_listener_idempotently(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            env, ssr_dir = self.make_env(base)
+
+            for _ in range(2):
+                result = subprocess.run(
+                    ["bash", str(SCRIPT)],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+            sysctl_config = (base / "sysctl.d" / "99-z-ssr-performance.conf").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("net.core.rmem_default = 2097152", sysctl_config)
+            self.assertIn("net.core.wmem_default = 1048576", sysctl_config)
+
+            udp_relay = (ssr_dir / "shadowsocks" / "udprelay.py").read_text(encoding="utf-8")
+            marker = "SSR_Panel: enlarge the shared UDP listener queue for QUIC bursts"
+            self.assertEqual(udp_relay.count(marker), 1)
+            self.assertEqual(udp_relay.count("socket.SO_RCVBUF, 2097152"), 1)
+            self.assertLess(udp_relay.index("socket.SO_RCVBUF"), udp_relay.index(".bind("))
+            db_transfer = (ssr_dir / "db_transfer.py").read_text(encoding="utf-8")
+            self.assertNotIn(" pass [%s]", db_transfer)
+            self.assertIn("db start server at port [%s] protocol [%s]", db_transfer)
+
+    def test_apply_adopts_an_existing_manual_udp_buffer_setting(self):
+        if not shutil.which("bash"):
+            self.skipTest("bash is not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            env, ssr_dir = self.make_env(base)
+            udp_relay_path = ssr_dir / "shadowsocks" / "udprelay.py"
+            source = udp_relay_path.read_text(encoding="utf-8")
+            source = source.replace(
+                "    server_socket.bind((listen_addr, listen_port))",
+                "    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)\n"
+                "    server_socket.bind((listen_addr, listen_port))",
+            )
+            udp_relay_path.write_text(source, encoding="utf-8")
+
+            result = subprocess.run(
+                ["bash", str(SCRIPT)],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            udp_relay = udp_relay_path.read_text(encoding="utf-8")
+            self.assertEqual(udp_relay.count("socket.SO_RCVBUF"), 1)
+            self.assertIn("socket.SO_RCVBUF, 2097152", udp_relay)
+            self.assertIn(
+                "SSR_Panel: enlarge the shared UDP listener queue for QUIC bursts",
+                udp_relay,
+            )
 
     def test_generated_unit_uses_real_ssr_entrypoint_and_disables_sysv_autostart(self):
         if not shutil.which("bash"):
@@ -156,6 +251,12 @@ class OptimizerScriptTests(unittest.TestCase):
             actions = (base / "systemctl.log").read_text(encoding="utf-8")
             self.assertIn("legacy stop", actions)
             self.assertIn("disable ssrmu.service", actions)
+            device_stats_unit = (
+                base / "systemd" / "ssr-device-stats.service"
+            ).read_text(encoding="utf-8")
+            self.assertIn("User=ssr-panel", device_stats_unit)
+            self.assertIn("Group=ssr-panel", device_stats_unit)
+            self.assertNotIn("User=root", device_stats_unit)
 
 
 if __name__ == "__main__":
