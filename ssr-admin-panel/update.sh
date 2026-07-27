@@ -24,6 +24,8 @@ NC='\033[0m'
 
 PANEL_DIR="${SSR_ADMIN_PANEL_DIR:-/opt/ssr-admin-panel}"
 SSR_DIR="${SSR_ADMIN_SSR_DIR:-/usr/local/shadowsocksr}"
+SSR_INITIAL_PASSWORD_FILE="${SSR_INITIAL_PASSWORD_FILE:-${PANEL_DIR}/.initial_ssr_password}"
+SSR_INSTALL_LOG="${SSR_INSTALL_LOG:-${PANEL_DIR}/ssr-install.log}"
 REPO_URL="${SSR_ADMIN_REPO_URL:-https://github.com/Elegying/SSR_Panel.git}"
 TARGET_REF="${1:-${SSR_ADMIN_UPDATE_REF:-main}}"
 REPO_SUBDIR="${SSR_ADMIN_REPO_SUBDIR:-ssr-admin-panel}"
@@ -743,6 +745,14 @@ ensure_python_deps() {
     echo -e "${GREEN}✓ Python 依赖已就绪${NC}"
 }
 
+sanitize_existing_ssr_install_log() {
+    local sanitizer="${PANEL_DIR}/scripts/sanitize_ssr_install_log.py"
+    if [ ! -f "${SSR_INSTALL_LOG}" ] || [ ! -f "${SSR_INITIAL_PASSWORD_FILE}" ]; then
+        return 0
+    fi
+    "${PYTHON3_BIN}" "${sanitizer}" "${SSR_INSTALL_LOG}" "${SSR_INITIAL_PASSWORD_FILE}"
+}
+
 install_or_restart_device_stats_service() {
     local stats_script="${PANEL_DIR}/scripts/collect_device_stats.py"
     if [ ! -f "${stats_script}" ]; then
@@ -944,6 +954,7 @@ write_status "sync" "正在同步新版本"
 copy_tree "${SOURCE_DIR}" "${PANEL_DIR}" "sync"
 printf 'managed\n' > "${PANEL_DIR}/.ssr-panel-managed"
 "${PYTHON3_BIN}" "${PANEL_DIR}/security_utils.py" migrate-config "${PANEL_DIR}/config.py"
+sanitize_existing_ssr_install_log
 harden_sensitive_files
 
 PANEL_BUILD_INFO_FILE="${PANEL_DIR}/.panel-build.json"

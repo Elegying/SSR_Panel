@@ -316,6 +316,12 @@ persist_initial_ssr_password() {
     chmod 600 "$SSR_INITIAL_PASSWORD_FILE" 2>/dev/null || true
 }
 
+sanitize_ssr_install_log() {
+    "$PYTHON3_BIN" "$PANEL_DIR/scripts/sanitize_ssr_install_log.py" \
+        "$SSR_INSTALL_LOG" "$SSR_INITIAL_PASSWORD_FILE"
+    chmod 600 "$SSR_INSTALL_LOG" 2>/dev/null || true
+}
+
 print_sanitized_ssr_install_log() {
     SSR_DEFAULT_PASSWORD="$SSR_DEFAULT_PASSWORD" "$PYTHON3_BIN" - "$SSR_INSTALL_LOG" <<'PY' | tail -n 80 || true
 import os
@@ -763,6 +769,7 @@ else
     # 使用管道输入：安装 SSR，设置服务器地址，保留默认用户名/端口，但使用随机初始密码。
     mkdir -p "$(dirname "$SSR_INSTALL_LOG")"
     install -m 600 /dev/null "$SSR_INSTALL_LOG"
+    ssr_install_exit=0
     if ! {
         printf '1\n'
         printf '%s\n' "$SSR_SERVER_PUB_ADDR"
@@ -771,11 +778,17 @@ else
         printf '%s\n' "$SSR_DEFAULT_PASSWORD"
         printf '\n%.0s' {1..50}
     } | bash "$PANEL_DIR/ssrmu.sh" >"$SSR_INSTALL_LOG" 2>&1; then
+        ssr_install_exit=1
+    fi
+    if ! sanitize_ssr_install_log; then
+        echo -e "${RED}SSR 安装日志脱敏失败，拒绝继续部署${NC}" >&2
+        exit 1
+    fi
+    if [ "$ssr_install_exit" -ne 0 ]; then
         echo -e "${RED}SSR 安装失败，日志: ${SSR_INSTALL_LOG}${NC}"
         print_sanitized_ssr_install_log
         exit 1
     fi
-    chmod 600 "$SSR_INSTALL_LOG" 2>/dev/null || true
     echo -e "${GREEN}SSR 安装日志: ${SSR_INSTALL_LOG}${NC}"
 
     if validate_ssr_installation; then
