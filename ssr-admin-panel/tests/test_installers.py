@@ -65,6 +65,7 @@ class InstallerRegressionTests(unittest.TestCase):
         )
         self.assertIn('waitress>=3.0.2; python_version >= "3.9"', requirements)
         self.assertIn('click>=8.3.3; python_version >= "3.10"', requirements)
+        self.assertIn('packaging>=21,<25; python_version < "3.9"', requirements)
 
         for script in ("install.sh", "install-all.sh"):
             content = (REPO_ROOT / script).read_text(encoding="utf-8")
