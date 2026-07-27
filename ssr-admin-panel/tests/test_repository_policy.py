@@ -7,6 +7,13 @@ REPO_ROOT = PANEL_ROOT.parent
 
 
 class RepositoryPolicyTests(unittest.TestCase):
+    def test_update_transaction_fixture_supports_ubuntu_20_git(self):
+        transaction_tests = (
+            PANEL_ROOT / "tests" / "test_update_transaction.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn('self.run_git("init", "-b", "main"', transaction_tests)
+        self.assertIn('self.run_git("checkout", "-b", "main"', transaction_tests)
+
     def test_root_ci_covers_python_shell_and_supported_distros(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
