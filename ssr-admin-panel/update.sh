@@ -633,6 +633,17 @@ ensure_panel_venv() {
 
 ensure_python_deps() {
     local req_file="${PANEL_DIR}/requirements.txt"
+    if python_version_lt 3 8; then
+        WSGI_SERVER_MODULE="waitress"
+        WSGI_EXEC_START="${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app"
+    elif python_version_lt 3 9; then
+        WSGI_SERVER_MODULE="gunicorn"
+        WSGI_EXEC_START="${PYTHON3_BIN} -m gunicorn --bind=0.0.0.0:5000 --workers=2 --threads=4 app:app"
+    else
+        WSGI_SERVER_MODULE="waitress"
+        WSGI_EXEC_START="${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app"
+    fi
+
     if [ ! -f "${req_file}" ]; then
         return 0
     fi
@@ -715,12 +726,16 @@ ensure_python_deps() {
     if ! "${PYTHON3_BIN}" -c "import flask" &>/dev/null; then
         echo -e "${RED}Flask 导入失败${NC}"
     fi
-    if ! "${PYTHON3_BIN}" -c "import waitress" &>/dev/null; then
-        echo -e "${RED}Waitress 导入失败，尝试 pip 单独安装...${NC}"
-        run_pip_install "${pip_install_opts[@]}" waitress -q 2>/dev/null || true
+    if ! "${PYTHON3_BIN}" -c "import ${WSGI_SERVER_MODULE}" &>/dev/null; then
+        echo -e "${RED}${WSGI_SERVER_MODULE} 导入失败，尝试 pip 单独安装...${NC}"
+        if [ "${WSGI_SERVER_MODULE}" = "gunicorn" ]; then
+            run_pip_install "${pip_install_opts[@]}" 'gunicorn>=23,<24' -q 2>/dev/null || true
+        else
+            run_pip_install "${pip_install_opts[@]}" waitress -q 2>/dev/null || true
+        fi
     fi
 
-    if ! "${PYTHON3_BIN}" -c "import flask; import flask_limiter; import waitress" &>/dev/null; then
+    if ! "${PYTHON3_BIN}" -c "import flask; import flask_limiter; import ${WSGI_SERVER_MODULE}" &>/dev/null; then
         echo -e "${RED}Python 依赖安装失败，服务可能无法启动${NC}"
         return 1
     fi
@@ -775,7 +790,7 @@ Type=simple
 User=ssr-panel
 Group=ssr-panel
 WorkingDirectory=${PANEL_DIR}
-ExecStart=${PYTHON3_BIN} -m waitress --host=0.0.0.0 --port=5000 app:app
+ExecStart=${WSGI_EXEC_START}
 Restart=always
 RestartSec=5
 NoNewPrivileges=false

@@ -6,9 +6,12 @@
 - 针对单端口多用户场景放大 SSR 共享 UDP 监听 socket 的接收缓冲，并将系统默认收发缓冲调整为 2 MiB/1 MiB，降低 YouTube QUIC/HTTP3 突发流量导致的 `UdpRcvbufErrors` 和监听队列丢包。
 - UDP listener 补丁支持重复执行和识别已有手工 `SO_RCVBUF` 设置；独立优化器执行失败时会随其他配置一起恢复。
 - 独立优化器检测到 `ssr-panel` 账户时不再把设备统计服务降级为 root 运行，保持 v1.4.0 的低权限服务边界。
+- 独立优化器文档改为先下载、预检再执行，避免把未经本地检查的网络响应直接管道交给 root shell。
+- Ubuntu 20.04 / Python 3.8 安装改用兼容的 Flask、Flask-Limiter 与 Gunicorn 23 运行时；Python 3.9+ 继续使用 Waitress，并新增 Ubuntu 20.04 容器冒烟门禁。
 
 ### Security
 - SSR 兼容补丁会移除上游 `db_transfer.py` 启动日志中的用户密码字段，防止每次服务启动时把全部凭据写入 systemd journal。
+- 完整一键安装会在 SSR 第一次启动前应用同一脱敏补丁，避免初始密码先写入本地启动日志再由后续优化覆盖。
 
 ## v1.4.0 (2026-07-10)
 

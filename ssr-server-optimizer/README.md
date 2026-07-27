@@ -27,18 +27,21 @@
 - SSR 安装目录为 `/usr/local/shadowsocksr`
 - 使用 `user-config.json` 的老版 Python SSR
 
-## 一行命令使用
+## 下载后使用
 
 在目标服务器上以 `root` 身份执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh -o optimize-ssr.sh
+bash optimize-ssr.sh --check
+bash optimize-ssr.sh
 ```
 
 如果你想从本地直接远程执行：
 
 ```bash
-ssh root@你的服务器IP "curl -fsSL https://raw.githubusercontent.com/Elegying/SSR_Panel/main/ssr-server-optimizer/optimize-ssr.sh | bash"
+scp optimize-ssr.sh root@你的服务器IP:/tmp/optimize-ssr.sh
+ssh root@你的服务器IP "bash /tmp/optimize-ssr.sh --check && bash /tmp/optimize-ssr.sh"
 ```
 
 ## 预检模式

@@ -65,9 +65,9 @@ sudo bash optimize-ssr.sh
 
 | 范围 | 状态 |
 | --- | --- |
-| Ubuntu 22.04、Debian 12、Rocky Linux 9 | x86_64 容器冒烟：测试套件、依赖安装与 Shell 语法，不包含真实 systemd 部署 |
+| Ubuntu 20.04/22.04、Debian 12、Rocky Linux 9 | x86_64 容器冒烟：测试套件、依赖安装与 Shell 语法，不包含真实 systemd 部署 |
 | Debian/Ubuntu 与 RHEL/Rocky/Alma/CentOS Stream 系 | 安装器按 `apt-get`、`dnf`、`yum` 自动识别 |
-| Python 3.9、3.11、3.12 | CI 持续验证 |
+| Python 3.8、3.9、3.11、3.12 | Python 3.8 使用 Gunicorn 兼容运行时；Python 3.9+ 使用 Waitress |
 | x86_64、aarch64/ARM64 | 使用系统 Python 与系统 `jq`，不再选择 x86 专用二进制；ARM64 未在 CI 实机验证 |
 | Python 3.6/3.7 | 保留兼容依赖分支，但已 EOL，属于尽力兼容 |
 

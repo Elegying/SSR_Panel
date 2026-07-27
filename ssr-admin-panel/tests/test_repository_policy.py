@@ -14,7 +14,7 @@ class RepositoryPolicyTests(unittest.TestCase):
 
         for version in ("3.9", "3.11", "3.12"):
             self.assertIn(version, workflow)
-        for image in ("ubuntu:22.04", "debian:12-slim", "rockylinux:9"):
+        for image in ("ubuntu:20.04", "ubuntu:22.04", "debian:12-slim", "rockylinux:9"):
             self.assertIn(image, workflow)
         self.assertIn("shellcheck", workflow)
         self.assertIn("compileall", workflow)
@@ -46,6 +46,9 @@ class RepositoryPolicyTests(unittest.TestCase):
     def test_download_examples_save_the_optimizer_before_running_it(self):
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         guide = (REPO_ROOT / "USER_GUIDE.md").read_text(encoding="utf-8")
+        optimizer_readme = (
+            REPO_ROOT / "ssr-server-optimizer" / "README.md"
+        ).read_text(encoding="utf-8")
 
         optimizer_url = (
             "https://raw.githubusercontent.com/Elegying/SSR_Panel/main/"
@@ -53,7 +56,9 @@ class RepositoryPolicyTests(unittest.TestCase):
         )
         self.assertIn(f"wget -O optimize-ssr.sh {optimizer_url}", readme)
         self.assertIn(f"curl -fsSL {optimizer_url} -o optimize-ssr.sh", guide)
-        self.assertNotIn(f"curl -fsSL {optimizer_url} | bash", guide)
+        self.assertIn(f"curl -fsSL {optimizer_url} -o optimize-ssr.sh", optimizer_readme)
+        for document in (readme, guide, optimizer_readme):
+            self.assertNotIn(f"curl -fsSL {optimizer_url} | bash", document)
 
     def test_docs_describe_distro_jobs_as_x86_64_container_smoke(self):
         documents = (
