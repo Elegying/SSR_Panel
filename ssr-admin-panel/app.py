@@ -671,8 +671,8 @@ def run_capture_process(args, cwd=None, timeout=60):
             "output": result.stdout.strip(),
             "error": result.stderr.strip(),
         }
-    except (OSError, subprocess.SubprocessError) as e:
-        return {"success": False, "output": "", "error": str(e)}
+    except (OSError, subprocess.SubprocessError):
+        return {"success": False, "output": "", "error": "命令执行失败，请检查服务状态和服务器日志"}
 
 
 def get_panel_repo_url():
@@ -833,8 +833,8 @@ def start_panel_update():
             json.dumps(status, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-    except OSError as e:
-        return {"success": False, "message": f"无法创建更新状态文件: {e}"}
+    except OSError:
+        return {"success": False, "message": "无法创建更新状态文件，请检查服务器存储和权限"}
 
     launch_result = run_privileged_action("panel-update")
 
@@ -1115,8 +1115,8 @@ def run_process(args, cwd=None):
             "output": result.stdout.strip(),
             "error": result.stderr.strip(),
         }
-    except (OSError, subprocess.SubprocessError) as e:
-        return {"success": False, "output": "", "error": str(e)}
+    except (OSError, subprocess.SubprocessError):
+        return {"success": False, "output": "", "error": "命令执行失败，请检查服务状态和服务器日志"}
 
 
 def run_privileged_action(action):
@@ -1266,8 +1266,8 @@ def read_log_tail(lines):
         with SSR_LOG_FILE.open("r", encoding="utf-8", errors="replace") as f:
             last_lines = "".join(deque(f, maxlen=lines))
         return {"success": True, "output": last_lines.strip(), "error": ""}
-    except OSError as e:
-        return {"success": False, "output": "", "error": str(e)}
+    except OSError:
+        return {"success": False, "output": "", "error": "无法读取服务日志，请检查文件权限"}
 
 
 def find_user(users, username):
@@ -1476,8 +1476,8 @@ def backup_data():
 
         audit_log("BACKUP", f"备份成功: {backup_file.name}")
         return jsonify({"success": True, "message": f"备份成功: {backup_file}"})
-    except OSError as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    except OSError:
+        return jsonify({"success": False, "error": "备份操作失败，请检查服务器存储和权限"}), 500
 
 
 @app.route("/api/backups/list")
@@ -1500,8 +1500,8 @@ def list_backups():
             )
 
         return jsonify({"success": True, "backups": backups})
-    except OSError as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    except OSError:
+        return jsonify({"success": False, "error": "备份操作失败，请检查服务器存储和权限"}), 500
 
 
 @app.route("/api/users")
@@ -1555,8 +1555,8 @@ def share_user(user):
 
     try:
         share_url = build_ssr_share_url(target, request.host)
-    except ValueError as exc:
-        return json_error(str(exc))
+    except ValueError:
+        return json_error("分享链接生成失败，请检查账号及 SSR_SHARE_* 配置")
 
     return jsonify(
         {
