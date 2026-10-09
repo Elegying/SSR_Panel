@@ -2,6 +2,7 @@
 import argparse
 import ast
 import fcntl
+import grp
 import json
 import os
 import pwd
@@ -165,9 +166,23 @@ def validate_mudb_target(target):
     return parent / target.name
 
 
+def _panel_reader_gid():
+    """Only root and the isolated panel account may read shared SSR credentials."""
+    account = pwd.getpwnam("ssr-panel")
+    group = grp.getgrgid(account.pw_gid)
+    if account.pw_uid == 0 or account.pw_gid == 0 or group.gr_name != "ssr-panel":
+        raise ValueError("panel reader must use a dedicated non-root group")
+    if any(name != "ssr-panel" for name in group.gr_mem):
+        raise ValueError("panel reader group contains unrelated accounts")
+    if any(user.pw_name != "ssr-panel" and user.pw_gid == account.pw_gid
+           for user in pwd.getpwall()):
+        raise ValueError("panel reader group is shared as another primary group")
+    return account.pw_gid
+
+
 def _write_mudb_atomic(payload, target=MUDB_FILE):
     target = validate_mudb_target(target)
-    group_gid = pwd.getpwnam("ssr-panel").pw_gid
+    group_gid = _panel_reader_gid()
     fd, temp_name = tempfile.mkstemp(prefix=".mudb.json.", dir=str(target.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -177,6 +192,7 @@ def _write_mudb_atomic(payload, target=MUDB_FILE):
             handle.flush()
             os.fsync(handle.fileno())
         os.chown(temp_name, 0, group_gid)
+        # Root writes; only the validated ssr-panel group reads. No other access.
         os.chmod(temp_name, 0o640)
         os.replace(temp_name, str(target))
         temp_name = None
@@ -201,8 +217,9 @@ def ensure_mudb_permissions(config=None):
     if not target.exists():
         return
     target = validate_mudb_target(target)
-    group_gid = pwd.getpwnam("ssr-panel").pw_gid
+    group_gid = _panel_reader_gid()
     os.chown(str(target), 0, group_gid)
+    # 0600 would prevent the unprivileged panel from reading the SSR database.
     os.chmod(str(target), 0o640)
 
 
